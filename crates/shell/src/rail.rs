@@ -5,7 +5,7 @@
 
 use artoo_shell_api::tabs::{TabInfo, TabsHost, TabsRenderer};
 use artoo_ui_kit::controls::DragLabel;
-use artoo_ui_kit::hover::{self, CutInTip, Tip, TipOwned};
+use artoo_ui_kit::hover::{self, CutInTip, Hover, Tip, TipOwned};
 use artoo_ui_kit::monogram::{initials, monogram};
 use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, motion, px, theme};
 use gpui::{
@@ -286,6 +286,7 @@ fn title_tabs(tabs: Vec<TabInfo>, host: Rc<dyn TabsHost>) -> gpui::AnyElement {
                         .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
                         .child("×")
                         .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .tip(keys::text(&format!("Close {}  ⇧⌘W", tab.title)).into_owned())
                         .on_click(move |_: &ClickEvent, window, cx| close.close(ix, window, cx)),
                 )
                 .child(monogram(&mark, hue, 18.))

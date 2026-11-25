@@ -650,14 +650,14 @@ impl Review {
 }
 
 #[derive(Clone, Copy)]
-enum Toggle {
+pub(crate) enum Toggle {
     Case,
     Word,
     Regex,
 }
 
-/// One of the field's toggles: `Aa`, `W`, `.*`.
-fn option(
+/// One of a find field's toggles: `Aa`, `W`, `.*`.
+pub(crate) fn option(
     id: &'static str,
     label: &'static str,
     on: bool,

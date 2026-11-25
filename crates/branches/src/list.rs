@@ -39,6 +39,8 @@ pub struct ListLook<'a> {
     /// The filter typed, trimmed: while there is one, the list is the matching branches alone.
     pub filter: &'a str,
     pub picked: Option<BranchRow>,
+    /// The editor the working tree's page can open it in, by name.
+    pub editor: Option<&'a str>,
     /// What other features know of branch `ix`.
     pub beside: &'a dyn Fn(usize) -> Beside,
 }
@@ -161,11 +163,18 @@ pub fn preview(h: &History, look: &ListLook, acts: &Acts) -> AnyElement {
         .into_any_element();
     }
     match look.picked {
-        Some(BranchRow::WorkingTree) => tree_preview(h, look.changes, acts).into_any_element(),
+        Some(BranchRow::WorkingTree) => {
+            tree_preview(h, look.changes, look.editor, acts).into_any_element()
+        }
         Some(BranchRow::Branch(ix)) => branch_preview(h, ix, (look.beside)(ix).request, acts),
         Some(BranchRow::Draft(ix)) => draft_preview(h, ix, acts),
         None => div().into_any_element(),
     }
+}
+
+/// What follows a path's last `/`.
+fn base_name(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
 }
 
 /// A row of Branches: the working tree's, or a branch's name, when, how far from the main
@@ -198,7 +207,7 @@ fn branch_row(
                     .child(if look.changes == 0 {
                         div()
                             .font_weight(FontWeight::SEMIBOLD)
-                            .child("Clean")
+                            .child("No changes")
                             .into_any_element()
                     } else {
                         div()
@@ -216,20 +225,28 @@ fn branch_row(
                             .text_size(px(11.))
                             .text_color(theme::faint())
                             .font_family(theme::code_font())
-                            .child(icons::icon("branch").size(px(12.)))
+                            .child(
+                                icons::icon("branch")
+                                    .size(px(12.))
+                                    .text_color(theme::faint()),
+                            )
                             .child(n)
                     }))
                     .into_any_element();
+                // Base names only, and how many more (the whole paths are the row's tooltip).
                 let line2 = files.filter(|f| !f.is_empty()).map(|f| {
-                    let names: Vec<&str> = f.iter().take(2).map(|f| f.path.as_str()).collect();
                     let more = f.len().saturating_sub(2);
                     div()
-                        .cut_in_tip()
-                        .child(if more > 0 {
-                            format!("{} and {more} more", names.join(", "))
-                        } else {
-                            names.join(", ")
-                        })
+                        .flex()
+                        .gap(px(10.))
+                        .min_w_0()
+                        .children(f.iter().take(2).map(|f| {
+                            div()
+                                .min_w_0()
+                                .cut_in_tip()
+                                .child(base_name(&f.path).to_owned())
+                        }))
+                        .children((more > 0).then(|| div().flex_none().child(format!("+{more}"))))
                         .into_any_element()
                 });
                 ("branch-row-wt".into(), "files", line1, line2)
@@ -344,10 +361,19 @@ fn branch_row(
                             .into_any_element(),
                     );
                 }
+                // At the line's end: in step with its upstream as a glyph, then its request's number.
+                let mut end: Vec<AnyElement> = Vec::new();
                 match fact.and_then(|f| f.against.as_ref()) {
-                    Some((up, 0, 0)) => parts.push(
+                    Some((up, 0, 0)) => end.push(
                         div()
-                            .child(format!("up to date with {up}"))
+                            .id(SharedString::from(format!("branch-synced-{ix}")))
+                            .flex_none()
+                            .child(
+                                icons::icon("cloud-check")
+                                    .size(px(13.))
+                                    .text_color(theme::faint()),
+                            )
+                            .tip(format!("Up to date with {up}"))
                             .into_any_element(),
                     ),
                     Some((_, ahead, behind)) => parts.push(
@@ -359,13 +385,14 @@ fn branch_row(
                 }
                 if let Some((iid, _)) = beside.request.filter(|_| room.second()) {
                     let acts = acts.clone();
-                    parts.push(
+                    end.push(
                         div()
                             .id(SharedString::from(format!("branch-mr-{ix}")))
+                            .flex_none()
                             .text_color(theme::accent())
                             .cursor_pointer()
                             .hover(|s| s.underline())
-                            .child(format!("{} →", words::number(iid)))
+                            .child(words::number(iid))
                             .on_click(move |_: &ClickEvent, _, cx| {
                                 cx.stop_propagation();
                                 acts(Act::ShowRequest(iid), cx)
@@ -373,12 +400,14 @@ fn branch_row(
                             .into_any_element(),
                     );
                 }
-                let line2 = (!parts.is_empty()).then(|| {
+                let line2 = (!parts.is_empty() || !end.is_empty()).then(|| {
                     div()
                         .flex()
                         .items_center()
                         .gap(px(6.))
                         .children(parts)
+                        .child(div().flex_1())
+                        .children(end)
                         .into_any_element()
                 });
                 (
@@ -462,7 +491,7 @@ fn branch_row(
 }
 
 /// The working tree picked, its `changes`: what is not committed, read only, and the way to its diff.
-fn tree_preview(h: &History, changes: usize, acts: &Acts) -> Div {
+fn tree_preview(h: &History, changes: usize, editor: Option<&str>, acts: &Acts) -> Div {
     let head = h
         .branches
         .iter()
@@ -492,7 +521,11 @@ fn tree_preview(h: &History, changes: usize, acts: &Acts) -> Div {
                 .items_center()
                 .gap(px(4.))
                 .font_family(theme::code_font())
-                .child(icons::icon("branch").size(px(13.)))
+                .child(
+                    icons::icon("branch")
+                        .size(px(13.))
+                        .text_color(theme::muted()),
+                )
                 .child(n)
         }))
         .child(
@@ -526,7 +559,7 @@ fn tree_preview(h: &History, changes: usize, acts: &Acts) -> Div {
                     .items_center()
                     .gap(px(10.))
                     .px(px(12.))
-                    .h(px(26.))
+                    .h(px(28.))
                     .text_size(px(13.))
                     .child(
                         div()
@@ -570,11 +603,18 @@ fn tree_preview(h: &History, changes: usize, acts: &Acts) -> Div {
         .child(title)
         .children(list)
         .children((changes > 0).then(|| {
+            let open = acts.clone();
             div()
                 .flex()
+                .gap(px(10.))
                 .child(primary_button("tree-open", "Open the diff", "↵").on_click(
-                    move |_: &ClickEvent, _, cx| acts(Act::OpenRow(BranchRow::WorkingTree), cx),
+                    move |_: &ClickEvent, _, cx| open(Act::OpenRow(BranchRow::WorkingTree), cx),
                 ))
+                .children(editor.map(|name| {
+                    outline_button(&format!("Open in {name}"))
+                        .id("tree-editor")
+                        .on_click(move |_: &ClickEvent, _, cx| acts(Act::OpenInEditor, cx))
+                }))
         }))
 }
 

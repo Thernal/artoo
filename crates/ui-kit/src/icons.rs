@@ -593,6 +593,13 @@ const ICONS: &[(&str, &str)] = &[
         lucide!(r#"<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>"#),
     ),
     (
+        "cloud-check",
+        lucide!(
+            r#"<path d="m17 15-5.5 5.5L9 18"/>"#
+            r#"<path d="M5 17.743A7 7 0 1 1 15.71 10h1.79a4.5 4.5 0 0 1 1.5 8.742"/>"#
+        ),
+    ),
+    (
         "arrow-left-right",
         lucide!(
             r#"<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/>"#

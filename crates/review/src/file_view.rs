@@ -4,6 +4,7 @@
 use crate::review::{FileEvent, Host, Review, ReviewEvent};
 use artoo_core::git::{ImageKind, Repo};
 use artoo_core::highlight::{self, Span};
+use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{ROW_RADIUS, format, icons, keys, px, theme};
 use git2::Oid;
@@ -553,8 +554,8 @@ impl Review {
         Some((head, body))
     }
 
-    /// The file's line over it: its path, language, lines and revision; Rendered | Source for a
-    /// Markdown file; read only.
+    /// The file's line over it: its path, language, lines and revision; a Markdown file's rendered / source
+    /// toggle; read only. A file that is not text says its kind and size on its icon (Design round 15, O2).
     fn render_file_head(
         &self,
         view: &FileView,
@@ -564,10 +565,11 @@ impl Review {
         let markdown = view.markdown() && view.image.is_none();
         // What it is read at, said as the design's bar does: its path, then `a41f9c0  1h` and a lock; the facts a
         // sentence once held (lines, image, read only) are the lock's tooltip.
+        let binary = view
+            .binary
+            .map(|size| format!("Binary · {}", crate::image_view::bytes(size as usize)));
         let facts = if view.image.is_some() {
             "image".to_owned()
-        } else if let Some(size) = view.binary {
-            crate::image_view::bytes(size as usize)
         } else {
             format!("{} lines", view.lines.len())
         };
@@ -583,9 +585,11 @@ impl Review {
             .text_size(px(12.))
             .child(
                 div()
+                    .id("file-kind")
                     .flex_none()
                     .text_color(theme::faint())
-                    .child(icons::file_icon(&view.path, 14.)),
+                    .child(icons::file_icon(&view.path, 14.))
+                    .when_some(binary.clone(), |d, tip| d.tip(tip)),
             )
             .child(
                 div()
@@ -633,17 +637,27 @@ impl Review {
             )
             .children(markdown.then(|| {
                 let rendered = view.rendered;
-                artoo_ui_kit::controls::group()
-                    .child(
-                        artoo_ui_kit::controls::chip("file-rendered-on", "Rendered", rendered)
-                            .on_click(
-                                cx.listener(|rv, _: &ClickEvent, _, cx| rv.set_rendered(true, cx)),
-                            ),
-                    )
-                    .child(
-                        artoo_ui_kit::controls::chip("file-source", "Source", !rendered).on_click(
-                            cx.listener(|rv, _: &ClickEvent, _, cx| rv.set_rendered(false, cx)),
-                        ),
+                let (glyph, tip) = if rendered {
+                    ("book-open", ("Rendered", "M shows its source"))
+                } else {
+                    ("code", ("Source", "M shows it rendered"))
+                };
+                div()
+                    .id("file-rendered")
+                    .size(px(22.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(ROW_RADIUS))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .child(icons::icon(glyph).size(px(14.)).text_color(theme::muted()))
+                    .tip_two(tip.0, tip.1)
+                    .on_click(
+                        cx.listener(move |rv, _: &ClickEvent, _, cx| {
+                            rv.set_rendered(!rendered, cx)
+                        }),
                     )
             }))
             .children(view.stamp.clone().map(|(id, title, time)| {
@@ -673,7 +687,7 @@ impl Review {
                             .child(format::short_ago(time)),
                     )
             }))
-            .child({
+            .children(binary.is_none().then(|| {
                 let tip = SharedString::from(format!("Read only · {facts}"));
                 div()
                     .id("file-readonly")
@@ -685,7 +699,7 @@ impl Review {
                             .into()
                     })
                     .child(icons::icon("lock").size(px(13.)).text_color(theme::faint()))
-            })
+            }))
     }
 
     /// The scope line over the lines (#207): the declarations holding the top line, the outermost first, once their own

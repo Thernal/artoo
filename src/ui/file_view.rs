@@ -94,7 +94,7 @@ impl Workspace {
         let Some(binary) = self.rv().file_binary(cx) else {
             return FilePage::Empty;
         };
-        let binary = binary.map(|size| self.render_binary(size, cx));
+        let binary = binary.map(|_| self.render_binary(cx));
         let notes = self.file_notes(cx);
         let selecting = self.selecting(cx.entity().downgrade());
         let host: Rc<dyn artoo_review_api::Host> = Rc::new(super::TabHost(cx.entity().downgrade()));

@@ -1566,6 +1566,8 @@ pub struct Workspace {
     /// The tab's frame, as its parts see it, held for them — ⌘K's window holds it weakly (its handle is in the
     /// frame's services), so it lives as long as the tab — and handed to the welcome's cards.
     frame: Rc<dyn artoo_shell_api::Frame>,
+    /// The chosen editor's name for Branches' working-tree page, set as the tab is drawn.
+    editor_name: artoo_branches_api::EditorName,
     /// The tree folder opened last, and a count of openings: its rows fade in (`tree_row`).
     tree_opened: Option<(String, usize)>,
     /// What a narrow window folded, for the session (#80).
@@ -1710,6 +1712,7 @@ impl Workspace {
             renaming: None,
             parts: Vec::new(),
             frame: frame.clone(),
+            editor_name: Default::default(),
             tree_opened: None,
             narrowed: Default::default(),
             bar_room: Default::default(),
@@ -1722,6 +1725,7 @@ impl Workspace {
         // Its answers to what the branches' views ask: the branches' parts make their history in a tab that has
         // them.
         services.set(artoo_branches_api::TabActs(this.history_acts(cx)));
+        services.set(this.editor_name.clone());
         // Its answers to what the requests' views ask: the requests' parts make their state in a tab that has them.
         services.set(artoo_requests_api::TabActs(requests::acts_of(
             cx.weak_entity(),

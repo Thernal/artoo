@@ -243,12 +243,18 @@ pub enum Act {
     Copy(String),
     /// A page on the host: a commit's.
     OpenUrl(String),
+    /// The working tree opened in the editor (`EditorName`).
+    OpenInEditor,
 }
 
 /// The tab's answer to what the branches' views ask it (`Act`), in its services: the branches answer their own
 /// first.
 #[derive(Clone)]
 pub struct TabActs(pub Acts);
+
+/// The editor the tab opens the working tree in, by name, as the tab last drew; none while none is installed.
+#[derive(Clone, Default)]
+pub struct EditorName(pub std::rc::Rc<std::cell::Cell<Option<&'static str>>>);
 
 /// How a view asks an `Act`.
 pub type Acts = std::rc::Rc<dyn Fn(Act, &mut App)>;

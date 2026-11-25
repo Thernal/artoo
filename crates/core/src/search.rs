@@ -97,11 +97,12 @@ pub fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 }
 
 /// What a find bar looks for in a line (#113): its text as typed, ignoring case, or — `.*` on —
-/// a regular expression, ignoring case unless it says `(?-i)`.
+/// a regular expression, ignoring case unless it says `(?-i)`; `Aa` matches the case and `W` whole words only.
 #[derive(Clone, Debug, Default)]
 pub struct Terms {
     text: Option<String>,
     regex: Option<regex::Regex>,
+    word: bool,
 }
 
 impl Terms {
@@ -110,7 +111,21 @@ impl Terms {
         Terms {
             text: (!text.is_empty()).then(|| text.to_lowercase()),
             regex: None,
+            word: false,
         }
+    }
+
+    /// `text` with the bar's toggles: `case`, whole `word`, `regex`.
+    pub fn find(text: &str, case: bool, word: bool, regex: bool) -> Result<Terms, String> {
+        if text.is_empty() || !(case || word || regex) {
+            return Ok(Terms::text(text));
+        }
+        let pattern = if regex {
+            text.to_owned()
+        } else {
+            regex::escape(text)
+        };
+        Self::compiled(&pattern, case, word)
     }
 
     /// `pattern` as a regular expression; what is wrong with it when it is none.
@@ -118,17 +133,35 @@ impl Terms {
         if pattern.is_empty() {
             return Ok(Terms::default());
         }
+        Self::compiled(pattern, false, false)
+    }
+
+    fn compiled(pattern: &str, case: bool, word: bool) -> Result<Terms, String> {
         regex::RegexBuilder::new(pattern)
-            .case_insensitive(true)
+            .case_insensitive(!case)
             .build()
             .map(|re| Terms {
                 text: None,
                 regex: Some(re),
+                word,
             })
             .map_err(|e| match e {
                 regex::Error::Syntax(s) => s.lines().last().unwrap_or("").trim().to_owned(),
                 other => other.to_string(),
             })
+    }
+
+    /// Where `re` is in `hay`: no empty match, and whole words only under `W`.
+    fn matches<'a>(
+        &'a self,
+        re: &'a regex::Regex,
+        hay: &'a str,
+    ) -> impl Iterator<Item = std::ops::Range<usize>> + 'a {
+        re.find_iter(hay)
+            .filter(move |m| {
+                !m.is_empty() && (!self.word || stands_alone(hay.as_bytes(), m.start(), m.end()))
+            })
+            .map(|m| m.range())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -138,11 +171,7 @@ impl Terms {
     /// Where it is in `hay`, as byte ranges, sorted and merged; an empty match is none.
     pub fn ranges(&self, hay: &str) -> Vec<std::ops::Range<usize>> {
         match (&self.text, &self.regex) {
-            (_, Some(re)) => re
-                .find_iter(hay)
-                .filter(|m| !m.is_empty())
-                .map(|m| m.range())
-                .collect(),
+            (_, Some(re)) => self.matches(re, hay).collect(),
             (Some(text), None) => highlights(hay, std::slice::from_ref(text)),
             (None, None) => Vec::new(),
         }
@@ -151,11 +180,23 @@ impl Terms {
     /// Whether it is in `hay`.
     pub fn hits(&self, hay: &str) -> bool {
         match (&self.text, &self.regex) {
-            (_, Some(re)) => re.find_iter(hay).any(|m| !m.is_empty()),
+            (_, Some(re)) => self.matches(re, hay).next().is_some(),
             (Some(text), None) => hay.to_lowercase().contains(text.as_str()),
             (None, None) => false,
         }
     }
+}
+
+/// Whether the char before `at` in `bytes` and the one from `end` are not a word's (letters, digits, `_`).
+pub fn stands_alone(bytes: &[u8], at: usize, end: usize) -> bool {
+    let wordy = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let before = (1..=4.min(at))
+        .find_map(|n| std::str::from_utf8(&bytes[at - n..at]).ok())
+        .and_then(|s| s.chars().next_back());
+    let after = (1..=4.min(bytes.len() - end))
+        .find_map(|n| std::str::from_utf8(&bytes[end..end + n]).ok())
+        .and_then(|s| s.chars().next());
+    !wordy(before) && !wordy(after)
 }
 
 /// Case-insensitive byte ranges of `words` in `text`, sorted and merged.
@@ -206,6 +247,22 @@ mod tests {
         assert!(Terms::regex("x*").unwrap().ranges("abc").is_empty());
         assert!(Terms::regex("(").is_err());
         assert!(Terms::regex("").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_find_bar_matches_the_case_and_whole_words() {
+        let case = Terms::find("Money", true, false, false).unwrap();
+        assert_eq!(case.ranges("money = Money()"), vec![8..13]);
+        let word = Terms::find("retry", false, true, false).unwrap();
+        assert_eq!(word.ranges("canRetry retry() retry_at"), vec![9..14]);
+        assert!(!word.hits("canRetry"));
+        // Its text is not read as a pattern unless `.*` says so.
+        assert!(
+            Terms::find("a.b(", true, false, false)
+                .unwrap()
+                .hits("a.b(")
+        );
+        assert!(Terms::find("(", true, false, true).is_err());
     }
 
     #[test]

@@ -57,6 +57,7 @@ impl Workspace {
                 Act::ShowNew => this.apply_pending(cx),
                 Act::Copy(text) => cx.write_to_clipboard(gpui::ClipboardItem::new_string(text)),
                 Act::OpenUrl(url) => cx.open_url(&url),
+                Act::OpenInEditor => this.open_tree_in_editor(cx),
             })
             .ok();
         })

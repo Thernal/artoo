@@ -56,7 +56,10 @@ fn rows(
                 .px(px(if dropped { 8. } else { 10. }))
                 .text_size(px(11.))
                 .text_color(theme::faint())
-                .child(words::say(&item.group).to_uppercase());
+                .child(match dropped {
+                    true => words::say(&item.group).to_uppercase(),
+                    false => words::say(&item.group).into_owned(),
+                });
             rows.push(match dropped {
                 true => heading
                     .h(px(22.))
@@ -80,7 +83,7 @@ fn rows(
         let (run, aside) = (host.clone(), host.clone());
         rows.push(
             row(("palette-item", ix), selected)
-                .h(px(if dropped { 22. } else { 28. }))
+                .h(px(if dropped { 22. } else { 32. }))
                 .when(dropped, |s| s.px(px(6.)).gap(px(8.)).text_size(px(13.)))
                 .when(!dropped, |s| s.gap_3())
                 .children(item.swatch.map(|c| controls::swatch(c, true)))

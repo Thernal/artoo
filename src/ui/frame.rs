@@ -208,6 +208,10 @@ impl Render for Workspace {
             self.root,
             "the review's root is not the tab's"
         );
+        // What Branches' page of the working tree offers to open it in.
+        if self.nav.space == super::spaces::BRANCHES {
+            self.editor_name.0.set(self.editor(cx).map(|e| e.label));
+        }
         // The host's words (pull requests on GitHub) for everything drawn from here.
         words::set(self.web.as_ref().is_some_and(|w| w.github));
         markdown::set_me(self.request_login(cx).as_deref());

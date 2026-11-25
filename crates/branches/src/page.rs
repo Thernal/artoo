@@ -171,6 +171,9 @@ impl RootPage {
                 changes: h.wt.count,
                 filter: filter.trim(),
                 picked,
+                editor: services
+                    .get::<artoo_branches_api::EditorName>()
+                    .and_then(|name| name.0.get()),
                 beside: &beside,
             };
             (

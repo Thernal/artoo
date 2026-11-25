@@ -2,12 +2,12 @@
 //! the open file or in every file of the one scroll, the rows brought into view; its bar, and its field as one of
 //! the tab's inputs (`input`).
 
+use crate::find_files::{Toggle, option};
 use crate::review::{Review, ReviewEvent};
 use crate::toolbar;
 use artoo_core::rows::Row;
 use artoo_core::{rows, search};
 use artoo_shell_api::{Input, Typed};
-use artoo_ui_kit::controls::chip;
 use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::input::{self, Area, Edit};
 use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme};
@@ -102,12 +102,32 @@ impl Review {
                         )
                         .child(field)
                         .child(
-                            chip("dfind-regex", ".*", self.dfind_regex)
-                                .tip("Regular expression  ⌥R")
-                                .on_click(click(|rv, cx| {
-                                    let found = rv.toggle_find_regex(cx);
+                            option("dfind-case", "Aa", self.dfind_case, "Match case  ⌥C").on_click(
+                                click(|rv, cx| {
+                                    let found = rv.toggle_find(Toggle::Case, cx);
                                     rv.found(found, cx)
-                                })),
+                                }),
+                            ),
+                        )
+                        .child(
+                            option("dfind-word", "W", self.dfind_word, "Whole word  ⌥W").on_click(
+                                click(|rv, cx| {
+                                    let found = rv.toggle_find(Toggle::Word, cx);
+                                    rv.found(found, cx)
+                                }),
+                            ),
+                        )
+                        .child(
+                            option(
+                                "dfind-regex",
+                                ".*",
+                                self.dfind_regex,
+                                "Regular expression  ⌥R",
+                            )
+                            .on_click(click(|rv, cx| {
+                                let found = rv.toggle_find(Toggle::Regex, cx);
+                                rv.found(found, cx)
+                            })),
                         ),
                 )
                 .child(
@@ -302,11 +322,7 @@ impl Review {
     /// Find in the diff looks for `text` (as typed, or as a regular expression); in the open file the
     /// first match comes into view.
     pub fn set_find(&mut self, text: String) {
-        let terms = if self.dfind_regex {
-            search::Terms::regex(&text)
-        } else {
-            Ok(search::Terms::text(&text))
-        };
+        let terms = search::Terms::find(&text, self.dfind_case, self.dfind_word, self.dfind_regex);
         self.dfind_error = terms.as_ref().err().cloned();
         self.dterms = Arc::new(terms.unwrap_or_default());
         self.dfind = Some(text);
@@ -355,9 +371,14 @@ impl Review {
         self.stack_match(at)
     }
 
-    /// `.*` or ⌥R: the text read as a regular expression, or as typed again (#113).
-    pub fn toggle_find_regex(&mut self, cx: &mut Context<Self>) -> Found {
-        self.dfind_regex = !self.dfind_regex;
+    /// A toggle flipped (#113): `Aa` ⌥C, `W` ⌥W, `.*` ⌥R.
+    pub(crate) fn toggle_find(&mut self, toggle: Toggle, cx: &mut Context<Self>) -> Found {
+        let on = match toggle {
+            Toggle::Case => &mut self.dfind_case,
+            Toggle::Word => &mut self.dfind_word,
+            Toggle::Regex => &mut self.dfind_regex,
+        };
+        *on = !*on;
         let text = self.dfind.clone().unwrap_or_default();
         self.find(text, cx)
     }
@@ -372,7 +393,8 @@ impl Review {
 }
 
 /// The find bar's field as one of the tab's inputs: a change finds anew, ↵ and ⇧↵ step, ⌥R reads the text as a
-/// regular expression; one left empty closes.
+/// regular expression, ⌥C and ⌥W
+/// match the case and whole words; one left empty closes.
 pub fn input(review: Entity<Review>) -> Input {
     let (open, key, left, selected) = (
         review.downgrade(),
@@ -389,8 +411,15 @@ pub fn input(review: Entity<Review>) -> Input {
                 let Some(mut text) = rv.dfind.clone() else {
                     return Typed::Kept;
                 };
-                let (typed, found) = if key.modifiers.alt && key.key == "r" {
-                    (Typed::Kept, rv.toggle_find_regex(cx))
+                let toggle = match key.key.as_str() {
+                    "c" => Some(Toggle::Case),
+                    "w" => Some(Toggle::Word),
+                    "r" => Some(Toggle::Regex),
+                    _ => None,
+                }
+                .filter(|_| key.modifiers.alt);
+                let (typed, found) = if let Some(toggle) = toggle {
+                    (Typed::Kept, rv.toggle_find(toggle, cx))
                 } else {
                     match input::edit(&mut text, &mut rv.find_area.edit, key, cx) {
                         Edit::Changed => (Typed::Kept, rv.find(text, cx)),

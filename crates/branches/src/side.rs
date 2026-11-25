@@ -391,7 +391,7 @@ pub fn viewed_word(done: usize, total: usize) -> Option<gpui::Stateful<Div>> {
             .gap(px(3.))
             .whitespace_nowrap();
         if all {
-            cell.text_color(theme::accent())
+            cell.text_color(theme::muted())
                 .child(icons::icon("check").size(px(13.)))
                 .tip("Every file of this commit viewed")
         } else {

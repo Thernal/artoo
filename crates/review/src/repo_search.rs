@@ -2,6 +2,7 @@
 //! it, each is searched whole as bytes by one compiled pattern, a line is cut out only where a hit is, and what was
 //! read stays in a small cache so the next, longer query reads nothing again.
 
+use artoo_core::search::stands_alone;
 use regex::bytes::{Regex, RegexBuilder};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -98,18 +99,6 @@ pub(crate) struct InFile {
     pub hit: bool,
     /// Its lines with a hit, the first hit of each, no more than asked for.
     pub lines: Vec<Line>,
-}
-
-/// Whether the char before `at` in `bytes` and the one from `end` are not a word's (letters, digits, `_`).
-fn stands_alone(bytes: &[u8], at: usize, end: usize) -> bool {
-    let wordy = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-    let before = (1..=4.min(at))
-        .find_map(|n| std::str::from_utf8(&bytes[at - n..at]).ok())
-        .and_then(|s| s.chars().next_back());
-    let after = (1..=4.min(bytes.len() - end))
-        .find_map(|n| std::str::from_utf8(&bytes[end..end + n]).ok())
-        .and_then(|s| s.chars().next());
-    !wordy(before) && !wordy(after)
 }
 
 /// The lines of `bytes` that `q` finds, the first hit on each and at most `room` of them.

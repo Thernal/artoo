@@ -110,6 +110,14 @@ impl Workspace {
         self.toast_info(format!("{said} copied").into(), cx);
     }
 
+    /// The working tree opened in the chosen editor, from Branches' page of it.
+    pub(super) fn open_tree_in_editor(&mut self, cx: &mut Context<Self>) {
+        if let (Some(root), Some(editor)) = (&self.root, self.editor(cx)) {
+            self.error = editor.open(root, 1).err().map(Into::into);
+            cx.notify();
+        }
+    }
+
     /// Opens `path` (relative to the repository) at `line` in the chosen editor.
     pub(super) fn open_in_editor(&mut self, path: &str, line: u32, cx: &gpui::App) {
         let (Some(root), Some(editor)) = (&self.root, self.editor(cx)) else {

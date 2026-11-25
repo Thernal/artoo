@@ -109,6 +109,9 @@ pub struct Review {
     pub dterms: Arc<artoo_core::search::Terms>,
     /// ⌘F's `.*`: the text is a regular expression (#113); what is wrong with it, when it is.
     pub dfind_regex: bool,
+    /// ⌘F's `Aa` and `W`: the case matched, whole words only.
+    pub dfind_case: bool,
+    pub dfind_word: bool,
     pub dfind_error: Option<String>,
     /// The find bar's field: its caret, selection and undo.
     pub find_area: artoo_ui_kit::input::Area,
@@ -245,6 +248,8 @@ impl Review {
             dfind: None,
             dterms: Arc::default(),
             dfind_regex: false,
+            dfind_case: false,
+            dfind_word: false,
             dfind_error: None,
             find_area: Default::default(),
             goline_area: Default::default(),

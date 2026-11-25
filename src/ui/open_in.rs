@@ -497,7 +497,7 @@ impl Workspace {
     }
 
     /// A file Code cannot show as text: so it says, with Open in and Reveal in Finder.
-    pub(super) fn render_binary(&self, size: u64, cx: &mut Context<Self>) -> AnyElement {
+    pub(super) fn render_binary(&self, cx: &mut Context<Self>) -> AnyElement {
         let app = self
             .open_target(cx)
             .and_then(|(path, _)| self.open_app(&path, cx));
@@ -548,10 +548,7 @@ impl Workspace {
         controls::empty_state(
             "file",
             "This file can’t be shown as text".to_owned(),
-            format!(
-                "{} of binary data.",
-                artoo_ui_kit::format::bytes(size as usize)
-            ),
+            String::new(),
             Some(actions.into_any_element()),
         )
         .into_any_element()
