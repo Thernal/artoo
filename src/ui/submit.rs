@@ -16,7 +16,11 @@ impl Workspace {
     /// Submit review's card, on Approve when `approve`: `a` with comments pending, the done card's Submit review
     /// (#188).
     pub(super) fn open_submit_on(&mut self, approve: bool, cx: &mut Context<Self>) {
-        if !self.on_request_changes(cx)
+        let merged = (self.current_request(cx))
+            .and_then(|iid| self.find_request(iid, cx))
+            .is_some_and(|m| m.state == crate::mr::MrState::Merged);
+        if merged
+            || !self.on_request_changes(cx)
             || !self
                 .requests_api()
                 .is_some_and(|r| r.open_submit(approve, cx))

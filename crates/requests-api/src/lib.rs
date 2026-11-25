@@ -477,6 +477,10 @@ pub enum Group {
     Author(String),
     /// Not grouped: one list, no band.
     All,
+    /// The merged by the day they were merged: today's, this week's, the ones before.
+    Today,
+    ThisWeek,
+    Older,
 }
 
 /// How the list groups its requests (`Display ▾`, #189).
@@ -877,6 +881,12 @@ pub trait Requests {
 
     /// The list shows the merged or the closed requests, or the open ones again (#114); the scope it shows.
     fn set_view(&self, state: MrState, cx: &mut App);
+    /// `All states`: the open, the merged and the closed in one list, until a state is picked again.
+    fn every_state(&self, cx: &App) -> bool;
+    fn set_every_state(&self, cx: &mut App);
+    /// How many requests of `state` the scope shown has, as far as it is known: the open list's, or what the host
+    /// said of a merged or closed list read.
+    fn state_count(&self, state: MrState, cx: &App) -> Option<usize>;
     fn scope(&self, cx: &App) -> Scope;
 
     /// The next page of `scope`'s merged or closed requests; the page that could not be read, again; what became

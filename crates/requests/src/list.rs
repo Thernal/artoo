@@ -294,12 +294,38 @@ impl Requests {
             .filter(|m| past || self.in_scope(m, self.scope))
             .filter(|m| filter_lets(m, &terms))
             .collect();
-        if !past {
+        if self.every {
+            shown = self.every_shown(&terms);
+        } else if self.view == MrState::Merged {
+            // By the day merged, the latest first.
+            shown.sort_by_key(|m| std::cmp::Reverse(merged_time(m)));
+        } else if !past {
             let size = |m: &Mr| self.size_of(m.iid).map_or(0, |(_, a, r, _)| a + r);
             let order = order(self.rows.display.1, &size);
             shown.sort_by_key(|m| (self.group_of(m), order(m)));
         }
         shown.into_iter().cloned().collect()
+    }
+
+    /// All states: the open, the merged and the closed as one list, the last updated first. While a merged or
+    /// closed list has more to read, nothing older than its last read is listed, so what comes later lands below.
+    fn every_shown(&self, terms: &[&str]) -> Vec<&Mr> {
+        let pages = [
+            self.past.of_scope(self.scope),
+            self.closed.of_scope(self.scope),
+        ];
+        let since = (pages.iter())
+            .filter(|p| p.more)
+            .map(|p| p.list.last().map_or(i64::MAX, |m| m.updated))
+            .max()
+            .unwrap_or(i64::MIN);
+        let mut shown: Vec<&Mr> = (self.list.iter())
+            .filter(|m| self.in_scope(m, self.scope))
+            .chain(pages.iter().flat_map(|p| &p.list))
+            .filter(|m| m.updated >= since && filter_lets(m, terms))
+            .collect();
+        shown.sort_by_key(|m| std::cmp::Reverse(m.updated));
+        shown
     }
 
     /// The next request to review below the open one, going round the list once: the first whose turn is yours or
@@ -753,11 +779,20 @@ pub fn opened_before(rq: &Requests, iid: u64, seen: Seen) -> bool {
 /// Merge requests' root: the list grouped, the picked one previewed; or why there is none.
 pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
     let shown = look.shown;
-    // The merged or the closed (#114): a flat list, newest first, read as it is scrolled.
+    // The merged or the closed (#114): newest first, read as it is scrolled; the merged under their days, the
+    // closed and All states one flat list.
     let past = (rq.view != MrState::Opened).then(|| rq.past.of_scope(rq.scope));
+    let banded = rq.view == MrState::Merged && !rq.every;
+    let flat = past.is_some() && !banded;
+    // All states reads two lists: either may be on its way, or have more.
+    let second = rq.every.then(|| rq.closed.of_scope(rq.scope));
+    let loading = past.is_some_and(|p| p.loading) || second.is_some_and(|p| p.loading);
+    let has_more = past.is_some_and(|p| p.more) || second.is_some_and(|p| p.more);
+    let failed =
+        (past.and_then(|p| p.error.as_ref())).or_else(|| second.and_then(|p| p.error.as_ref()));
     match past {
-        Some(p) if p.loading && p.list.is_empty() => return Body::Loading,
-        Some(p) if shown.is_empty() && !p.more => {
+        Some(_) if loading && shown.is_empty() => return Body::Loading,
+        Some(_) if shown.is_empty() && !has_more => {
             return Body::Empty(empty(rq, look, acts));
         }
         Some(_) => {}
@@ -769,6 +804,10 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
         },
     }
     let groups: Vec<Group> = match past {
+        Some(_) if banded => {
+            let now = chrono::Local::now();
+            shown.iter().map(|m| day_of(merged_time(m), &now)).collect()
+        }
         Some(_) => vec![Group::All; shown.len()],
         None => shown.iter().map(|m| rq.group_of(m)).collect(),
     };
@@ -781,7 +820,7 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
             shown
                 .iter()
                 .zip(&groups)
-                .find(|(_, g)| past.is_some() || !folds(g))
+                .find(|(_, g)| flat || !folds(g))
                 .map(|(m, _)| m)
         });
     // Each group a band, its rows under it unless it is folded (#81).
@@ -789,7 +828,7 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
     let mut bands: Vec<(usize, Group, usize)> = Vec::new();
     let mut picked_row = None;
     for (n, (m, g)) in shown.iter().zip(&groups).enumerate() {
-        if past.is_some() || *g == Group::All {
+        if flat || *g == Group::All {
             if picked.is_some_and(|p| p.iid == m.iid) {
                 picked_row = Some(rows.len());
             }
@@ -820,7 +859,7 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
     }
     // More of them while there may be: a shimmer row at the end, read when it comes into sight
     // (#114).
-    if let Some(error) = past.and_then(|p| p.error.as_ref()) {
+    if let Some(error) = failed {
         let acts = acts.clone();
         rows.push(
             div()
@@ -840,7 +879,7 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
                 )
                 .into_any_element(),
         );
-    } else if past.is_some_and(|p| p.more || p.loading) {
+    } else if has_more || (past.is_some() && loading) {
         rows.push(
             div()
                 .id("past-more")
@@ -855,7 +894,7 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
     let scroll = &rq.rows.scroll;
     let laid = scroll.children_count() == rows.len();
     let mut more = None;
-    if past.is_some_and(|p| p.more && !p.loading) {
+    if has_more && !loading {
         // Not laid out yet: looked at again once it is. A row's bounds are where it is in the
         // unscrolled list.
         let near = laid
@@ -917,6 +956,64 @@ pub fn list(rq: &Requests, look: &ListLook, acts: &Acts) -> Body {
     }
 }
 
+/// When merged request `m` was merged; its last change where the read does not say.
+fn merged_time(m: &Mr) -> i64 {
+    match m.merged_at {
+        0 => m.updated,
+        at => at,
+    }
+}
+
+/// The band a request merged at `at` stands under, `now` being this moment here: today's, the last seven days',
+/// older.
+fn day_of(at: i64, now: &chrono::DateTime<chrono::Local>) -> Group {
+    use chrono::TimeZone;
+    let day = (chrono::Local.timestamp_opt(at, 0).single()).map_or(i64::MAX, |then| {
+        (now.date_naive() - then.date_naive()).num_days()
+    });
+    match day {
+        ..=0 => Group::Today,
+        1..=6 => Group::ThisWeek,
+        _ => Group::Older,
+    }
+}
+
+/// `Into main by Ember Lind, 2h ago` and its commit, for a merged request: into what, by whom and when, as far as
+/// the host says.
+pub(crate) fn merged_line(m: &Mr) -> gpui::Stateful<Div> {
+    let by = (m.merged_by.as_ref()).map_or_else(String::new, |by| format!(" by {by}"));
+    let when = match m.merged_at {
+        0 => String::new(),
+        at => format!(", {}", format::ago(at)),
+    };
+    let commit = m
+        .merged_with
+        .as_ref()
+        .map(|c| c[..c.len().min(7)].to_owned());
+    div()
+        .id(("merged-line", m.iid))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .min_w_0()
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .child(
+            icons::icon("merge")
+                .size(px(14.))
+                .flex_none()
+                .text_color(theme::accent()),
+        )
+        .child(
+            hover::cut(
+                ("merged-words", m.iid),
+                format!("Into {}{by}{when}", m.target),
+            )
+            .min_w_0(),
+        )
+        .children(commit.map(|c| div().flex_none().font_family(theme::code_font()).child(c)))
+}
+
 /// No request to list: why, per filter, and the way to more.
 fn empty(rq: &Requests, look: &ListLook, acts: &Acts) -> Div {
     let filter = look.filter.trim();
@@ -941,6 +1038,14 @@ fn empty(rq: &Requests, look: &ListLook, acts: &Acts) -> Div {
     if view != MrState::Opened {
         let word = view.word().to_lowercase();
         let past = rq.past.of_scope(rq.scope);
+        if rq.every {
+            return empty_state(
+                "pull-request",
+                words::say("No merge requests").into_owned(),
+                String::new(),
+                None,
+            );
+        }
         if let Some(error) = &past.error {
             let acts = acts.clone();
             return empty_state(
@@ -1122,6 +1227,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     let iid = m.iid;
     let picked = look.picked == Some(iid);
     let open = m.state == MrState::Opened;
+    let merged = m.state == MrState::Merged;
     let facts = rq.rows.facts(iid);
     let me = rq.login.as_deref().unwrap_or_default();
     let mine = !me.is_empty() && m.author_login == me;
@@ -1133,6 +1239,8 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     // The row's date says what is sorted (L17): an open one's opening under Oldest first.
     let when_time = if open && rq.rows.display.1 == SortBy::Oldest {
         m.created
+    } else if merged {
+        merged_time(m)
     } else {
         m.updated
     };
@@ -1234,7 +1342,8 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                                     marked(m.title.clone(), look.filter),
                                     &title_cut,
                                 )
-                                .when(m.draft, |s| s.text_color(theme::muted())),
+                                // Quieter by colour, not by opacity (the design's contrast check).
+                                .when(m.draft || !open, |s| s.text_color(theme::muted())),
                             )
                             .when(m.draft, |s| s.child(tag("Draft", theme::muted())))
                             .child(div().flex_1())
@@ -1288,6 +1397,22 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
                                     )
                                     .text_color(theme::warning()),
                                 )
+                            })
+                            .when(merged, |s| {
+                                s.child(glyph(
+                                    "mr-merged",
+                                    "merge",
+                                    theme::accent(),
+                                    "Merged".to_owned(),
+                                ))
+                            })
+                            .when(m.state == MrState::Closed && rq.every, |s| {
+                                s.child(glyph(
+                                    "mr-closed",
+                                    "x",
+                                    theme::removed(),
+                                    "Closed".to_owned(),
+                                ))
                             })
                             .children(approved.map(|(count, said)| {
                                 counted(
@@ -1496,12 +1621,13 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         .child(discussion::avatar(author, mine, 16.))
         .child(hover::cut(("preview-author", iid), author.to_owned()).min_w_0())
         .child(div().flex_1())
-        // A merged or closed one: what became of it, and when (#114).
-        .children((!open).then(|| {
+        // A closed one: what became of it, and when (#114); a merged one says it under its title.
+        .children((m.state == MrState::Closed).then(|| {
             div()
                 .flex_none()
                 .child(format!("{} {}", m.state.word(), format::ago(m.updated)))
-        }));
+        }))
+        .children((m.state == MrState::Merged).then(|| tag("Merged", theme::accent())));
     let title = div()
         .text_size(px(19.))
         .line_height(px(26.))
@@ -1644,6 +1770,7 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
         .max_w(px(820.))
         .child(head)
         .child(title)
+        .children((m.state == MrState::Merged).then(|| merged_line(m)))
         .children((waiting.is_empty() && !description.is_empty()).then(|| {
             hover::cut_to(
                 SharedString::from(format!("mr-description-{iid}")),
@@ -1748,6 +1875,19 @@ fn next_to_review(open: &[bool], at: Option<usize>) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_merged_request_stands_under_the_day_it_was_merged() {
+        use chrono::TimeZone;
+        let now = chrono::Local
+            .with_ymd_and_hms(2026, 11, 25, 15, 0, 0)
+            .unwrap();
+        let ago = |days: i64| day_of(now.timestamp() - days * 86_400, &now);
+        assert_eq!(ago(0), Group::Today);
+        assert_eq!(ago(1), Group::ThisWeek);
+        assert_eq!(ago(6), Group::ThisWeek);
+        assert_eq!(ago(7), Group::Older);
+    }
 
     #[test]
     fn the_way_a_project_rebased_last_is_kept_on_its_own_line() {

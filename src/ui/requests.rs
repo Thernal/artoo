@@ -1006,6 +1006,7 @@ impl Workspace {
     ) -> Option<impl IntoElement + use<>> {
         let requests = self.requests_api()?;
         let view = requests.view(cx);
+        let every = requests.every_state(cx);
         let past = view != mr::MrState::Opened;
         // What the filter leaves, counted (#191).
         let count = |scope: Scope| requests.scope_count(scope, &self.bfilter, cx);
@@ -1039,31 +1040,55 @@ impl Workspace {
                     cx.notify();
                 }))
         };
-        // How the rows are grouped and ordered (#189) and which are listed — the open, the merged or the closed
-        // (#114). The chip says which while it is not the open ones.
-        let (by, sort) = requests.display(cx);
-        let label = match past {
-            true => format!("{} ▾", view.word()),
-            false => "Display ▾".to_owned(),
+        // Which are listed (#114): the state menu beside the filter, crossing with the tabs.
+        let word = match every {
+            true => "All states",
+            false => view.word(),
         };
-        let display = artoo_ui_kit::controls::chip("request-display", label, past).on_click(
-            cx.listener(move |this, e: &ClickEvent, _, cx| {
+        let states =
+            artoo_ui_kit::controls::chip("request-state", format!("{word} \u{25be}"), past)
+                .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+                    use super::menu::{Act, Entry};
+                    let Some(requests) = this.requests_api() else {
+                        return;
+                    };
+                    let listed = [
+                        mr::MrState::Opened,
+                        mr::MrState::Merged,
+                        mr::MrState::Closed,
+                    ]
+                    .into_iter()
+                    .map(|s| {
+                        let entry = Entry::new(
+                            s.word(),
+                            Act::new(move |this, _, cx| this.set_request_view(s, cx)),
+                        )
+                        .checked(!every && s == view);
+                        // How many, as far as it is known without asking.
+                        match requests.state_count(s, cx) {
+                            Some(n) => entry.quiet(n.to_string()),
+                            None => entry,
+                        }
+                    })
+                    .collect();
+                    let all = Entry::new(
+                        "All states",
+                        Act::new(|this, _, cx| {
+                            if let Some(requests) = this.requests_api() {
+                                requests.set_every_state(cx);
+                            }
+                            cx.notify();
+                        }),
+                    )
+                    .checked(every);
+                    this.open_menu(e.position(), vec![listed, vec![all]], cx);
+                }));
+        // How the open rows are grouped and ordered (#189); the merged and the closed are newest first.
+        let (by, sort) = requests.display(cx);
+        let display = artoo_ui_kit::controls::chip("request-display", "Display \u{25be}", false)
+            .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
                 use super::menu::{Act, Entry};
                 use artoo_requests_api::{GroupBy, SortBy};
-                let show = [
-                    mr::MrState::Opened,
-                    mr::MrState::Merged,
-                    mr::MrState::Closed,
-                ]
-                .into_iter()
-                .map(|s| {
-                    Entry::new(
-                        s.word(),
-                        Act::new(move |this, _, cx| this.set_request_view(s, cx)),
-                    )
-                    .checked(s == view)
-                })
-                .collect();
                 let group = [
                     (GroupBy::Turn, "Whose turn"),
                     (GroupBy::Author, "Author"),
@@ -1102,15 +1127,9 @@ impl Workspace {
                     .checked(o == sort)
                 })
                 .collect();
-                let mut menu = vec![(Some("Show"), show)];
-                // The merged and the closed are one list, newest first.
-                if !past {
-                    menu.push((Some("Group by"), group));
-                    menu.push((Some("Sort by"), order));
-                }
+                let menu = vec![(Some("Group by"), group), (Some("Sort by"), order)];
                 this.open_titled(e.position(), menu, cx);
-            }),
-        );
+            }));
         Some(
             div()
                 .flex()
@@ -1122,7 +1141,8 @@ impl Workspace {
                         .child(filter(Scope::ReviewMe, "scope-review", "To review"))
                         .child(filter(Scope::Mine, "scope-mine", "Mine")),
                 )
-                .child(display),
+                .child(states)
+                .children((!past).then_some(display)),
         )
     }
 

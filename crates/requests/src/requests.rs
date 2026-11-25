@@ -27,6 +27,18 @@ pub struct Past {
 }
 
 impl Past {
+    /// `state`'s requests, none read yet: each scope's first page to come.
+    pub fn unread(state: mr::MrState) -> Past {
+        let mut past = Past {
+            of: state,
+            ..Default::default()
+        };
+        for pages in &mut past.scopes {
+            pages.more = true;
+        }
+        past
+    }
+
     pub fn of_scope(&self, scope: Scope) -> &Pages {
         &self.scopes[scope as usize]
     }
@@ -74,9 +86,12 @@ pub struct Requests {
     /// A GitLab project without a token: the rail offers to connect instead of listing.
     pub connectable: bool,
     pub list: Vec<Mr>,
-    /// The state the list shows (Open ▾, #114), and the merged or closed read so far.
+    /// The state the list shows (the state menu, #114), and the merged or closed read so far.
     pub view: mr::MrState,
     pub past: Past,
+    /// `All states` is shown: the open beside the merged (`past`) and the closed.
+    pub every: bool,
+    pub closed: Past,
     /// Requests open in the menu that left the open list: what became of them (merged, closed),
     /// kept until closed there.
     pub left: Vec<Mr>,
@@ -222,6 +237,7 @@ impl Requests {
         self.list
             .iter()
             .chain(self.past.scopes.iter().flat_map(|p| &p.list))
+            .chain(self.closed.scopes.iter().flat_map(|p| &p.list))
             .chain(&self.left)
             .find(|m| m.iid == iid)
     }
@@ -898,19 +914,13 @@ impl artoo_requests_api::Requests for Handle {
     fn set_view(&self, state: mr::MrState, cx: &mut App) {
         let reads = self.update(cx, |rq, _| {
             rq.view = state;
+            rq.every = false;
             rq.rows.picked = None;
             if state == mr::MrState::Opened || rq.past.of == state {
                 return false;
             }
             // Every scope's first page at once: the chips count them all.
-            let mut past = crate::requests::Past {
-                of: state,
-                ..Default::default()
-            };
-            for pages in &mut past.scopes {
-                pages.more = true;
-            }
-            rq.past = past;
+            rq.past = Past::unread(state);
             true
         });
         if reads == Some(true) {
@@ -918,6 +928,41 @@ impl artoo_requests_api::Requests for Handle {
                 self.load_past_page(scope, cx);
             }
         }
+    }
+
+    fn every_state(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| r.read(cx).every)
+    }
+
+    fn set_every_state(&self, cx: &mut App) {
+        self.update(cx, |rq, _| {
+            rq.view = mr::MrState::Merged;
+            rq.every = true;
+            rq.rows.picked = None;
+            if rq.past.of != mr::MrState::Merged {
+                rq.past = Past::unread(mr::MrState::Merged);
+            }
+            if rq.closed.of != mr::MrState::Closed {
+                rq.closed = Past::unread(mr::MrState::Closed);
+            }
+        });
+        for scope in [Scope::All, Scope::ReviewMe, Scope::Mine] {
+            self.load_past_page(scope, cx);
+        }
+    }
+
+    fn state_count(&self, state: mr::MrState, cx: &App) -> Option<usize> {
+        let requests = self.0.upgrade()?;
+        let rq = requests.read(cx);
+        if state == mr::MrState::Opened {
+            return Some(rq.list.iter().filter(|m| rq.in_scope(m, rq.scope)).count());
+        }
+        let past = [&rq.past, &rq.closed].into_iter().find(|p| p.of == state)?;
+        let pages = past.of_scope(rq.scope);
+        pages
+            .total
+            .map(|n| n as usize)
+            .or_else(|| (!pages.more && !pages.loading).then_some(pages.list.len()))
     }
 
     fn scope(&self, cx: &App) -> Scope {
@@ -1531,16 +1576,30 @@ impl artoo_requests_api::Requests for Handle {
             return n.to_string();
         }
         // The merged or the closed: as many as the host says, or counted as far as read (#114, #169); filtered,
-        // as many of those read as the filter leaves (#191).
-        let pages = rq.past.of_scope(scope);
-        let more = if pages.more { "+" } else { "" };
-        match pages.total {
-            _ if !terms.is_empty() => {
-                format!("{}{more}", pages.list.iter().filter(lets).count())
-            }
-            Some(total) => total.to_string(),
-            None => format!("{}{more}", pages.list.len()),
+        // as many of those read as the filter leaves (#191). All states, the open beside both.
+        let mut n = 0;
+        let mut more = false;
+        let lists: Vec<&Past> = match rq.every {
+            true => vec![&rq.past, &rq.closed],
+            false => vec![&rq.past],
+        };
+        if rq.every {
+            n += (rq.list.iter())
+                .filter(|m| rq.in_scope(m, scope))
+                .filter(lets)
+                .count();
         }
+        for past in lists {
+            let pages = past.of_scope(scope);
+            match pages.total {
+                Some(total) if terms.is_empty() => n += total as usize,
+                _ => {
+                    n += pages.list.iter().filter(lets).count();
+                    more |= pages.more;
+                }
+            }
+        }
+        format!("{n}{}", if more { "+" } else { "" })
     }
 
     fn toggle_group(&self, group: Group, cx: &mut App) -> String {

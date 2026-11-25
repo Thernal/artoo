@@ -14,6 +14,8 @@ for someone using the app, not for someone reading the code; the commits follow 
   pages and groups drag into the order you want, kept per project.
 - **Edit your own request.** Its title and description change where they stand, and Draft becomes ready from its
   state; an agent can propose an edit, which you compare and save or discard.
+- **Merged requests.** A menu beside the list's tabs shows the open, merged, closed or all of them; merged ones
+  stand by day and say who merged them into what, and when.
 
 ## 2.0.0 — 2026-11-17
 

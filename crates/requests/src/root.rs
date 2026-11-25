@@ -216,7 +216,11 @@ impl RootPage {
                 !filter.trim().is_empty() && rq.view != artoo_hosts_api::MrState::Opened;
             [Scope::All, Scope::ReviewMe, Scope::Mine]
                 .into_iter()
-                .filter(|s| filtering && rq.past.of_scope(*s).more && !rq.past.of_scope(*s).loading)
+                .filter(|s| {
+                    let unread =
+                        |p: &crate::requests::Past| p.of_scope(*s).more && !p.of_scope(*s).loading;
+                    filtering && (unread(&rq.past) || (rq.every && unread(&rq.closed)))
+                })
                 .collect()
         };
         if let Some(requests) = services.get::<Rc<dyn artoo_requests_api::Requests>>()

@@ -531,6 +531,7 @@ dependencies = [
  "artoo-review-api",
  "artoo-shell-api",
  "artoo-ui-kit",
+ "chrono",
  "futures",
  "git2",
  "gpui-pre",

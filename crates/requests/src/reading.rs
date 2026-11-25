@@ -259,7 +259,29 @@ impl Requests {
     /// The next page of `scope`'s merged or closed requests, unless one is on its way or none
     /// follows.
     pub fn load_past_page(&mut self, scope: Scope, host: Arc<dyn Host>, cx: &mut Context<Self>) {
-        let state = self.past.of;
+        self.load_past_of(false, scope, host.clone(), cx);
+        // All states reads the closed beside the merged.
+        if self.every {
+            self.load_past_of(true, scope, host, cx);
+        }
+    }
+
+    /// The merged or closed list `second` names: the closed one All states reads beside the other.
+    fn past_list(&mut self, second: bool) -> &mut crate::requests::Past {
+        match second {
+            true => &mut self.closed,
+            false => &mut self.past,
+        }
+    }
+
+    fn load_past_of(
+        &mut self,
+        second: bool,
+        scope: Scope,
+        host: Arc<dyn Host>,
+        cx: &mut Context<Self>,
+    ) {
+        let state = self.past_list(second).of;
         let whose = match (scope, self.login.clone()) {
             (Scope::All, _) => mr::Whose::All,
             (Scope::ReviewMe, Some(login)) => mr::Whose::Reviewer(login),
@@ -267,7 +289,7 @@ impl Requests {
             // Who the token is not known yet: read once it is, as the list is drawn.
             _ => return,
         };
-        let pages = self.past.of_scope_mut(scope);
+        let pages = self.past_list(second).of_scope_mut(scope);
         if pages.loading || !pages.more || state == mr::MrState::Opened {
             return;
         }
@@ -279,10 +301,10 @@ impl Requests {
                 .spawn(async move { host.list_past(state, &whose, at.as_deref()) })
                 .await;
             this.update(cx, |rq, cx| {
-                if rq.past.of != state {
+                if rq.past_list(second).of != state {
                     return;
                 }
-                let pages = rq.past.of_scope_mut(scope);
+                let pages = rq.past_list(second).of_scope_mut(scope);
                 pages.loading = false;
                 match read {
                     Ok(page) => {
@@ -305,15 +327,18 @@ impl Requests {
             })
             .ok();
         });
-        self.past.of_scope_mut(scope).task = Some(task);
+        self.past_list(second).of_scope_mut(scope).task = Some(task);
     }
 
     /// The page of the scope shown that could not be read, again.
     pub fn retry_past_page(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
         let scope = self.scope;
-        let pages = self.past.of_scope_mut(scope);
-        pages.error = None;
-        pages.more = true;
+        for second in [false, true] {
+            let pages = self.past_list(second).of_scope_mut(scope);
+            if pages.error.take().is_some() {
+                pages.more = true;
+            }
+        }
         self.load_past_page(scope, host, cx);
         cx.notify();
     }

@@ -2071,6 +2071,7 @@ pub fn parse_mrs(value: &Value) -> Vec<Mr> {
                     .find_map(|k| m.get(*k).and_then(Value::as_str))
                     .filter(|s| !s.is_empty())
                     .map(str::to_owned),
+                merged_at: epoch(&text(m, "merged_at")),
                 merged_by: ["merge_user", "merged_by"]
                     .iter()
                     .filter_map(|k| m.get(*k))

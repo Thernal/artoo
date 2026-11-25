@@ -815,6 +815,7 @@ fn parse_pull(p: &Value) -> Option<Mr> {
             .filter(|s| !s.is_empty() && p["merged_at"].is_string())
             .map(str::to_owned),
         merged_by: p["merged_by"]["login"].as_str().map(str::to_owned),
+        merged_at: epoch(&p["merged_at"]),
         conflicts: false,
     })
 }

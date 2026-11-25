@@ -544,26 +544,32 @@ impl Workspace {
                 };
                 // Its key in its tooltip (#188); its icon alone when the bar has no room for its label (#187).
                 let tip = format!("{}  ⇧⌘↵", words::say(&label));
-                out.push(
-                    BarAction::new("submit", {
-                        use super::hover::Hover;
-                        artoo_ui_kit::controls::bar_button("bar-submit", &label, "", false)
-                            .tip(tip.clone())
-                            .on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)),
-                            )
-                    })
-                    .short(
-                        bar_icon("bar-submit", "send", tip).on_click(
+                // A merged request takes no review (Design round 46); one merged on the page keeps it until read
+                // again.
+                let merged_already = (self.current_request(cx))
+                    .and_then(|iid| self.find_request(iid, cx))
+                    .is_some_and(|m| m.state == crate::mr::MrState::Merged)
+                    && !self.requests_api().is_some_and(|r| r.merged_on_page(cx));
+                if !merged_already {
+                    out.push(
+                        BarAction::new("submit", {
+                            use super::hover::Hover;
+                            artoo_ui_kit::controls::bar_button("bar-submit", &label, "", false)
+                                .tip(tip.clone())
+                                .on_click(
+                                    cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)),
+                                )
+                        })
+                        .short(bar_icon("bar-submit", "send", tip).on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| this.open_submit(cx)),
-                        ),
-                    )
-                    .folds(
-                        MenuItem::new(label, on_tab(&tab, |this, cx| this.open_submit(cx)))
-                            .key("⇧⌘↵"),
-                    )
-                    .fold_order(4),
-                );
+                        ))
+                        .folds(
+                            MenuItem::new(label, on_tab(&tab, |this, cx| this.open_submit(cx)))
+                                .key("⇧⌘↵"),
+                        )
+                        .fold_order(4),
+                    );
+                }
                 // A merged or closed one says so where its approval would be (#114).
                 let state = self
                     .current_request(cx)
@@ -623,6 +629,19 @@ impl Workspace {
                             .text_color(color)
                             .child(state.word()),
                     ));
+                    // Its page on the host, where Merge would stand.
+                    let url = (self.current_request(cx)).and_then(|iid| self.request_url(iid, cx));
+                    if let Some(url) = url {
+                        let tip = format!(
+                            "Open in {}",
+                            if self.on_github() { "GitHub" } else { "GitLab" }
+                        );
+                        out.push(BarAction::new(
+                            "host",
+                            bar_icon("bar-host", "external", tip)
+                                .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&url)),
+                        ));
+                    }
                 }
             }
             _ => {}

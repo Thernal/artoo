@@ -19,6 +19,9 @@ impl Band for Group {
             Group::Yours => "Yours".into(),
             Group::Author(name) => name.clone(),
             Group::All => "All".into(),
+            Group::Today => "Today".into(),
+            Group::ThisWeek => "This week".into(),
+            Group::Older => "Older".into(),
         }
     }
 
@@ -34,6 +37,9 @@ impl Band for Group {
             // A name has no tab, no comma.
             Group::Author(name) => format!("author:{}", name.replace([',', '\t'], " ")),
             Group::All => "all".into(),
+            Group::Today => "today".into(),
+            Group::ThisWeek => "week".into(),
+            Group::Older => "older".into(),
         }
     }
 }
@@ -47,6 +53,9 @@ pub fn parse(key: &str) -> Option<Group> {
         "others" => Some(Group::Others),
         "yours" => Some(Group::Yours),
         "all" => Some(Group::All),
+        "today" => Some(Group::Today),
+        "week" => Some(Group::ThisWeek),
+        "older" => Some(Group::Older),
         _ => key
             .strip_prefix("author:")
             .map(|n| Group::Author(n.to_owned())),

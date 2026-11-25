@@ -21,6 +21,8 @@ artoo-shell-api = { path = "../shell-api" }
 artoo-review-api = { path = "../review-api" }
 artoo-ui-kit = { path = "../ui-kit" }
 anyhow.workspace = true
+# The merged requests stand under the days they were merged.
+chrono.workspace = true
 # Done's Undo: the toast holds the sending end (`Requests::dismiss_notice`).
 futures = "0.3"
 git2.workspace = true

@@ -326,6 +326,8 @@ impl Requests {
                             .font_family(theme::code_font()),
                     ),
             )
+            // Merged: into what, by whom, when and its commit.
+            .children((m.state == MrState::Merged).then(|| crate::list::merged_line(m)))
             .child(div().pt(px(4.)).child(row))
     }
 

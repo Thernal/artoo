@@ -136,6 +136,7 @@ pub(crate) mod tests {
             state: MrState::Opened,
             merged_with: None,
             merged_by: None,
+            merged_at: 0,
             conflicts: false,
         }
     }

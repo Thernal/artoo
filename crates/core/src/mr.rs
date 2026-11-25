@@ -80,6 +80,8 @@ pub struct Mr {
     pub merged_with: Option<String>,
     /// Who merged it, by name, where the read says (a request read alone).
     pub merged_by: Option<String>,
+    /// When it was merged, seconds since the epoch; 0 where the read does not say.
+    pub merged_at: i64,
     /// The host says the branch conflicts with its target (GitLab's `has_conflicts`; GitHub's list does not say).
     pub conflicts: bool,
 }
