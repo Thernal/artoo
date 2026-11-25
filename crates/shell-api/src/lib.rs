@@ -1175,6 +1175,8 @@ pub struct Parts {
     pub pieces: Vec<Piece>,
     /// The kinds of link it finds in the tab's texts (`links`).
     pub links: Vec<links::Pattern>,
+    /// The kinds of link it claims in this tab: their menus, their clicks (`links::Kind`).
+    pub link_kinds: Vec<Rc<dyn links::Kind>>,
     /// Its scopes of search everywhere (`search`): ⌘K's tabs it offers.
     pub searches: Vec<search::Search>,
     /// Its lists the same window shows alone (`search::List`), each opened by its own action.

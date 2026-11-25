@@ -364,6 +364,9 @@ impl Workspace {
     }
 
     fn show_mention_card(&mut self, cx: &mut Context<Self>) {
+        if self.ctx_menu.read(cx).is_open() {
+            return;
+        }
         let Some(login) = self.mention_hover.as_ref().map(|h| h.login.clone()) else {
             return;
         };

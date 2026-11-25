@@ -161,6 +161,7 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
         .get::<Rc<dyn artoo_requests_api::DiscussionsHost>>()
         .map(|host| discussions::tool(requests.clone(), host, Rc::downgrade(&services), acts, cx));
     let (shows, goes) = (frame.clone(), frame.clone());
+    let (numbers, link_kind) = numbers::links(&requests, cx);
     Parts {
         tool,
         actions: vec![
@@ -182,7 +183,8 @@ fn parts(frame: Rc<dyn Frame>, _: &mut Window, cx: &mut App) -> Parts {
             outdated::since_piece(requests.clone(), services.clone()),
             pieces::done(requests.clone(), services),
         ],
-        links: vec![numbers::pattern(&requests, cx)],
+        links: vec![numbers],
+        link_kinds: vec![link_kind],
         searches: vec![search::scope(Rc::downgrade(&frame.services()))],
         pages: Some(root::pages(requests, frame, cx)),
         ..Default::default()

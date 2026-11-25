@@ -184,6 +184,10 @@ impl Workspace {
 
     /// ↵: one step in.
     pub(super) fn activate(&mut self, cx: &mut Context<Self>) {
+        // A link's menu open: ↵ opens the link.
+        if self.link_key(super::linked::LinkKey::Open, cx) {
+            return;
+        }
         // Set up's Next, or Done on its last part (#143).
         if self.setup_open(cx) {
             return self.setup_next(cx);

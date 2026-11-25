@@ -38,6 +38,7 @@ mod input;
 mod keyboard;
 mod keymap;
 mod labeling;
+mod linked;
 mod lists;
 mod md_page;
 mod menu;
@@ -1545,6 +1546,8 @@ pub struct Workspace {
     field: Option<Field>,
     /// A context menu open at the pointer, and the repository's address on the web.
     ctx_menu: gpui::Entity<artoo_ui_kit::menu::Menu<Act>>,
+    /// The link whose menu `ctx_menu` shows (`linked`): what ↵, ⌥↵ and ⇧⌘C act on while it is open.
+    menu_link: Option<String>,
     web: Option<crate::git::WebRemote>,
     /// The host `web` is on, set with it.
     host: Option<Arc<dyn Host>>,
@@ -1700,6 +1703,7 @@ impl Workspace {
             bfilter: String::new(),
             field: None,
             ctx_menu: menu::menu(cx),
+            menu_link: None,
             web: None,
             host: None,
             widths: Default::default(),
@@ -3015,9 +3019,9 @@ impl Workspace {
         }
     }
 
-    /// ⌥↵: the newest toast's button (#198); with none, the key goes on.
+    /// ⌥↵: a focused link in the browser, else the newest toast's button (#198); with neither, the key goes on.
     fn open_toast_action(&mut self, _: &OpenToast, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.press_toast(cx) {
+        if !self.link_key(linked::LinkKey::Browser, cx) && !self.press_toast(cx) {
             cx.propagate();
         }
     }

@@ -1,5 +1,5 @@
-//! Links to what Artoo shows, copied without the browser (#162): a merge request's and its
-//! number, a branch's page on the host, a comparison's, a commit's, a file's in a diff the host
+//! Links to what Artoo shows, copied without the browser (#162): a merge request's (its menu is
+//! a link's, `super::links`), a branch's page on the host, a comparison's, a commit's, a file's in a diff the host
 //! anchors, and the page on screen (⌘K, ⌥⇧⌘C). What each page is on the host its owner says
 //! (`Pages::link`, `Pages::called`); the tab offers it in its menus. A toast says what was copied;
 //! what has no link (a branch only on this Mac, what is not committed) says why instead.
@@ -18,7 +18,7 @@ const NO_HOST: &str = "No GitLab or GitHub remote: nothing here has a link";
 
 /// Link `link` copied, its toast saying what it is.
 pub(super) fn copied(link: Link) -> Act {
-    Act::copy_said(link.url, format!("Link to {}", link.what))
+    Act::new(move |this, _, cx| this.link_copied(link.url.clone(), &link.what, cx))
 }
 
 impl Workspace {
@@ -55,7 +55,7 @@ impl Workspace {
                 (Some(_), None) => Err("Nothing here has a link".to_owned()),
             };
             tab.update(cx, |this, cx| match said {
-                Ok(link) => this.copy_said(link.url, &format!("Link to {}", link.what), cx),
+                Ok(link) => this.link_copied(link.url, &link.what, cx),
                 Err(why) => this.toast_info(why.into(), cx),
             })
             .ok();
@@ -75,37 +75,18 @@ impl Workspace {
         }
     }
 
-    /// A request's right click, wherever its row is: its link, its number, the host.
+    /// A request's right click, wherever its row is: its link's menu.
     pub(super) fn request_context(&mut self, iid: u64, at: Point<Pixels>, cx: &mut Context<Self>) {
-        if let Some(groups) = self.request_groups(iid, cx) {
-            self.open_menu(at, groups, cx);
+        if let Some(url) = self.request_url(iid, cx) {
+            self.link_menu(&url, at, cx);
         }
     }
 
-    /// A request's menu: its link, its number, the host.
-    fn request_groups(&self, iid: u64, cx: &App) -> Option<Vec<Vec<Entry>>> {
-        let (Some(web), Ok(link)) = (
-            self.web.clone(),
-            self.route_link(&RequestRoute { number: iid }.route(), false, cx),
-        ) else {
-            return None;
-        };
-        let number = link.what.clone();
-        let url = link.url.clone();
-        let groups = vec![
-            vec![
-                Entry::new("Copy link", copied(link)).key("↗"),
-                Entry::new(
-                    format!("Copy {number}"),
-                    Act::copy_said(number.clone(), number),
-                ),
-            ],
-            vec![Entry::new(
-                format!("Open in {} ↗", web.name()),
-                Act::open_url(url),
-            )],
-        ];
-        Some(groups)
+    /// Request `iid`'s page on the host: the one the host gave, else made from the remote.
+    pub(super) fn request_url(&self, iid: u64, cx: &App) -> Option<String> {
+        self.web.as_ref()?;
+        let link = self.route_link(&RequestRoute { number: iid }.route(), false, cx);
+        link.ok().map(|l| l.url)
     }
 
     /// An open row's right click under Branches or Merge requests: its link, then closing it, the others, all of
@@ -129,7 +110,10 @@ impl Workspace {
     /// An open row's link entries.
     fn item_groups(&self, item: &Route, cx: &App) -> Vec<Vec<Entry>> {
         let link = match Page::from_route(item) {
-            Some(Page::Request(iid)) => return self.request_groups(iid, cx).unwrap_or_default(),
+            Some(Page::Request(iid)) => {
+                let linked = (self.request_url(iid, cx)).and_then(|url| self.linked(&url, cx));
+                return linked.map(|l| self.link_groups(&l, cx)).unwrap_or_default();
+            }
             Some(Page::Branch(refname)) => {
                 return (self.branch_list(cx).iter())
                     .position(|b| b.refname == refname)

@@ -130,9 +130,9 @@ impl Workspace {
             browser: Some(std::rc::Rc::new(|url, cx| {
                 artoo_shell_api::issues::browser_url(cx, url)
             })),
-            // A request of the open project, right-clicked in a text: its menu.
+            // A link right-clicked in a text: its menu.
             link_menu: Some(std::rc::Rc::new(move |url, at, cx| {
-                menu.update(cx, |this, cx| this.request_link_menu(url, at, cx))
+                menu.update(cx, |this, cx| this.link_menu(url, at, cx))
                     .unwrap_or(false)
             })),
             mention: std::rc::Rc::new(move |hit, cx| {

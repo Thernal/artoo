@@ -44,8 +44,11 @@ impl Workspace {
         cx.notify();
     }
 
-    /// A link clicked in a comment: opened here when it is a host's link this app can follow.
+    /// A link clicked in a comment: opened here when its kind opens it, or it is a host's link this app can follow.
     pub(super) fn open_url_here(&mut self, url: &str, cx: &mut Context<Self>) -> bool {
+        if self.open_by_kind(url, cx) {
+            return true;
+        }
         // A tracker's key: its issue opens under the tracker's space.
         if let Some(key) = artoo_shell_api::issues::key_of(url) {
             return artoo_shell_api::issues::open(cx, key);
@@ -58,26 +61,6 @@ impl Workspace {
             return false;
         }
         self.open_link(link, cx);
-        true
-    }
-
-    /// A link right-clicked in a comment: when it is a request of the open project, its menu at `at`.
-    pub(super) fn request_link_menu(
-        &mut self,
-        url: &str,
-        at: gpui::Point<gpui::Pixels>,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let Some(link) = artoo_hosts_api::get(cx).link(url) else {
-            return false;
-        };
-        if !self.web.as_ref().is_some_and(|w| w.base == link.base) {
-            return false;
-        }
-        let Target::Request { iid, .. } = link.target else {
-            return false;
-        };
-        self.request_context(iid, at, cx);
         true
     }
 

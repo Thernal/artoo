@@ -89,6 +89,10 @@ impl Workspace {
         groups: Vec<(Option<&'static str>, Vec<Entry>)>,
         cx: &mut Context<Self>,
     ) {
+        // A menu of its own: no link's keys, until `link_menu` says it is one's.
+        self.menu_link = None;
+        // A menu is over the page: no card of a link or a person beside it.
+        self.mention_hover = None;
         self.ctx_menu
             .update(cx, |m, cx| m.open(at, groups, WIDTH, cx));
     }

@@ -237,6 +237,28 @@ impl Requests {
                                         Some(_) => format!("{} ↗", issue.label),
                                         None => issue.label.clone(),
                                     })
+                                    // Right-clicked: the key's menu, or its address's.
+                                    .when(clickable, |s| {
+                                        let address = match known {
+                                            true => format!(
+                                                "{}{}",
+                                                artoo_shell_api::issues::SCHEME,
+                                                issue.label
+                                            ),
+                                            false => issue.url.clone().unwrap_or_default(),
+                                        };
+                                        s.on_mouse_down(
+                                            MouseButton::Right,
+                                            move |e: &gpui::MouseDownEvent, window, cx| {
+                                                cx.stop_propagation();
+                                                let show = artoo_shell_api::links::ShowLinkMenu {
+                                                    address: address.clone(),
+                                                    at: e.position,
+                                                };
+                                                window.dispatch_action(Box::new(show), cx);
+                                            },
+                                        )
+                                    })
                                     .when(clickable, |s| {
                                         let label = issue.label.clone();
                                         let url = issue.url.clone();

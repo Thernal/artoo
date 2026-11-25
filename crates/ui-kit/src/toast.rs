@@ -46,6 +46,23 @@ impl Tone {
 /// What `⋯` on a toast opens, at the click: the tab's menu of what the toast's kind offers.
 pub type More = Rc<dyn Fn(Point<Pixels>, &mut Window, &mut App)>;
 
+/// A live region saying `said` to a screen reader once, as it appears; it draws nothing. Toast `id` has its own,
+/// so the same words are said again for the next.
+fn announced(id: u64, said: SharedString) -> impl IntoElement {
+    div()
+        .id(("toast-said", id as usize))
+        .absolute()
+        .size_0()
+        .role(gpui::Role::Status)
+        .a11y_synthetic_children(move |tree| {
+            let node_id = tree.synthetic_node_id("said");
+            let mut node = gpui::accesskit::Node::new(gpui::Role::Label);
+            node.set_live(gpui::accesskit::Live::Polite);
+            node.set_value(said.to_string());
+            tree.push_child(node_id, node);
+        })
+}
+
 /// What a toast says, top to bottom (#198).
 #[derive(Clone, Default)]
 pub struct Words {
@@ -71,6 +88,8 @@ pub struct Words {
     pub live: bool,
     /// Facts in the body's place, side by side: the way a host was connected, its scope, its days (`Connected as`).
     pub facts: Vec<Fact>,
+    /// What a screen reader says as the toast shows (`Link copied`): a live region, the toast its picture.
+    pub announce: Option<SharedString>,
     /// What the ⋯'s tooltip says: the kind's sentence (`Turn off toasts for Jira · Assigned to you`).
     pub more_tip: Option<SharedString>,
 }
@@ -140,6 +159,13 @@ impl Words {
     pub fn flat(self, flat: Flat) -> Self {
         Self {
             flat: Some(flat),
+            ..self
+        }
+    }
+
+    pub fn announce(self, said: impl Into<SharedString>) -> Self {
+        Self {
+            announce: Some(said.into()),
             ..self
         }
     }
@@ -856,6 +882,7 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                 .text_size(px(13.))
                 .line_height(px(19.))
                 .on_hover(cx.listener(move |this, held: &bool, _, cx| this.hold(id, *held, cx)))
+                .children(words.announce.clone().map(|said| announced(id, said)))
                 .child(mark_slot(words, t.tone))
                 .child(
                     div()

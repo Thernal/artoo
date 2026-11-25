@@ -523,8 +523,16 @@ impl Render for Workspace {
                 cx.listener(|this, _: &SearchFiles, _, cx| this.search(artoo_code_api::SEARCH, cx)),
             )
             .on_action(cx.listener(|this, _: &SearchCommits, _, cx| {
-                this.search(artoo_branches_api::SEARCH_COMMITS, cx)
+                // ⇧⌘C with a link's menu open copies the link.
+                if !this.link_key(super::linked::LinkKey::Copy, cx) {
+                    this.search(artoo_branches_api::SEARCH_COMMITS, cx)
+                }
             }))
+            .on_action(
+                cx.listener(|this, show: &artoo_shell_api::links::ShowLinkMenu, _, cx| {
+                    this.link_menu(&show.address, show.at, cx);
+                }),
+            )
             .on_action(cx.listener(|this, _: &SearchBranches, _, cx| {
                 this.search(artoo_branches_api::SEARCH, cx)
             }))

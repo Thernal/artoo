@@ -110,6 +110,20 @@ pub fn card(cx: &App, key: &str) -> Option<IssueCard> {
     all(cx).iter().find_map(|t| t.card(key, cx))
 }
 
+/// Issue `key` as a link (`crate::links`): the first tracker that knows it, its address and its name.
+pub fn claim(cx: &App, key: &str) -> Option<crate::links::Claim> {
+    all(cx).iter().find_map(|t| {
+        let card = t.card(key, cx)?;
+        Some(crate::links::Claim {
+            name: key.to_owned(),
+            icon: "circle-dot",
+            url: card.url,
+            site: Some(t.name()),
+            copy_name: false,
+        })
+    })
+}
+
 /// The browser address of issue `key`, from the first tracker whose card has one (`IssueCard::url`); none when no
 /// tracker knows the issue or its card has no address.
 pub fn url(cx: &App, key: &str) -> Option<String> {
@@ -217,6 +231,12 @@ mod tests {
             assert_eq!(key_of(&found[0].1), Some("PAY-412"));
             assert!(open(cx, "PAY-412"));
             assert!(!open(cx, "PAY-999"));
+            let claim = crate::links::claimed(cx, &[], &found[0].1).unwrap().0;
+            assert_eq!(
+                (claim.name.as_str(), claim.open_in().as_str()),
+                ("PAY-412", "Open in Jira")
+            );
+            assert!(crate::links::claimed(cx, &[], "artoo-issue:PAY-999").is_none());
         });
     }
 

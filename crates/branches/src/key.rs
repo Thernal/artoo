@@ -3,6 +3,7 @@
 //! one cut name (`hover::name`).
 
 use artoo_shell_api::issues;
+use artoo_shell_api::links::ShowLinkMenu;
 use artoo_ui_kit::hover::{self, Hover};
 use gpui::{
     App, Context, IntoElement, ParentElement, Render, RenderOnce, SharedString, Styled, Window,
@@ -51,6 +52,7 @@ impl RenderOnce for KeyedName {
             self.text[k.end..].to_owned(),
         );
         let card_of = key.clone();
+        let address = format!("{}{key}", issues::SCHEME);
         div()
             .min_w_0()
             .flex()
@@ -74,6 +76,15 @@ impl RenderOnce for KeyedName {
                             cx.stop_propagation();
                             cx.open_url(&url);
                         }
+                    })
+                    // Right-clicked: the key's menu.
+                    .on_mouse_down(gpui::MouseButton::Right, move |e, window, cx| {
+                        cx.stop_propagation();
+                        let show = ShowLinkMenu {
+                            address: address.clone(),
+                            at: e.position,
+                        };
+                        window.dispatch_action(Box::new(show), cx);
                     })
                     .card(move |_, cx| match issues::card(cx, &card_of) {
                         Some(card) => cx.new(|_| Card(card)).into(),

@@ -401,19 +401,27 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   the requests', a branch's, a commit's and a comparison's the branches', a file's and a folder's Code's, the Inbox's
   its notice picked, #171 phase 8 —; the menus and ⌥⇧⌘C the tab's, `ui/share.rs`): what has a page on the host
   copies its link from its right click — a request (and
-  its number), a branch, a commit, a comparison, a file of a diff the host anchors — and ⌥⇧⌘C (⌘K's Copy link to
+  its number: its link's menu, below), a branch, a commit, a comparison, a file of a diff the host anchors — and ⌥⇧⌘C (⌘K's Copy link to
   this …) copies the page on screen's, a run of commits or a request's two versions as the host's comparison of
   them (GitLab's Compare versions takes the version's id: `Push::id`); a toast says what. What the host does not
   have (a branch or a commit only on this Mac, a branch's earlier versions, the working tree) says so instead of
-  copying a dead link.
+  copying a dead link. A copied link's toast is `Link to !412 copied` over the address, and VoiceOver hears
+  `Link copied` (`toast::Words::announce`, a live region).
+- **The link registry and a link's menu** (#217, Design round 46; `artoo_shell_api::links`, `src/ui/linked.rs`): a
+  kind of link (`links::Kind`: `claim`, `open`, `rows`) is offered by a tab's feature (`Parts::link_kinds`, the
+  requests' in `requests/numbers.rs`) or a plugin for every tab (`links::add`); issue keys are claimed through their
+  trackers, the open project's commit and branch pages by the tab, any other web address as the browser's. A right
+  click on a link — in a text, a request's number, a key in a title, a branch's name or the description's Issue —
+  is its menu: Open ↵ · Open in GitLab / Jira ⌘-click, ⌥↵ · Copy link ⇧⌘C (Copy `!412` for a request), then the
+  kind's rows. ↵, ⌥↵ and ⇧⌘C act on the link only while that menu is open (`Workspace::link_key`, in front of the
+  actions that have those keys). Out of the tab's reach a right click dispatches `links::ShowLinkMenu`.
 - **⌘-click (Ctrl elsewhere) opens in the browser** (always `modifiers().secondary()`, never `.platform`): every request
   reference — a list row, its preview's and the Inbox's number, the request page's title and crumb, the branch bar's
   and a branch row's and card's `!N`, written `!N` in a text (host links already did) — opens `web.request(iid)`, and
   every issue key — in a text, the page bar's title, a branch's name, the request's "Issue PAY-123 ↗" — the address its
   tracker's card gives (`artoo_shell_api::issues::url`, `browser_url`: the one definition; `Selecting::browser`
-  carries it into the kit's markdown). A request's number has the request's menu on a right click wherever it is drawn
-  (`Act::RequestContext`, `InboxEvent::Menu`, `branches_api::Act::RequestMenu`; in a text `Selecting::link_menu`, for
-  a link of the open project's). A plain click is unchanged, except the request's issue key (`requests/why.rs`
+  carries it into the kit's markdown). A request's number has its link's menu on a right click wherever it is drawn
+  (`Act::RequestContext`, `InboxEvent::Menu`, `branches_api::Act::RequestMenu`; in a text `Selecting::link_menu`). A plain click is unchanged, except the request's issue key (`requests/why.rs`
   `issue_click`): it opens in the app when a tracker knows it, else the browser. ⌘K's rows take no ⌘-click: their
   pick runs once the window has closed, with no event.
 - **Keyboard**: focus zones (branches, commits, files, diff, the open tool window; `ui/zones.rs`) — the one with the keyboard has an

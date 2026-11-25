@@ -938,6 +938,7 @@ fn title(
                     text[k.end..].to_owned(),
                 );
                 let card_of = key.clone();
+                let address = format!("{}{key}", artoo_shell_api::issues::SCHEME);
                 let part = |id: &'static str, words: String| {
                     let one = style(div().id(id).flex_none().whitespace_nowrap().child(words));
                     match &hover {
@@ -965,6 +966,15 @@ fn title(
                     {
                         cx.open_url(&url);
                     }
+                })
+                // Right-clicked: the key's menu.
+                .on_mouse_down(gpui::MouseButton::Right, move |e, window, cx| {
+                    cx.stop_propagation();
+                    let show = artoo_shell_api::links::ShowLinkMenu {
+                        address: address.clone(),
+                        at: e.position,
+                    };
+                    window.dispatch_action(Box::new(show), cx);
                 })
                 .card(move |_, cx| {
                     match artoo_shell_api::issues::card(cx, &card_of) {

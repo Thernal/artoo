@@ -90,7 +90,7 @@ pub type OnLink = Rc<dyn Fn(&str, &mut App) -> bool>;
 /// A link's address in the browser (⌘/Ctrl-click): a tracker's key has the tracker's own address, which the kit cannot
 /// name; none when it has none.
 pub type OnBrowser = Rc<dyn Fn(&str, &App) -> Option<String>>;
-/// A link right-clicked at a window position: `true` when it is a request of the open project and its menu opened.
+/// A link right-clicked at a window position: `true` when the app knows the link and its menu opened.
 pub type OnLinkMenu = Rc<dyn Fn(&str, gpui::Point<gpui::Pixels>, &mut App) -> bool>;
 /// The `@login` mention under the pointer and where it is drawn, or `None` off every mention: the
 /// workspace shows the person's card when the pointer rests there (#51, X62).
@@ -116,8 +116,7 @@ pub struct Selecting {
     pub link: OnLink,
     /// A key's address in the browser, for ⌘/Ctrl-click; none, a key follows the plain click.
     pub browser: Option<OnBrowser>,
-    /// A right click on a link of a request of the open project opens that request's menu; none, a right click on
-    /// a link is the text's.
+    /// A right click on a link opens its menu; none, a right click on a link is the text's.
     pub link_menu: Option<OnLinkMenu>,
     pub mention: OnMention,
     /// The links found in its text, drawn and followed as the written ones are.
@@ -968,10 +967,9 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
     let here = ctx.sel.as_ref().map(|s| s.link.clone());
     let browser_url = ctx.sel.as_ref().and_then(|s| s.browser.clone());
     let link_menu = ctx.sel.as_ref().and_then(|s| s.link_menu.clone());
-    // The link under the pointer, as the hover last saw it, for a right click (`InteractiveText` has none).
-    let under_pointer: Rc<std::cell::Cell<Option<usize>>> = Rc::default();
-    let (hovered, hovering) = (under_pointer.clone(), under_pointer);
-    let (hover_ranges, menu_urls) = (ranges.clone(), urls.clone());
+    // Where each link is, for a right click (`InteractiveText` has none).
+    let (menu_ranges, menu_urls) = (ranges.clone(), urls.clone());
+    let pressed = layout.clone();
     let card = ctx.sel.as_ref().map(|s| s.mention.clone());
     let spot = layout.clone();
     let opens = cites.clone();
@@ -1000,7 +998,6 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
             }
         })
         .on_hover(move |at, event, _, cx| {
-            hovering.set(at.and_then(|at| hover_ranges.iter().position(|r| r.contains(&at))));
             let Some(card) = card.as_ref() else {
                 return;
             };
@@ -1015,16 +1012,27 @@ fn inline_drawn(i: &Inline, mentions: bool, ctx: &mut Ctx) -> AnyElement {
                 });
             card(hit, cx);
         });
-    // A request's link right-clicked: its menu; any other right click goes on to what is behind the text.
+    // A link right-clicked: its menu; any other right click goes on to what is behind the text.
     let with_menu = move |text: AnyElement| -> AnyElement {
         let Some(menu) = link_menu else {
             return text;
         };
+        let at = Rc::new(move |position| {
+            let at = pressed.index_for_position(position).ok()?;
+            menu_ranges.iter().position(|r| r.contains(&at))
+        });
+        let over = at.clone();
         div()
+            // The text's click is any button's: a right one on a link is the menu's alone and follows nothing.
+            .capture_any_mouse_up(move |e, _, cx| {
+                if e.button == gpui::MouseButton::Right && over(e.position).is_some() {
+                    cx.stop_propagation();
+                }
+            })
             .on_mouse_down(
                 gpui::MouseButton::Right,
                 move |e: &gpui::MouseDownEvent, _, cx| {
-                    if let Some(url) = hovered.get().and_then(|ix| menu_urls.get(ix))
+                    if let Some(url) = at(e.position).and_then(|ix| menu_urls.get(ix))
                         && menu(url, e.position, cx)
                     {
                         cx.stop_propagation();

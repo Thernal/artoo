@@ -84,6 +84,10 @@ const GROUPS: &[Group] = &[
             ),
             ("⌥⌘C", "compare two refs"),
             ("⌥⇧⌘C", "copy the link to this page"),
+            (
+                "↵  ⌥↵  ⇧⌘C",
+                "in a link's menu: open here · in the browser · copy",
+            ),
             ("⌘E", "recent places"),
             ("⌘⇧O", "functions and types this file changes"),
             ("B  ⇧B", "bookmark a line · list the bookmarks"),
