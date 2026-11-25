@@ -407,7 +407,7 @@ pub fn subhead(title: &'static str, sub: &'static str) -> Div {
         }))
 }
 
-/// A group's heading among a Settings section's rows, its words in capitals: Accounts' `Code hosts` and a plugin's
+/// A group's heading among a Settings section's rows, its words in capitals: a plugin's
 /// `Trackers` under them.
 pub fn rows_heading(text: &str) -> Div {
     div()

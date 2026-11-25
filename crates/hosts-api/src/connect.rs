@@ -46,9 +46,6 @@ pub trait Connect {
     /// The panel on Merge requests' page while the host has no token.
     fn panel(&self, here: Here, cx: &mut App) -> AnyElement;
 
-    /// Settings → Merge requests: the host's ways to pick from.
-    fn settings(&self, here: Here, cx: &mut App) -> Option<AnyElement>;
-
     /// The panel's field given the keyboard: its ↑ ↓ walk the ways, ↵ presses the one focused.
     fn take_keyboard(&self, cx: &mut App);
 }

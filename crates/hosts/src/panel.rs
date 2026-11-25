@@ -3,10 +3,11 @@
 //! CLI's token, git's), Make a token (the SSH key; read-only under ▾), Copy… (a JetBrains IDE's:
 //! macOS asks first), Open ↗ (made by hand, then pasted). ↑↓ move the focus between them, ↵
 //! presses the focused one's button, ⌘V pastes a token. The way picked is remembered per host and
-//! the next run goes straight to it; Settings → Merge requests lists the same ways to change it.
+//! the next run goes straight to it; Settings → Accounts (`crate::accounts`) lists the same ways to change it.
 //! A token Artoo made is renewed a few days before its end. A tab's panel, its service (`Connect`) and its
-//! field (`INPUT`) are made with the tab's parts; the tab hands where it is with each ask.
+//! field (`INPUT`), shared with Settings' open host, are made with the tab's parts; the tab hands where it is with each ask.
 
+use crate::accounts::Accounts;
 use crate::connect::{self, Known, NotHere, Refused, Via, Way};
 use crate::git::WebRemote;
 use artoo_hosts_api::Host;
@@ -17,9 +18,10 @@ use artoo_ui_kit::input::{self, Area, Edit, Look};
 use artoo_ui_kit::{hover, icons, keys, px, theme, words};
 use gpui::{
     AnyElement, App, AppContext, ClickEvent, Context, ElementId, Entity, FontWeight, SharedString,
-    Stateful, Window, div, prelude::*,
+    Stateful, div, prelude::*,
 };
 use gpui::{Div, Rgba};
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -45,7 +47,7 @@ pub(crate) struct Panel {
     check: Option<Result<String, String>>,
     testing: bool,
     /// What the tab is told when a way connected.
-    done: Option<OnConnected>,
+    pub(crate) done: Option<OnConnected>,
     /// A snapshot's token to make over SSH as soon as the tab says where it is (`ssh-make`).
     make: Option<&'static str>,
 }
@@ -171,7 +173,7 @@ impl Panel {
     /// are looked for, once a run.
     ///
     /// The CLI, git and the IDEs in one look; the SSH key apart, as it takes longer.
-    fn look_for_token(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn look_for_token(&mut self, cx: &mut Context<Self>) {
         let (Some(remote), Some(root)) = (self.web.clone(), self.root.clone()) else {
             return;
         };
@@ -1007,28 +1009,22 @@ impl Panel {
         if listed {
             return None;
         }
-        let note = connect::note(&web_host.api_host());
+        let name = way_name(&web_host, from)?;
         let kept = "kept in a file only you can read";
-        Some(match from {
-            "Settings" => match (self.made_in_use(), note.way.as_deref(), note.ide) {
-                (Some(made), _, _) => (
-                    "Your SSH key’s token".to_owned(),
-                    match made.expires {
-                        Some(day) => format!("“{}” · {} · until {day}", made.name, made.scope),
-                        None => format!("“{}” · {}", made.name, made.scope),
-                    },
-                ),
-                (None, Some("ide"), Some(product)) => {
-                    (format!("Copied from {product}"), kept.to_owned())
-                }
-                _ => ("A token you pasted".to_owned(), kept.to_owned()),
+        let what = match from {
+            "Settings" => match self.made_in_use() {
+                Some(made) => match made.expires {
+                    Some(day) => format!("“{}” · {} · until {day}", made.name, made.scope),
+                    None => format!("“{}” · {}", made.name, made.scope),
+                },
+                None => kept.to_owned(),
             },
-            from if from.ends_with("variable") => (
-                capital(from),
-                "set where Artoo started: it is used whatever is picked here".to_owned(),
-            ),
-            from => (capital(from), "read where it is".to_owned()),
-        })
+            from if from.ends_with("variable") => {
+                "set where Artoo started: it is used whatever is picked here".to_owned()
+            }
+            _ => "read where it is".to_owned(),
+        };
+        Some((name, what))
     }
 
     /// Whether `way` is the one the host's token comes from now.
@@ -1054,9 +1050,9 @@ impl Panel {
         }
     }
 
-    /// Settings → Merge requests (#156): the host's ways as a list to pick from, the one in use
-    /// tagged with Test; the picked one open with what it does, its button and Cancel.
-    fn render_ways_settings(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// A host's open row in Settings → Accounts (#156): its ways as a list to pick from, the one in use
+    /// ticked; the picked one open with what it does, its button and Cancel.
+    pub(crate) fn render_ways_settings(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let remote = self.web.clone()?;
         let web_host = crate::hosts::of(&remote);
         let (rows, not) = self.ways()?;
@@ -1068,42 +1064,7 @@ impl Panel {
         let note = connect::note(&web_host.api_host());
         let can_read = note.allowed.is_empty() || note.allowed.iter().any(|s| s == "read_api");
         let can_write = note.allowed.is_empty() || note.allowed.iter().any(|s| s == "api");
-        let test = || {
-            tipped(
-                div()
-                    .id("ways-test")
-                    .flex_none()
-                    .size(px(24.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(6.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::hover()))
-                    .child(
-                        icons::icon("activity")
-                            .size(px(14.))
-                            .text_color(theme::muted()),
-                    )
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.test(cx))),
-                "Test the token".to_owned(),
-            )
-        };
-        let used_mark = || {
-            tipped(
-                div()
-                    .id("ways-in-use")
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .child(
-                        icons::icon("circle-check")
-                            .size(px(16.))
-                            .text_color(theme::added()),
-                    ),
-                "In use".to_owned(),
-            )
-        };
+        let used_mark = || in_use_mark("ways-in-use");
         let mut card = div()
             .w_full()
             .flex()
@@ -1127,8 +1088,7 @@ impl Panel {
                     false,
                     false,
                 )
-                .child(used_mark())
-                .child(test()),
+                .child(used_mark()),
             );
         }
         let picked = self.connecting.pick.clone();
@@ -1211,7 +1171,7 @@ impl Panel {
                             cx.notify();
                         }))
                 })
-                .when(used, |r| r.child(used_mark()).child(test())),
+                .when(used, |r| r.child(used_mark())),
             );
             if on && !used {
                 let scopes = (way.via == Via::Ssh && can_write && can_read).then(|| {
@@ -1306,18 +1266,13 @@ impl Panel {
                 )
                 .child(self.way_button("ways-go", &way, true, false, scope, cx))
         });
-        let status = self.ways_status();
+        // No token is said on the host's own row.
+        let status = self.ways_status().filter(|(text, _)| text != NO_TOKEN);
         Some(
             div()
                 .flex()
                 .flex_col()
                 .gap(px(12.))
-                .child(
-                    div()
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(host),
-                )
                 // A token set where Artoo started is the one fact to say here (#202).
                 .children(env.then(|| {
                     div()
@@ -1328,26 +1283,7 @@ impl Panel {
                 .child(card)
                 .children(go)
                 .children(status.map(|(text, color)| {
-                    if text == NO_TOKEN {
-                        return tipped(
-                            div()
-                                .id("ways-no-token")
-                                .flex()
-                                .items_center()
-                                .gap(px(6.))
-                                .text_size(px(12.))
-                                .text_color(color)
-                                .child(icons::icon("triangle-alert").size(px(14.)).text_color(color))
-                                .child(text),
-                            "Merge requests stay hidden until a token is in use".to_owned(),
-                        )
-                        .into_any_element();
-                    }
-                    div()
-                        .text_size(px(12.))
-                        .text_color(color)
-                        .child(text)
-                        .into_any_element()
+                    div().text_size(px(12.)).text_color(color).child(text)
                 }))
                 .children(not_here(&not, &remote))
                 .into_any_element(),
@@ -1375,8 +1311,8 @@ impl Panel {
     }
 }
 
-/// What Settings says of a host with no token; the why is its tooltip.
-const NO_TOKEN: &str = "No token";
+/// What Settings says of a host with no token.
+pub(crate) const NO_TOKEN: &str = "No token";
 
 /// The ways found that cannot be used, each with why.
 fn not_here(not: &[NotHere], remote: &WebRemote) -> Option<AnyElement> {
@@ -1439,7 +1375,7 @@ fn scope_pill(scope: impl Into<SharedString>) -> gpui::Div {
 }
 
 /// "git's credential helper" → "Git's credential helper", for a name that starts a row.
-fn capital(text: &str) -> String {
+pub(crate) fn capital(text: &str) -> String {
     let text = text.strip_prefix("the ").unwrap_or(text);
     let mut chars = text.chars();
     chars
@@ -1535,8 +1471,39 @@ fn way_row(
     }
 }
 
+/// The tick of the host, or the way, in use.
+pub(crate) fn in_use_mark(id: impl Into<ElementId>) -> Stateful<Div> {
+    tipped(
+        div().id(id).flex_none().flex().items_center().child(
+            icons::icon("circle-check")
+                .size(px(16.))
+                .text_color(theme::added()),
+        ),
+        "In use".to_owned(),
+    )
+}
+
+/// What the token from `from` (`Account::token_source`) is called: the way it came in.
+pub(crate) fn way_name(host: &Arc<dyn Host>, from: &str) -> Option<String> {
+    if from.contains("CLI") {
+        return Some(connect::cli_name(host.remote().github).0.to_owned());
+    }
+    if from != "Settings" {
+        return Some(capital(from));
+    }
+    let note = connect::note(&host.api_host());
+    let made = note
+        .made
+        .is_some_and(|made| host.token_now().is_some_and(|t| made.is(&t)));
+    Some(match (made, note.way.as_deref(), note.ide) {
+        (true, _, _) => "Your SSH key’s token".to_owned(),
+        (false, Some("ide"), Some(product)) => format!("Copied from {product}"),
+        _ => "A token you pasted".to_owned(),
+    })
+}
+
 /// `button` with `tip` shown when hovered.
-fn tipped(button: Stateful<Div>, tip: String) -> Stateful<Div> {
+pub(crate) fn tipped(button: Stateful<Div>, tip: String) -> Stateful<Div> {
     let tip = SharedString::from(tip);
     button
         .tooltip_show_delay(artoo_ui_kit::hover::LONG)
@@ -1544,7 +1511,7 @@ fn tipped(button: Stateful<Div>, tip: String) -> Stateful<Div> {
 }
 
 impl Panel {
-    fn new(frame: Rc<dyn Frame>) -> Self {
+    pub(crate) fn new(frame: Rc<dyn Frame>) -> Self {
         Self {
             frame,
             connecting: Connecting::default(),
@@ -1564,7 +1531,7 @@ impl Panel {
     }
 
     /// Where the tab is, as it says with each ask.
-    fn at(&mut self, here: Here, cx: &mut Context<Self>) {
+    pub(crate) fn at(&mut self, here: Here, cx: &mut Context<Self>) {
         if self.web != here.web {
             self.host = here.web.as_ref().map(crate::hosts::of);
         }
@@ -1583,6 +1550,33 @@ impl Panel {
         if let Some(done) = self.done.clone() {
             done(said, cx);
         }
+    }
+
+    /// Drawn in Settings, as a host's open row: ↵ there presses no way.
+    pub(crate) fn in_settings(frame: Rc<dyn Frame>) -> Self {
+        Self {
+            in_settings: true,
+            ..Self::new(frame)
+        }
+    }
+
+    /// A row opened again starts clean: nothing picked, pasted or said.
+    pub(crate) fn reopen(&mut self) {
+        self.connecting.pick = None;
+        self.connecting.pick_scope = None;
+        self.connecting.error = None;
+        self.check = None;
+        self.token.clear();
+        self.typing = false;
+    }
+
+    pub(crate) fn pick(&mut self, row: &str) {
+        self.connecting.pick = Some(row.to_owned());
+    }
+
+    /// Who the host said the token is, when a way or Test asked.
+    pub(crate) fn who(&self) -> Option<&str> {
+        self.check.as_ref()?.as_ref().ok().map(String::as_str)
     }
 
     /// The field given the keyboard: its ↑ ↓ ↵ walk the ways, ⌘V pastes a token.
@@ -1705,32 +1699,11 @@ impl Panel {
         })
         .detach();
     }
-
-    /// Test: asks the host who the token belongs to.
-    fn test(&mut self, cx: &mut Context<Self>) {
-        let Some(host) = self.host.clone() else {
-            return;
-        };
-        self.check = None;
-        self.connecting.error = None;
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { host.me() })
-                .await;
-            this.update(cx, |this, cx| {
-                this.check = Some(result.map_err(|e| format!("{e:#}")));
-                cx.notify();
-            })
-            .ok();
-        })
-        .detach();
-    }
 }
 
 /// A tab's panel as its service.
 #[derive(Clone)]
-struct Handle(Entity<Panel>);
+struct Handle(Entity<Panel>, Fields);
 
 impl Connect for Handle {
     fn on_connected(&self, done: OnConnected, cx: &mut App) {
@@ -1763,28 +1736,21 @@ impl Connect for Handle {
     }
 
     fn panel(&self, here: Here, cx: &mut App) -> AnyElement {
+        self.1.settings_drawn.set(false);
         self.0.update(cx, |p, cx| {
             p.at(here, cx);
-            p.in_settings = false;
             p.render_ways(cx)
         })
     }
 
-    fn settings(&self, here: Here, cx: &mut App) -> Option<AnyElement> {
-        self.0.update(cx, |p, cx| {
-            p.at(here, cx);
-            p.in_settings = true;
-            p.render_ways_settings(cx)
-        })
-    }
-
     fn take_keyboard(&self, cx: &mut App) {
+        self.1.settings_drawn.set(false);
         self.0.update(cx, |p, cx| p.take_field(cx));
     }
 }
 
 /// Where the tab is, as the panel reads it: its repository, its remote, whether the panel's field types.
-fn here(frame: &dyn Frame, cx: &mut App) -> Here {
+pub(crate) fn here(frame: &dyn Frame, cx: &mut App) -> Here {
     let places = frame.places(cx);
     Here {
         root: places.root,
@@ -1793,99 +1759,94 @@ fn here(frame: &dyn Frame, cx: &mut App) -> Here {
     }
 }
 
-/// Settings → Merge requests (`connect::SETTINGS`): the host's ways in, or why there are none.
-struct WaysSettings {
-    panel: Entity<Panel>,
-    frame: Rc<dyn Frame>,
-    /// Under the group's heading, `Code hosts`: in the section, where a plugin's trackers may follow; not as a hit.
-    headed: bool,
+/// The panels the tab's one token field may type into: the connect panel's and Settings' open host's.
+#[derive(Clone)]
+pub(crate) struct Fields {
+    tab: gpui::WeakEntity<Panel>,
+    /// Settings' open host, once a row has opened.
+    pub(crate) open: Rc<RefCell<Option<Entity<Panel>>>>,
+    /// Which was drawn last.
+    pub(crate) settings_drawn: Rc<Cell<bool>>,
 }
 
-impl Render for WaysSettings {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let here = here(&*self.frame, cx);
-        let rows = Handle(self.panel.clone()).settings(here, cx).unwrap_or_else(|| {
-            div()
-                .text_size(px(12.))
-                .text_color(theme::muted())
-                .child("This repository has no GitLab or GitHub remote, so there are no merge requests to set up.")
-                .into_any_element()
-        });
-        div()
-            .flex()
-            .flex_col()
-            .when(self.headed, |d| {
-                d.child(artoo_ui_kit::controls::rows_heading("Code hosts"))
-            })
-            .child(rows)
+impl Fields {
+    fn now(&self) -> Option<Entity<Panel>> {
+        if self.settings_drawn.get() {
+            self.open.borrow().clone()
+        } else {
+            self.tab.upgrade()
+        }
     }
 }
 
 /// The panel's field as the tab's input.
-fn input(panel: &Entity<Panel>) -> Input {
+fn input(fields: &Fields) -> Input {
     let (open, key, left, selected) = (
-        panel.downgrade(),
-        panel.downgrade(),
-        panel.downgrade(),
-        panel.downgrade(),
+        fields.clone(),
+        fields.clone(),
+        fields.clone(),
+        fields.clone(),
     );
     Input {
         id: INPUT,
-        open: Rc::new(move |cx| open.upgrade().is_some_and(|p| p.read(cx).typing)),
-        key: Rc::new(move |event, _, cx| {
-            key.update(cx, |p, cx| p.key(&event.keystroke, cx))
-                .unwrap_or(Typed::Kept)
+        open: Rc::new(move |cx| open.now().is_some_and(|p| p.read(cx).typing)),
+        key: Rc::new(move |event, _, cx| match key.now() {
+            Some(p) => p.update(cx, |p, cx| p.key(&event.keystroke, cx)),
+            None => Typed::Kept,
         }),
         left: Rc::new(move |cx| {
-            left.update(cx, |p, cx| {
-                if p.token.trim().is_empty() {
-                    p.typing = false;
-                    cx.notify();
-                }
-            })
-            .ok();
+            if let Some(p) = left.now() {
+                p.update(cx, |p, cx| {
+                    if p.token.trim().is_empty() {
+                        p.typing = false;
+                        cx.notify();
+                    }
+                });
+            }
         }),
         // A token is not copied out of its field.
-        selected: Rc::new(move |_| selected.upgrade().and(None)),
+        selected: Rc::new(move |_| selected.now().and(None)),
         caret: Rc::new(|_| true),
     }
 }
 
-/// A tab's panel: its service, its field, and what a snapshot opens of it — a token made over SSH
-/// (`ARTOO_SSH_FIXTURE`), the SSH key picked in Settings.
+/// A tab's panel: its service, its field, Settings → Accounts, and what a snapshot opens of them — a token made
+/// over SSH (`ARTOO_SSH_FIXTURE`), the tab's host open in Settings, the SSH key picked there.
 pub(crate) fn parts(frame: Rc<dyn Frame>, cx: &mut App) -> artoo_shell_api::Parts {
     let panel = cx.new(|_| Panel::new(frame.clone()));
     // Drawn inside the tab: a change draws the tab again.
     let redraw = frame.clone();
     cx.observe(&panel, move |_, cx| redraw.redraw(cx)).detach();
+    let fields = Fields {
+        tab: panel.downgrade(),
+        open: Default::default(),
+        settings_drawn: Default::default(),
+    };
     frame
         .services()
-        .set::<Rc<dyn Connect>>(Rc::new(Handle(panel.clone())));
-    let (make, pick) = (panel.downgrade(), panel.downgrade());
-    let rows = cx.new(|_| WaysSettings {
-        panel: panel.clone(),
-        frame: frame.clone(),
-        headed: true,
-    });
-    // The hosts as Settings' search shows them, live (#203).
-    let hit = cx.new(|_| WaysSettings {
-        panel: panel.clone(),
-        frame: frame.clone(),
-        headed: false,
-    });
-    let (looked, looking) = (Handle(panel.clone()), frame.clone());
+        .set::<Rc<dyn Connect>>(Rc::new(Handle(panel.clone(), fields.clone())));
+    let accounts = cx.new(|_| Accounts::new(frame.clone(), panel.clone(), fields.clone()));
+    let make = panel.downgrade();
+    let (open, pick, read) = (
+        accounts.downgrade(),
+        accounts.downgrade(),
+        accounts.downgrade(),
+    );
     artoo_shell_api::Parts {
-        // Settings → Merge requests: the ways in, looked for again each time it opens.
+        // Settings → Accounts, in the section and as Settings' search shows it, live (#203): the hosts are read
+        // again each time it opens.
         settings: vec![
-            artoo_shell_api::settings::Rows::new(artoo_hosts_api::connect::SETTINGS, 0, rows)
-                .hit("Hosts and their tokens", hit)
-                .opened(move |cx| {
-                    let (handle, frame) = (looked.clone(), looking.clone());
-                    // Inside the tab's update: where the tab is, read once it is over.
-                    cx.defer(move |cx| handle.look(here(&*frame, cx), cx));
-                }),
+            artoo_shell_api::settings::Rows::new(
+                artoo_hosts_api::connect::SETTINGS,
+                0,
+                accounts.clone(),
+            )
+            .hit("Hosts and their tokens", accounts)
+            .opened(move |cx| {
+                read.update(cx, |a, cx| a.read_again(cx)).ok();
+            }),
         ],
-        inputs: vec![input(&panel)],
+        inputs: vec![input(&fields)],
         snapshots: vec![
             (
                 "ssh-make",
@@ -1894,9 +1855,15 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, cx: &mut App) -> artoo_shell_api::Part
                 }),
             ),
             (
+                "accounts-open",
+                Rc::new(move |_, cx| {
+                    open.update(cx, |a, cx| a.snapshot_open(None, cx)).ok();
+                }),
+            ),
+            (
                 "ways-settings",
                 Rc::new(move |_, cx| {
-                    pick.update(cx, |p, _| p.connecting.pick = Some("ssh".to_owned()))
+                    pick.update(cx, |a, cx| a.snapshot_open(Some("ssh"), cx))
                         .ok();
                 }),
             ),

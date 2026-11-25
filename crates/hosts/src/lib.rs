@@ -2,6 +2,7 @@
 //! welcome's way of connecting one (`welcome`), people's and comments' pictures. GitLab's side (`gitlab`) and GitHub's (`github`) implement the hosts' contract
 //! (`hosts`), neither reaching into the other; what both use has its own module (`tokens`, `fixture`, `json`).
 
+mod accounts;
 pub(crate) mod avatars;
 mod connect;
 mod fixture;
