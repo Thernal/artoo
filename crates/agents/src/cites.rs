@@ -154,8 +154,12 @@ mod tests {
 
     fn folder() -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!("artoo-cites-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("src")).unwrap();
-        std::fs::write(dir.join("src/login.rs"), "a\nb\nc\nd\ne\nf\n").unwrap();
+        // Written once: the tests run side by side, and one writing it again would empty it under another's read.
+        static WRITTEN: std::sync::Once = std::sync::Once::new();
+        WRITTEN.call_once(|| {
+            std::fs::create_dir_all(dir.join("src")).unwrap();
+            std::fs::write(dir.join("src/login.rs"), "a\nb\nc\nd\ne\nf\n").unwrap();
+        });
         dir
     }
 
