@@ -675,20 +675,22 @@ impl Requests {
         }));
     }
 
-    /// Rebases the open request on GitLab (#244): GitLab answers at once and rebases in the background, so the bar says
-    /// Rebasing… while the request, read again every `REBASE_EVERY`, says it is; then where merging stands is shown and
-    /// `Event::Rebased` has the tab read its commits, or GitLab's reason it failed comes as `Event::Failed`.
-    pub fn run_rebase(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+    /// Rebases the open request on GitLab (#244), without a pipeline when `skip_ci` (#245, the project's way from now
+    /// on): GitLab answers at once and rebases in the background, so the bar says Rebasing… while the request, read
+    /// again every `REBASE_EVERY`, says it is; then where merging stands is shown and `Event::Rebased` has the tab read
+    /// its commits, or GitLab's reason it failed comes as `Event::Failed`.
+    pub fn run_rebase(&mut self, host: Arc<dyn Host>, skip_ci: bool, cx: &mut Context<Self>) {
         use crate::merge::{REBASE_EVERY, REBASE_READS, Rebased, rebased};
         let Some(iid) = self.current else {
             return;
         };
+        self.rows.keep_skip_ci(skip_ci);
         self.merge_busy = Some(crate::bar::REBASING);
         self.merge_task = Some(cx.spawn(async move |this, cx| {
             let calling = host.clone();
             let mut result = cx
                 .background_executor()
-                .spawn(async move { calling.rebase(iid).map(|_| None) })
+                .spawn(async move { calling.rebase(iid, skip_ci).map(|_| None) })
                 .await;
             for _ in 0..REBASE_READS {
                 if !matches!(result, Ok(None) | Ok(Some((_, Rebased::Waiting)))) {

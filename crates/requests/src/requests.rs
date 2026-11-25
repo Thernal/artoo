@@ -965,8 +965,12 @@ impl artoo_requests_api::Requests for Handle {
         self.with_host(cx, |rq, host, cx| rq.run_merge(host, cx));
     }
 
-    fn rebase(&self, cx: &mut App) {
-        self.with_host(cx, |rq, host, cx| rq.run_rebase(host, cx));
+    fn rebase(&self, skip_ci: bool, cx: &mut App) {
+        self.with_host(cx, |rq, host, cx| rq.run_rebase(host, skip_ci, cx));
+    }
+
+    fn rebase_skips_ci(&self, cx: &App) -> bool {
+        (self.0.upgrade()).is_some_and(|rq| rq.read(cx).rows.skip_ci)
     }
 
     fn cancel_auto_merge(&self, cx: &mut App) {

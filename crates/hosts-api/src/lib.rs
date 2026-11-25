@@ -316,8 +316,8 @@ pub trait Merging: Send + Sync {
     fn cancel_auto_merge(&self, iid: u64, node: &str) -> Result<()>;
 
     /// GitLab puts the request's commits on top of its target, in the background (`MergeState::rebasing` until it is
-    /// done, #244); the pipeline runs again.
-    fn rebase(&self, iid: u64) -> Result<()>;
+    /// done, #244); the pipeline runs again unless `skip_ci` (GitLab's Rebase without pipeline, #245).
+    fn rebase(&self, iid: u64, skip_ci: bool) -> Result<()>;
 }
 
 #[derive(Default)]

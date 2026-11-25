@@ -5,7 +5,8 @@ use crate::merge::Stand;
 use crate::requests::{Act, Acts, Requests};
 use crate::waiting::FADED;
 use artoo_hosts_api::Pipeline;
-use artoo_ui_kit::controls::{bar_button, glyph_button};
+use artoo_requests_api::rebase_way;
+use artoo_ui_kit::controls::{bar_button, drop_button, glyph_button};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::hover::{self, TipOwned};
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme, words};
@@ -293,15 +294,43 @@ impl Requests {
                         .tooltip_show_delay(hover::LONG)
                         .tooltip(move |_, cx| {
                             let tip = format!(
-                                "{target} moved on since this branch left it. GitLab puts the commits on top of it; the pipeline runs again."
+                                "{target} moved on since this branch left it. GitLab puts the commits on top of it."
                             );
                             cx.new(|_| TipOwned(tip.into())).into()
                         }),
                 )
-                .child(
-                    bar_button("bar-rebase", "Rebase", "", true)
-                        .on_click(move |_: &ClickEvent, _, cx| acts(Act::Rebase, cx)),
-                )
+                // The way taken last is the button's own, the other under its ▾ (#245, Design `mstate=rebase`).
+                .child({
+                    let skip_ci = self.rows.skip_ci;
+                    let (label, runs) = rebase_way(skip_ci);
+                    let tip: SharedString = format!("{label} · {}", runs.to_lowercase()).into();
+                    let ways = acts.clone();
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(1.))
+                        .child(
+                            glyph_button("bar-rebase", "refresh", label, true)
+                                .rounded_r(px(0.))
+                                .tooltip_show_delay(hover::LONG)
+                                .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone())).into())
+                                .on_click(move |_: &ClickEvent, _, cx| {
+                                    acts(Act::Rebase(skip_ci), cx)
+                                }),
+                        )
+                        .child(
+                            drop_button("bar-rebase-ways", true)
+                                .tooltip_show_delay(hover::LONG)
+                                .tooltip(|_, cx| {
+                                    cx.new(|_| TipOwned("The other way to rebase".into())).into()
+                                })
+                                .on_click(move |e: &ClickEvent, _, cx| {
+                                    let at = e.position();
+                                    ways(Act::RebaseWays(Point::new(at.x - px(280.), at.y + px(18.))), cx)
+                                }),
+                        )
+                })
                 .into_any_element(),
             Stand::Auto => row()
                 .child(icons::icon("clock").size(px(14.)).text_color(theme::added()))

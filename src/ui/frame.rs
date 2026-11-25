@@ -336,6 +336,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::zen_one_file))
             .on_action(cx.listener(Self::set_up))
             .on_action(cx.listener(Self::merge_request))
+            .on_action(cx.listener(Self::rebase_with_pipeline))
+            .on_action(cx.listener(Self::rebase_without_pipeline))
             .on_action(cx.listener(Self::copy_selection))
             .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::next_change))

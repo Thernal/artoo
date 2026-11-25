@@ -78,6 +78,20 @@ pub fn glyph_button(
         .child(words::say(label).into_owned())
 }
 
+/// A split button's ▾ (Design `cn-split`): a chevron alone in the button's ink, its corners at the left square, set
+/// beside a `bar_button` or `glyph_button` whose corners at the right are.
+pub fn drop_button(id: &'static str, primary: bool) -> gpui::Stateful<gpui::Div> {
+    let ink = if primary {
+        theme::on_accent()
+    } else {
+        theme::text()
+    };
+    button_frame(id, primary)
+        .px(px(6.))
+        .rounded_l(px(0.))
+        .child(icons::icon("chevron").size(px(13.)).text_color(ink))
+}
+
 fn button_frame(id: &'static str, primary: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)

@@ -4,6 +4,7 @@
 //! it over itself. What the window lists and does is the shell's; the tab's own lists are `palette_lists`.
 
 use super::Workspace;
+use artoo_requests_api::Stand;
 use artoo_shell_api::search::SearchWindow;
 use gpui::{AnyView, App, Context, KeyDownEvent, Window};
 use std::rc::Rc;
@@ -118,13 +119,18 @@ impl Workspace {
                 if self.thread_at.is_some() {
                     here.extend(["requests.reply", "requests.resolve"]);
                 }
-                here.extend([
-                    "requests.approve",
-                    "requests.submit",
-                    "requests.merge",
-                    "shell.copy-link",
-                    "requests.next",
-                ]);
+                here.extend(["requests.approve", "requests.submit", "requests.merge"]);
+                // GitLab's two rebases while it is behind (#245), the way taken last first.
+                if let Some(requests) = self.requests_api()
+                    && matches!(requests.merge_stand(cx), Some(Stand::Rebase(_)))
+                {
+                    let ways = ["requests.rebase-without-pipeline", "requests.rebase"];
+                    match requests.rebase_skips_ci(cx) {
+                        true => here.extend(ways),
+                        false => here.extend(ways.into_iter().rev()),
+                    }
+                }
+                here.extend(["shell.copy-link", "requests.next"]);
                 here
             }
             (_, Some(Page::Branch(_))) => vec![

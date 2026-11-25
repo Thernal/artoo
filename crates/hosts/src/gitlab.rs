@@ -1583,12 +1583,25 @@ pub fn cancel_auto_merge(remote: &WebRemote, iid: u64) -> Result<()> {
 }
 
 /// GitLab puts the request's commits on top of its target, in the background: it answers 202 and the request says
-/// `rebase_in_progress` until it is done (#244). The pipeline runs again.
-pub fn rebase(remote: &WebRemote, iid: u64) -> Result<()> {
-    if record(format!("rebase {iid}"))? {
+/// `rebase_in_progress` until it is done (#244). The pipeline runs again, unless `skip_ci` (#245).
+pub fn rebase(remote: &WebRemote, iid: u64, skip_ci: bool) -> Result<()> {
+    let line = match skip_ci {
+        true => format!("rebase {iid} skip_ci"),
+        false => format!("rebase {iid}"),
+    };
+    if record(line)? {
         return Ok(());
     }
-    call(remote, &format!("merge_requests/{iid}/rebase"), "PUT", &[])?;
+    let form = match skip_ci {
+        true => vec![("skip_ci", "true".to_owned())],
+        false => Vec::new(),
+    };
+    call(
+        remote,
+        &format!("merge_requests/{iid}/rebase"),
+        "PUT",
+        &form,
+    )?;
     Ok(())
 }
 

@@ -332,8 +332,8 @@ impl Merging for GitLab {
         gitlab::cancel_auto_merge(&self.remote, iid)
     }
 
-    fn rebase(&self, iid: u64) -> Result<()> {
-        gitlab::rebase(&self.remote, iid)
+    fn rebase(&self, iid: u64, skip_ci: bool) -> Result<()> {
+        gitlab::rebase(&self.remote, iid, skip_ci)
     }
 }
 
@@ -582,7 +582,7 @@ impl Merging for GitHub {
         github::cancel_auto_merge(&self.remote, iid, node)
     }
 
-    fn rebase(&self, _iid: u64) -> Result<()> {
+    fn rebase(&self, _iid: u64, _skip_ci: bool) -> Result<()> {
         bail!("GitHub cannot rebase a pull request from here: update the branch on GitHub")
     }
 }

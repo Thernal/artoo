@@ -13,6 +13,8 @@ use gpui::{Context, KeyDownEvent, Pixels, Point};
 
 /// The width of the list of reasons: each says what and why on one line.
 const REASONS_WIDTH: f32 = 320.;
+/// Rebase's ▾, its rows two lines each (Design `mg-rbmenu`).
+const REBASE_WAYS_WIDTH: f32 = 300.;
 
 impl Workspace {
     /// The open repository's host is GitHub: its words in what an action writes, before a frame
@@ -142,11 +144,38 @@ impl Workspace {
         }
     }
 
-    /// Rebase: GitLab puts the commits on top of the target, and the pipeline runs again.
-    pub(super) fn rebase_request(&mut self, cx: &mut Context<Self>) {
-        if let Some(requests) = self.requests_api() {
-            requests.rebase(cx);
+    /// Rebase: GitLab puts the commits on top of the target; the pipeline runs again unless `skip_ci` (Rebase without
+    /// pipeline, #245). Only while the request is behind on GitLab.
+    pub(super) fn rebase_request(&mut self, skip_ci: bool, cx: &mut Context<Self>) {
+        if let Some(requests) = self.requests_api()
+            && matches!(requests.merge_stand(cx), Some(Stand::Rebase(_)))
+        {
+            requests.rebase(skip_ci, cx);
         }
+    }
+
+    /// Rebase's ▾ (#245, Design `rmenu=1`): GitLab's two ways, the one taken last ticked, each saying whether the
+    /// pipeline runs again.
+    pub(super) fn open_rebase_ways(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let Some(requests) = self.requests_api() else {
+            return;
+        };
+        let last = requests.rebase_skips_ci(cx);
+        let entries = [true, false]
+            .into_iter()
+            .map(|skip_ci| {
+                let (label, runs) = artoo_requests_api::rebase_way(skip_ci);
+                Entry::new(
+                    label,
+                    Act::new(move |this, _, cx| this.rebase_request(skip_ci, cx)),
+                )
+                .checked(skip_ci == last)
+                .under(runs)
+            })
+            .collect();
+        self.ctx_menu.update(cx, |m, cx| {
+            m.open(at, vec![(None, entries)], REBASE_WAYS_WIDTH, cx)
+        });
     }
 
     /// GitLab finished rebasing request `iid` (#244): the page is read again in place, and its versions, whose new

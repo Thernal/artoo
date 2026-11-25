@@ -722,6 +722,22 @@ impl Workspace {
         };
         let tab = cx.weak_entity();
         let mut rows = Vec::new();
+        // GitLab's two rebases (#245), the way taken last first; each says whether the pipeline runs again.
+        if let Some(requests) = self.requests_api()
+            && let Some(Stand::Rebase(behind)) = requests.merge_stand(cx)
+        {
+            let last = requests.rebase_skips_ci(cx);
+            for skip_ci in [last, !last] {
+                let (label, runs) = artoo_requests_api::rebase_way(skip_ci);
+                rows.push(
+                    MenuItem::new(
+                        format!("{label} · {behind} behind"),
+                        on_tab(&tab, move |this, cx| this.rebase_request(skip_ci, cx)),
+                    )
+                    .under(runs),
+                );
+            }
+        }
         if let (Some(web), Ok(link)) = (
             self.web.as_ref(),
             self.route_link(&RequestRoute { number: *iid }.route(), false, cx),
@@ -755,10 +771,8 @@ fn merge_row(stand: Option<Stand>, tab: &WeakEntity<Workspace>) -> Option<MenuIt
             on_tab(tab, |this, cx| this.open_merge(cx)),
         ),
         Stand::Checking => MenuItem::off("Merge · checking"),
-        Stand::Rebase(behind) => MenuItem::new(
-            format!("Rebase · {behind} behind"),
-            on_tab(tab, |this, cx| this.rebase_request(cx)),
-        ),
+        // Both ways are rows of `⋯` of their own (`more_of`), folded or not.
+        Stand::Rebase(_) => return None,
         Stand::Running | Stand::Ready => {
             MenuItem::new("Merge…", on_tab(tab, |this, cx| this.open_merge(cx)))
         }

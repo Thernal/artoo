@@ -100,7 +100,31 @@ pub struct Rows {
     chosen: bool,
     /// `Display ▾`: how the rows are grouped and ordered.
     pub display: (GroupBy, SortBy),
+    /// The way GitLab rebased last in this project (#245): without a pipeline, or with one.
+    pub skip_ci: bool,
     kept_of: Option<String>,
+}
+
+/// Each project's way to rebase taken last (#245): `<repo>\tskip_ci` or `<repo>\tpipeline`.
+const REBASE_FILE: &str = "rebase-ways.txt";
+
+/// Whether `repo` rebased without a pipeline last, as `text` keeps it.
+fn kept_skip_ci(text: &str, repo: &str) -> bool {
+    text.lines()
+        .filter_map(|l| l.split_once('\t'))
+        .any(|(r, way)| r == repo && way == "skip_ci")
+}
+
+/// `text` with `repo`'s way set to `skip_ci`'s, the other projects' kept.
+fn with_skip_ci(text: &str, repo: &str, skip_ci: bool) -> String {
+    let mut out: String = (text.lines())
+        .filter(|l| l.split_once('\t').is_none_or(|(r, _)| r != repo))
+        .filter(|l| !l.is_empty())
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let way = if skip_ci { "skip_ci" } else { "pipeline" };
+    out.push_str(&format!("{repo}\t{way}\n"));
+    out
 }
 
 /// A request read before its update was kept: nothing it has is new.
@@ -121,10 +145,22 @@ impl Rows {
             (kept.folded, kept.read, kept.chosen, kept.display);
         // Another project: its own requests' facts, as they were last read.
         self.facts = kept_facts(&storage::read(FACTS_FILE), repo);
+        self.skip_ci = kept_skip_ci(&storage::read(REBASE_FILE), repo);
         self.reading.clear();
         self.queue.clear();
         self.previews.clear();
         self.kept_of = Some(repo.to_owned());
+    }
+
+    /// The project rebases `skip_ci`'s way from now on, after a restart too (#245).
+    pub fn keep_skip_ci(&mut self, skip_ci: bool) {
+        self.skip_ci = skip_ci;
+        if let Some(repo) = &self.kept_of {
+            storage::save(
+                REBASE_FILE,
+                with_skip_ci(&storage::read(REBASE_FILE), repo, skip_ci),
+            );
+        }
     }
 
     /// The project whose list this is (`load`'s key): where the open list is kept on disk.
@@ -1673,6 +1709,19 @@ fn next_to_review(open: &[bool], at: Option<usize>) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_way_a_project_rebased_last_is_kept_on_its_own_line() {
+        // None kept: the plain Rebase, as GitLab's own button.
+        assert!(!kept_skip_ci("", "/a"));
+        let text = with_skip_ci("/b\tpipeline\n", "/a", true);
+        assert!(kept_skip_ci(&text, "/a"));
+        assert!(!kept_skip_ci(&text, "/b"));
+        // Taken the other way: the line is the project's alone, the others kept.
+        let text = with_skip_ci(&text, "/a", false);
+        assert_eq!(text, "/b\tpipeline\n/a\tpipeline\n");
+        assert!(!kept_skip_ci(&text, "/a"));
+    }
 
     #[test]
     fn a_projects_folds_reads_and_display_are_kept_on_its_own_line() {

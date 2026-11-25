@@ -294,6 +294,15 @@ pub enum Event {
     Noticed(Vec<News>),
 }
 
+/// GitLab's two rebases (#245): the words of each, and whether the pipeline runs again, as Rebase's button, its ▾,
+/// `⋯` and ⌘K say it.
+pub fn rebase_way(skip_ci: bool) -> (&'static str, &'static str) {
+    match skip_ci {
+        true => ("Rebase without pipeline", "The pipeline does not run again"),
+        false => ("Rebase", "The pipeline runs again"),
+    }
+}
+
 /// What a view of the requests asks the tab (`Acts`).
 pub enum Act {
     /// `a`: approve the request open, or take one's approval back.
@@ -302,8 +311,10 @@ pub enum Act {
     MergeReasons(gpui::Point<gpui::Pixels>),
     /// The card before a merge goes.
     OpenMerge,
-    /// The host puts the request's commits on top of its target.
-    Rebase,
+    /// The host puts the request's commits on top of its target; without a pipeline when `true` (#245).
+    Rebase(bool),
+    /// Rebase's ▾: GitLab's two ways, at a window position (#245).
+    RebaseWays(gpui::Point<gpui::Pixels>),
     /// Merging when the pipeline succeeds is cancelled.
     CancelAutoMerge,
     /// Your reaction `name` on note `note`, added or taken back.
@@ -824,7 +835,9 @@ pub trait Requests {
     /// pipeline succeeds cancelled.
     fn reload_merge(&self, cx: &mut App);
     fn run_merge(&self, cx: &mut App);
-    fn rebase(&self, cx: &mut App);
+    fn rebase(&self, skip_ci: bool, cx: &mut App);
+    /// The open project rebased without a pipeline last (#245): the way Rebase's button takes.
+    fn rebase_skips_ci(&self, cx: &App) -> bool;
     fn cancel_auto_merge(&self, cx: &mut App);
 
     /// The host merged request `number` (`merge` what was sent), or set it to merge when the pipeline succeeds:

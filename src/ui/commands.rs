@@ -776,6 +776,22 @@ pub(super) fn own() -> Vec<Action> {
             .icon("merge")
             .here("Merge…")
             .order(at(55)),
+        // GitLab's two rebases (#245), in Here while the request is behind.
+        Action::new("requests.rebase", RebaseRequest)
+            .heading(Heading::Requests)
+            .words("Rebase this merge request")
+            .icon("refresh")
+            .here("Rebase")
+            .order(at(56)),
+        Action::new(
+            "requests.rebase-without-pipeline",
+            RebaseRequestWithoutPipeline,
+        )
+        .heading(Heading::Requests)
+        .words("Rebase this merge request without pipeline")
+        .icon("refresh")
+        .here("Rebase without pipeline")
+        .order(at(57)),
     ]
 }
 

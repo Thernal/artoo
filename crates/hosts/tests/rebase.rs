@@ -60,16 +60,29 @@ const REBASE: &str =
 fn a_rebase_answered_202_with_its_body_is_taken() {
     let (seen, done) = sent(
         |_| answer(202, r#"{"rebase_in_progress":true}"#),
-        |host| host.rebase(398),
+        |host| host.rebase(398, false),
     );
     assert!(done.is_ok(), "{done:?}");
     assert_eq!(seen, [REBASE]);
 }
 
 #[test]
+fn rebase_without_pipeline_sends_skip_ci() {
+    let (seen, done) = sent(
+        |_| answer(202, r#"{"rebase_in_progress":true}"#),
+        |host| host.rebase(398, true),
+    );
+    assert!(done.is_ok(), "{done:?}");
+    assert_eq!(seen, [format!("{REBASE}skip_ci=true")]);
+}
+
+#[test]
 fn a_2xx_without_a_body_or_unknown_is_success_too() {
     for (status, body) in [(202, ""), (200, ""), (204, ""), (299, "accepted")] {
-        let (_, done) = sent(move |_| answer(status, body), |host| host.rebase(398));
+        let (_, done) = sent(
+            move |_| answer(status, body),
+            |host| host.rebase(398, false),
+        );
         assert!(done.is_ok(), "{status} {body:?}: {done:?}");
     }
 }
@@ -78,7 +91,7 @@ fn a_2xx_without_a_body_or_unknown_is_success_too() {
 fn a_refusal_is_still_an_error() {
     let (_, done) = sent(
         |_| answer(409, r#"{"message":"Rebase is already in progress"}"#),
-        |host| host.rebase(398),
+        |host| host.rebase(398, false),
     );
     assert!(
         done.unwrap_err()

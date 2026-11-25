@@ -146,6 +146,8 @@ actions!(
         ZenOneFile,
         SetUp,
         MergeRequest,
+        RebaseRequest,
+        RebaseRequestWithoutPipeline,
         CopySelection,
         SelectAll,
         NextChange,
@@ -2926,6 +2928,20 @@ impl Workspace {
     /// ⌘K's Merge this merge request (#164): the card, or what is in the way.
     fn merge_request(&mut self, _: &MergeRequest, _: &mut Window, cx: &mut Context<Self>) {
         self.open_merge(cx);
+    }
+
+    /// ⌘K's Rebase and Rebase without pipeline (#245): while the request is behind on GitLab.
+    fn rebase_with_pipeline(&mut self, _: &RebaseRequest, _: &mut Window, cx: &mut Context<Self>) {
+        self.rebase_request(false, cx);
+    }
+
+    fn rebase_without_pipeline(
+        &mut self,
+        _: &RebaseRequestWithoutPipeline,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.rebase_request(true, cx);
     }
 
     /// ⌥⌘.: zen with one file at a time, at a reading width (#55); outside zen it enters zen so.
