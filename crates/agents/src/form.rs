@@ -481,6 +481,7 @@ fn option_rows(
                 .id(("form-option", id as usize * 64 + i))
                 .flex()
                 .flex_col()
+                .min_w_0()
                 .gap(px(4.))
                 .px(px(8.))
                 .py(px(6.))
@@ -500,13 +501,24 @@ fn option_rows(
                                 .child((place + 1).to_string()),
                         )
                         .children((!order_kind).then(|| mark(on, many)))
-                        .child(div().flex_1().min_w_0().child(o.label.clone()))
-                        .children((!o.detail.is_empty()).then(|| {
+                        // The label and its detail stacked, both wrapping inside the row: a detail of a few
+                        // sentences ran out of it on one line (report R-C7D616).
+                        .child(
                             div()
-                                .text_size(px(12.))
-                                .text_color(theme::muted())
-                                .child(o.detail.clone())
-                        }))
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .child(div().min_w_0().child(o.label.clone()))
+                                .children((!o.detail.is_empty()).then(|| {
+                                    div()
+                                        .min_w_0()
+                                        .text_size(px(12.))
+                                        .text_color(theme::muted())
+                                        .child(o.detail.clone())
+                                })),
+                        )
                         .children(order_kind.then(|| {
                             div()
                                 .flex()
@@ -540,6 +552,7 @@ fn option_rows(
                 .children((!o.code.is_empty()).then(|| {
                     div()
                         .ml(px(38.))
+                        .min_w_0()
                         .px(px(10.))
                         .py(px(6.))
                         .rounded(px(6.))
