@@ -446,6 +446,17 @@ impl Repo {
         out
     }
 
+    /// Whether git ignores the file at `path` (from the root): an ignore rule applies and the index does not
+    /// track it. Code's list never has such a file.
+    pub fn ignores(&self, path: &str) -> bool {
+        let path = Path::new(path);
+        let tracked = self
+            .inner
+            .index()
+            .is_ok_and(|index| index.get_path(path, 0).is_some());
+        !tracked && self.inner.status_should_ignore(path).unwrap_or(false)
+    }
+
     /// The working tree's files, up to `limit`: what the index tracks and is still on disk, and
     /// what is new and not ignored — git's own `.gitignore` (Code's tree, #75).
     pub fn working_files(&self, limit: usize) -> Vec<String> {

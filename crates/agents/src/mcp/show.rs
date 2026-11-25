@@ -80,6 +80,12 @@ fn file(
         }
         return Err(format!("{path} is not a file of this project."));
     };
+    // Code lists the index and the new files git does not ignore: an ignored file has no place there.
+    if Repo::open(project).is_ok_and(|repo| repo.ignores(&path)) {
+        return Err(format!(
+            "{path} is ignored by git, and Code does not list it: Artoo cannot show it. Nothing was pointed at; put the text in the chat or in a file git does not ignore."
+        ));
+    }
     if let Some(line) = line {
         let lines = text.split(|&b| b == b'\n').count() - usize::from(text.ends_with(b"\n"));
         if line == 0 || line as usize > lines {
@@ -124,5 +130,19 @@ mod tests {
                 .unwrap_err()
                 .contains("not a file")
         );
+    }
+
+    #[test]
+    fn a_file_git_ignores_is_not_pointed_at() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let root = dir.path();
+        git2::Repository::init(root).unwrap();
+        std::fs::write(root.join(".gitignore"), "notes/\n").unwrap();
+        std::fs::create_dir_all(root.join("notes")).unwrap();
+        std::fs::write(root.join("notes/mr.md"), "text\n").unwrap();
+        std::fs::write(root.join("kept.md"), "text\n").unwrap();
+        let said = file(root, root, "notes/mr.md", Some(1)).unwrap_err();
+        assert!(said.contains("ignored by git"), "{said}");
+        assert!(file(root, root, "kept.md", Some(1)).is_ok());
     }
 }
