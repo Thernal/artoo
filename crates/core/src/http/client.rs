@@ -318,6 +318,12 @@ fn from_read(e: &std::io::Error, host: &str) -> HttpError {
     error(&ureq::Error::Io(inner), host)
 }
 
+/// Whether the name did not resolve, which has no `io::ErrorKind` of its own: Unix gives `getaddrinfo`'s words,
+/// Windows the Winsock code (host not found, try again, no recovery, no data), which no Unix `errno` reaches.
+fn unresolved(io: &std::io::Error) -> bool {
+    io.to_string().contains("lookup address") || matches!(io.raw_os_error(), Some(11001..=11004))
+}
+
 /// The words and kind of what went wrong before an answer.
 fn error(e: &ureq::Error, host: &str) -> HttpError {
     use ureq::Error as E;
@@ -334,8 +340,7 @@ fn error(e: &ureq::Error, host: &str) -> HttpError {
             | std::io::ErrorKind::NetworkUnreachable
             | std::io::ErrorKind::UnexpectedEof
             | std::io::ErrorKind::BrokenPipe => Kind::Offline,
-            // A name that did not resolve has no kind of its own (`getaddrinfo`'s words).
-            _ if io.to_string().contains("lookup address") => Kind::Offline,
+            _ if unresolved(io) => Kind::Offline,
             _ => Kind::Failed,
         },
         E::Tls(_) | E::Pem(_) | E::Rustls(_) => Kind::Tls,
