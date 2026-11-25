@@ -294,9 +294,25 @@ impl Notices {
 
     /// `key` looked at: no longer bold, not counted.
     pub fn mark_read(&mut self, key: String) {
-        if self.read.insert(key) {
+        if self.read_one(key) {
             self.save_read();
         }
+    }
+
+    /// `key` is read; while the Inbox is on screen its row stays under New. Whether it was not before.
+    fn read_one(&mut self, key: String) -> bool {
+        if self.read.contains(&key) {
+            return false;
+        }
+        if self.current.watched {
+            self.current.read_here.insert(key.clone());
+        }
+        self.read.insert(key)
+    }
+
+    /// Whether `key`'s row is listed under New: not read, or read since the Inbox came on screen.
+    pub fn under_new(&self, key: &str) -> bool {
+        !self.is_read(key) || self.current.read_here.contains(key)
     }
 
     /// The notices listed: those of a kind whose Inbox is on (#196).
@@ -511,13 +527,31 @@ impl Notices {
             return None;
         }
         let n = self.list.remove(ix);
+        let new = self.under_new(&n.key);
         if let Some(held) = self.current.held.as_mut() {
             held.retain(|m| m.key != n.key);
         }
         self.pending_done.insert(n.key.clone());
+        if self.at == ix {
+            self.at = self.shown_after(ix, new);
+        } else if self.at > ix {
+            self.at -= 1;
+        }
         self.at = self.at.min(self.list.len().saturating_sub(1));
         self.current.leave(n.clone(), Instant::now());
         Some(n)
+    }
+
+    /// The row shown after the one just taken from `ix` of group `new`: the next of its group; after New's last, the
+    /// first read one; else the one before it.
+    fn shown_after(&self, ix: usize, new: bool) -> usize {
+        let len = self.list.len();
+        let same = |i: &usize| self.under_new(&self.list[*i].key) == new;
+        (ix..len)
+            .find(same)
+            .or_else(|| new.then(|| (0..len).find(|i| !same(i))).flatten())
+            .or_else(|| (0..ix.min(len)).rev().find(same))
+            .unwrap_or(ix)
     }
 
     /// Notice `n` of project `base` is done at its source: a discussion resolved is known, a comment counts as read
@@ -564,7 +598,9 @@ impl Notices {
     /// Everything listed, and the `others` (an agent's answers in the Inbox), counts as read.
     pub fn read_all(&mut self, others: impl IntoIterator<Item = String>) {
         let keys: Vec<String> = self.list.iter().map(|n| n.key.clone()).collect();
-        self.read.extend(keys.into_iter().chain(others));
+        for key in keys.into_iter().chain(others) {
+            self.read_one(key);
+        }
         self.save_read();
     }
 

@@ -8,7 +8,7 @@ use artoo_core::markdown::plain;
 use artoo_ui_kit::controls::bar_button;
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine, excerpt_view};
 use artoo_ui_kit::hover::{self, CutInTip, Hover as _, RowTip};
-use artoo_ui_kit::{ROW_RADIUS, discussion, format, icons, motion, px, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, discussion, format, icons, monogram, motion, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Div, FontWeight, Stateful, div, prelude::*};
 
 /// What an answer is drawn with and a click on it asks, the contract's.
@@ -65,7 +65,7 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
         .id(("inbox-agent", id as usize))
         .mx(px(6.))
         .px(px(10.))
-        .py(px(8.))
+        .py(px(10.))
         .flex()
         .items_start()
         .gap(px(10.))
@@ -77,7 +77,7 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
         .child(motion::toward(
             div()
                 .flex_none()
-                .mt(px(6.))
+                .mt(px(6.5))
                 .size(px(7.))
                 .rounded_full()
                 .bg(theme::agent()),
@@ -112,7 +112,9 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                 .child(
                     div()
                         .flex()
+                        .items_center()
                         .gap_2()
+                        .line_height(px(20.))
                         .child(motion::toward(
                             div()
                                 .flex_1()
@@ -125,6 +127,16 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                             discussion::unread_title,
                         ))
                         .child(
+                            monogram::source_badge(
+                                ("inbox-agent-from", id as usize),
+                                "",
+                                Some("bot"),
+                                theme::agent(),
+                                "Agents",
+                            )
+                            .mr(px(2.)),
+                        )
+                        .child(
                             format::time_cell(at)
                                 .text_size(px(11.))
                                 .text_color(theme::faint()),
@@ -134,6 +146,7 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                     div()
                         .cut_in_tip()
                         .text_size(px(12.))
+                        .line_height(px(16.))
                         .text_color(theme::muted())
                         .child(gist)
                 })),

@@ -1,8 +1,9 @@
 //! A monogram: up to two letters of a name on a tint of a colour of its own, in a rounded square (a repository's
 //! in the rail).
 
-use crate::{px, theme};
-use gpui::{FontWeight, Rgba, div, prelude::*};
+use crate::hover::Hover as _;
+use crate::{icons, px, theme};
+use gpui::{ElementId, FontWeight, Rgba, div, prelude::*};
 
 /// Up to two letters for a name: the first of its first two words.
 pub fn initials(name: &str) -> String {
@@ -29,6 +30,50 @@ pub fn hue(name: &str) -> Rgba {
 /// A colour at `degrees` on the wheel, as bright as the code colours a name is given.
 pub fn hue_at(degrees: f32) -> Rgba {
     gpui::hsla(degrees.rem_euclid(360.) / 360., 0.62, 0.62, 1.).into()
+}
+
+/// A source's hue: the theme's colour the design gives it, else one of its own by name.
+pub fn source_hue(name: &str) -> Rgba {
+    match name {
+        "GitLab" => theme::code(7).into(),
+        "GitHub" => theme::muted(),
+        "Jira" => theme::code(2).into(),
+        "Sentry" => theme::code(8).into(),
+        "Slack" => theme::code(1).into(),
+        "Jenkins" => theme::code(5).into(),
+        "Confluence" => theme::code(3).into(),
+        "Linear" => theme::code(4).into(),
+        _ => hue(name),
+    }
+}
+
+/// Source `name`'s small mark at the end of an Inbox row, before its time: `mark`'s letters, or its glyph, on a tint
+/// of `hue`; the tooltip says `From <name>`.
+pub fn source_badge(
+    id: impl Into<ElementId>,
+    mark: &str,
+    glyph: Option<&'static str>,
+    hue: Rgba,
+    name: &str,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .size(px(14.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(5.))
+        .bg(Rgba { a: 0.22, ..hue })
+        .text_color(hue)
+        .text_size(px(8.))
+        .line_height(px(14.))
+        .font_weight(FontWeight::BOLD)
+        .map(|badge| match glyph {
+            Some(glyph) => badge.child(icons::icon(glyph).size(px(9.)).text_color(hue)),
+            None => badge.child(mark.to_owned()),
+        })
+        .tip(format!("From {name}"))
 }
 
 /// The rounded square with `mark`'s letters on a tint of `hue`.

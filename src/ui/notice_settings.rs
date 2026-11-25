@@ -1,6 +1,6 @@
 //! Settings → Notifications (#196, Design round 6 M4, round 7 K2): System notifications with where they come — or
 //! macOS's refusal and the way to its settings —, every kind of notice by its source with its three switches (the
-//! app's sources first, then `From plugins N` and a group per plugin under its name and letter mark), and the Dock's
+//! app's sources first, then a group per plugin under its name and a plug), and the Dock's
 //! count. The kinds are the registry's (`artoo_shell_api::notices`); what the person turns is kept there.
 
 use super::{Workspace, px, theme};
@@ -149,15 +149,10 @@ impl Workspace {
         // System's column is dim while nothing can reach the system.
         let system_off = !s.system_notifications || refused;
         let sources = notices::sources(cx);
-        let guests = sources.iter().filter(|s| s.guest).count();
         let mut table = div().flex().flex_col().pt(px(8.)).child(head(system_off));
-        let (mut rows, mut said) = (0, false);
+        let mut rows = 0;
+        // The plugins' groups come after the app's own, each marked with a plug.
         for source in &sources {
-            // Before the first plugin's group (the plugins' come last): what follows is theirs.
-            if source.guest && !said {
-                table = table.child(from_plugins(guests));
-                said = true;
-            }
             table = table.child(group_row(source));
             for kind in &source.kinds {
                 table = table.child(kind_row(kind, rows, system_off, cx));
@@ -235,25 +230,6 @@ fn head(system_off: bool) -> AnyElement {
         );
     }
     row.into_any_element()
-}
-
-/// `From plugins 3`: quiet, over the plugins' groups.
-fn from_plugins(n: usize) -> AnyElement {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(8.))
-        .pt(px(20.))
-        .pb(px(2.))
-        .text_size(px(11.))
-        .text_color(theme::faint())
-        .child(
-            div()
-                .font_weight(FontWeight::SEMIBOLD)
-                .child("FROM PLUGINS"),
-        )
-        .child(n.to_string())
-        .into_any_element()
 }
 
 /// A source's group: its name, a plugin's with its letter mark.

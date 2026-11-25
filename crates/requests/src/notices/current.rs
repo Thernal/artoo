@@ -16,7 +16,9 @@ pub struct Current {
     /// The list as the last read left it, while some of it waits to be shown.
     pub(super) held: Option<Vec<Notice>>,
     /// The Inbox is on screen: only then does a new notice wait.
-    watched: bool,
+    pub(super) watched: bool,
+    /// The keys read while it was: their rows stay under New until it is left.
+    pub(super) read_here: HashSet<String>,
     /// The rows just done, drawn on their way out, and when each was done.
     leaving: Vec<(Notice, Instant)>,
     /// The keys that just landed, and when.
@@ -114,7 +116,9 @@ impl Notices {
         }
         let landed = self.apply_held();
         self.current.landed = None;
-        landed
+        let moved = !self.current.read_here.is_empty();
+        self.current.read_here.clear();
+        landed || moved
     }
 
     /// Lists what a read found. While the Inbox shows a list, one with a new or a gone notice waits: the rows shown

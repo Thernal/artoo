@@ -17,7 +17,7 @@ use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::motion;
 use artoo_ui_kit::room::Heights;
-use artoo_ui_kit::{ROW_RADIUS, format, fresh, gap, icons, island, px, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, format, fresh, gap, icons, island, monogram, px, theme, words};
 use gpui::{
     Animation, AnimationExt, AnyElement, App, Bounds, ClickEvent, Div, Entity, FontWeight,
     MouseButton, MouseDownEvent, Pixels, SharedString, Stateful, canvas, div, prelude::*,
@@ -370,6 +370,7 @@ pub fn loading(width: f32) -> AnyElement {
             island()
                 .w(px(width))
                 .flex_none()
+                .child(head_box().child(tint(34., 8., 16.)))
                 .children(rows.map(|(title, gist)| skeleton_row(title, gist))),
         )
         .child(
@@ -397,7 +398,7 @@ fn skeleton_row(title: f32, gist: f32) -> Div {
     div()
         .mx(px(6.))
         .px(px(10.))
-        .py(px(8.))
+        .py(px(10.))
         .flex()
         .items_start()
         .gap(px(10.))
@@ -415,10 +416,11 @@ fn skeleton_row(title: f32, gist: f32) -> Div {
                         .flex()
                         .justify_between()
                         .gap_2()
-                        .child(tint(title, 8., 20.))
+                        .child(tint(title, 8., 20.).flex_1())
+                        .child(fresh::tint(px(14.).into(), 14.).mt(px(3.)).flex_none())
                         .child(tint(20., 8., 20.)),
                 )
-                .child(tint(gist, 8., 17.)),
+                .child(tint(gist, 8., 16.)),
         )
 }
 
@@ -550,7 +552,7 @@ pub fn source_mark(name: &str, mark: Option<&str>) -> String {
         (None, "GitHub") => "GH".to_owned(),
         (None, name) => {
             // One letter for one word (`Jira` is `J`), the first of each of two (`Merge requests`).
-            let letters = artoo_ui_kit::monogram::initials(name);
+            let letters = monogram::initials(name);
             letters
                 .chars()
                 .take(if name.contains([' ', '-', '_']) { 2 } else { 1 })
@@ -574,7 +576,7 @@ pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
             .bg(gpui::Rgba { a: 0.22, ..color })
             .child(icons::icon(name).size(px(12.)).text_color(color)),
         Face::Mark(mark, name) => {
-            let hue = artoo_ui_kit::monogram::hue(&name);
+            let hue = monogram::hue(&name);
             div()
                 .size(px(size_px))
                 .flex_none()
@@ -609,6 +611,27 @@ pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
         }))
 }
 
+/// A group's head in the list: `New 7`, the rows not read, and `Read` (round 16). A row read stays in its group
+/// until the Inbox is left.
+pub fn group_head(new: bool, unread: usize) -> AnyElement {
+    let name = match new {
+        true => counted("New", unread),
+        false => "Read".to_owned(),
+    };
+    head_box().child(name).into_any_element()
+}
+
+fn head_box() -> Div {
+    div()
+        .flex_none()
+        .px(px(16.))
+        .pt(px(12.))
+        .pb(px(6.))
+        .text_size(px(11.))
+        .line_height(px(16.))
+        .text_color(theme::faint())
+}
+
 /// What a row says besides its title: the tooltip (#202) names what happened, its source and exactly when, and,
 /// while the list is narrow, what was written, which the row then leaves out.
 fn tip_words(says: &str, source: &str, at: i64, text: &str, wide: bool) -> String {
@@ -629,6 +652,8 @@ struct RowDraw<'a> {
     /// The notice's key: what its motion to read is known by.
     key: &'a str,
     lead: Div,
+    /// Its source's mark and name (`GL`, `GitLab`): the small mark before the time.
+    from: (String, &'a str),
     /// What it is about; what happened when it is about nothing.
     title: String,
     at: i64,
@@ -645,6 +670,7 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         id,
         key,
         lead,
+        from: (mark, source),
         title,
         at,
         gist,
@@ -652,6 +678,13 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         project,
         look,
     } = row;
+    let from = monogram::source_badge(
+        SharedString::from(format!("inbox-from-{key}")),
+        &mark,
+        None,
+        monogram::source_hue(source),
+        source,
+    );
     let RowLook { fresh, on, wide } = look;
     let [title_cut, gist_cut, project_cut] = [(); 3].map(|_| WasCut::default());
     let mut cut: Vec<(Option<WasCut>, SharedString)> =
@@ -665,7 +698,7 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         .id(id)
         .mx(px(6.))
         .px(px(10.))
-        .py(px(8.))
+        .py(px(10.))
         .flex()
         .items_start()
         .gap(px(10.))
@@ -677,7 +710,7 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         .child(motion::toward(
             div()
                 .flex_none()
-                .mt(px(6.))
+                .mt(px(6.5))
                 .size(px(7.))
                 .rounded_full()
                 .bg(theme::accent()),
@@ -698,7 +731,9 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
                 .child(
                     div()
                         .flex()
+                        .items_center()
                         .gap_2()
+                        .line_height(px(20.))
                         .child(motion::toward(
                             hover::cut_in_row(title.clone(), title, &title_cut).flex_1(),
                             SharedString::from(format!("inbox-title-{key}")),
@@ -714,6 +749,7 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
                                 .text_size(px(11.))
                                 .text_color(theme::muted())
                         }))
+                        .child(from.mr(px(2.)))
                         .child(
                             format::time_cell(at)
                                 .text_size(px(11.))
@@ -723,6 +759,7 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
                 .children(gist.map(|gist| {
                     hover::cut_in_row(gist.clone(), gist, &gist_cut)
                         .text_size(px(12.))
+                        .line_height(px(16.))
                         .text_color(theme::muted())
                 })),
         )
@@ -776,6 +813,7 @@ pub fn notice_row(
         id: ("inbox-row", ix).into(),
         key: &n.key,
         lead: lead(face, badge, 20.),
+        from: (source_mark(source, None), source),
         title: format!("{} {}", words::number(n.iid), n.title),
         at: n.created,
         gist,
@@ -865,6 +903,7 @@ pub fn part_row(
         id: ("inbox-part", id).into(),
         key: &r.key,
         lead: lead(face, r.badge.or(badge), 20.),
+        from: (mark.to_owned(), source),
         title: if r.about.is_empty() {
             r.says.clone()
         } else {

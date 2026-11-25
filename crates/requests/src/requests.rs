@@ -1268,10 +1268,6 @@ impl artoo_requests_api::Requests for Handle {
         let (Some(view), Some(notices)) = (self.inbox(), self.notices()) else {
             return;
         };
-        // Picked while new, it stays under New until another is (#197).
-        let parts = self.shown(cx);
-        let answers = self.answers(cx);
-        let kept = row.filter(|&r| view.read(cx).is_new(r, notices.read(cx), &answers, &parts));
         // A part's row looked at: read, until its key changes (#196).
         let part = match row {
             Some(InboxRow::Part(id)) => (self.shown(cx).into_iter())
@@ -1280,7 +1276,6 @@ impl artoo_requests_api::Requests for Handle {
             _ => None,
         };
         view.update(cx, |v, cx| {
-            v.kept = kept;
             notices.update(cx, |n, _| {
                 crate::inbox::pick(row, v, n);
                 if let Some(key) = part {

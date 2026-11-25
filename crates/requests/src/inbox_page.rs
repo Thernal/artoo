@@ -1,13 +1,13 @@
 //! The Inbox, a place of the menu (#49), as the requests' page (Design L4, STYLE.md: "notifications listed, the
-//! selected one previewed and answerable"): the notifications on the left in one list, each two lines with a face or
-//! its source's mark (#197), the one selected on the right (`inbox_view`), its freshness in the head's slot (round 41);
+//! selected one previewed and answerable"): the notifications on the left, New then Read (round 16), each with a face,
+//! its source's mark before the time (#197), the one selected on the right (`inbox_view`), its freshness in the head's slot (round 41);
 //! Source ▾'s list over it while open. Among them your notes an
 //! agent answered (#116): which they are the agents say (`Agents::inbox_answers`, in the tab's services); their rows
 //! and previews, the composer and the answers to the clicks come through the tab's `InboxHost`.
 
 use crate::inbox::{InboxRow, InboxView};
 use crate::inbox_view::{self, NoticeLook, OnInbox, RowLook, notice_preview, notice_row};
-use crate::notices::Notices;
+use crate::notices::{Notice, Notices};
 use crate::requests::Requests;
 use artoo_agents_api::tab::Agents;
 use artoo_shell_api::{Frame, Pages, Screen};
@@ -281,20 +281,37 @@ impl InboxPage {
         let mut list: Vec<AnyElement> = Vec::new();
         let now = Instant::now();
         // The rows just done, each drawn before the first row older than it.
-        let mut gone = notices.leaving(now).into_iter().peekable();
+        let mut leaving: Vec<(bool, &Notice)> = (notices.leaving(now).into_iter())
+            .map(|n| (notices.under_new(&n.key), n))
+            .collect();
+        leaving.sort_by_key(|&(new, n)| std::cmp::Reverse((new, n.created)));
+        let mut gone = leaving.into_iter().peekable();
         let gone_row = |n| inbox_view::gone_row(n, named, wide, &self.heights);
-        // One list in time's order: a row read keeps its place (Design round 10, U4).
+        let unread = (rows.iter())
+            .filter(|&&r| view.is_fresh(r, notices, answers, parts))
+            .count();
+        // New, then Read (round 16): the head of a group before its first row.
+        let mut headed = None;
+        let mut place = |list: &mut Vec<AnyElement>, new: bool, row: AnyElement| {
+            if headed.replace(new) != Some(new) {
+                list.push(inbox_view::group_head(new, unread));
+            }
+            list.push(row);
+        };
         for &row in rows {
             let at = match row {
                 InboxRow::Notice(ix) => notices.list.get(ix).map(|n| n.created),
                 InboxRow::Agent(id) => (answers.iter()).find(|a| a.id == id).map(|a| a.at),
                 InboxRow::Part(id) => part(id).map(|r| r.at),
             };
-            while let Some(n) = gone.next_if(|n| at.is_some_and(|at| n.created >= at)) {
-                list.push(gone_row(n));
+            let new = view.is_new(row, notices, answers, parts);
+            while let Some((was, n)) =
+                gone.next_if(|&(was, n)| at.is_some_and(|at| (was, n.created) >= (new, at)))
+            {
+                place(&mut list, was, gone_row(n));
             }
             let picked = current == Some(row);
-            list.push(match row {
+            let drawn = match row {
                 InboxRow::Notice(ix) => {
                     let look = RowLook {
                         fresh: notices.unread_at(ix),
@@ -337,9 +354,12 @@ impl InboxPage {
                     }
                     None => div().into_any_element(),
                 },
-            });
+            };
+            place(&mut list, new, drawn);
         }
-        list.extend(gone.map(gone_row));
+        for (was, n) in gone {
+            place(&mut list, was, gone_row(n));
+        }
         let preview = current
             .filter(|r| rows.contains(r))
             .and_then(|r| match r {

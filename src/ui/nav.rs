@@ -1221,7 +1221,9 @@ impl Workspace {
     fn enter_root(&mut self, space: Space, cx: &mut Context<Self>) {
         match space {
             INBOX => {
-                // The newest row: a notice, or an agent's answer (#116).
+                // On screen before the pick: the row it reads stays under New.
+                self.watch_inbox(cx);
+                // The first row shown: a notice, or an agent's answer (#116).
                 let first = self.inbox_rows(cx).first().copied();
                 if let Some(requests) = self.requests_api() {
                     requests.inbox_pick(first, cx);

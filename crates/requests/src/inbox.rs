@@ -339,8 +339,6 @@ pub struct InboxView {
     pub agent: Option<u64>,
     /// A part's row selected, by its key's id (#196).
     pub part: Option<u64>,
-    /// The row picked while it was new: it stays under New, read, until another is picked, so a click moves nothing.
-    pub kept: Option<InboxRow>,
     /// Source ▾, while it is open, and where it was drawn: its list opens under it.
     pub sources: Option<SourcePick>,
     pub source_at: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
@@ -349,7 +347,8 @@ pub struct InboxView {
 }
 
 impl InboxView {
-    /// What the Inbox lists under its filters and the text in Filter (`query`): one list, newest first, read or not.
+    /// What the Inbox lists under its filters and the text in Filter (`query`): the rows under New, then the read ones,
+    /// each newest first.
     pub fn rows(
         &self,
         notices: &Notices,
@@ -360,19 +359,19 @@ impl InboxView {
     ) -> Vec<InboxRow> {
         let InboxFilter { why, source } = self.filter;
         let query = query.trim().to_lowercase();
-        let mut rows: Vec<(i64, InboxRow)> = items(notices, answers, parts, cx)
+        let mut rows: Vec<(bool, i64, InboxRow)> = items(notices, answers, parts, cx)
             .into_iter()
             .filter(|i| why.is_none_or(|w| i.why == Some(w)))
             .filter(|i| source.is_none_or(|s| i.source == s))
             .filter(|i| query.is_empty() || i.text.to_lowercase().contains(&query))
-            .map(|i| (i.at, i.row))
+            .map(|i| (self.is_new(i.row, notices, answers, parts), i.at, i.row))
             .collect();
-        // One list, newest first: a row read keeps its place, only its dot and weight change (Design round 10, U4).
-        rows.sort_by_key(|(at, _)| std::cmp::Reverse(*at));
-        rows.into_iter().map(|(_, row)| row).collect()
+        // A row read keeps its place and group while the Inbox is on screen (rounds 16 and 41).
+        rows.sort_by_key(|&(new, at, _)| std::cmp::Reverse((new, at)));
+        rows.into_iter().map(|(.., row)| row).collect()
     }
 
-    /// Whether `row` is listed under New: not read, or picked while it was.
+    /// Whether `row` is listed under New: not read, or read since the Inbox came on screen.
     pub fn is_new(
         &self,
         row: InboxRow,
@@ -380,16 +379,35 @@ impl InboxView {
         answers: Answers,
         parts: &[Listed],
     ) -> bool {
-        self.kept == Some(row)
-            || match row {
-                InboxRow::Notice(ix) => notices.unread_at(ix),
-                InboxRow::Agent(id) => {
-                    (answers.iter()).any(|a| a.id == id && !notices.is_read(&a.key))
-                }
-                InboxRow::Part(id) => {
-                    (parts.iter()).any(|r| row_id(&r.key) == id && notices.part_fresh(r))
-                }
+        match row {
+            InboxRow::Notice(ix) => {
+                (notices.list.get(ix)).is_some_and(|n| notices.under_new(&n.key))
             }
+            InboxRow::Agent(id) => {
+                (answers.iter()).any(|a| a.id == id && notices.under_new(&a.key))
+            }
+            // Read in its own tab (another project's) is read here too.
+            InboxRow::Part(id) => {
+                (parts.iter()).any(|r| row_id(&r.key) == id && !r.seen && notices.under_new(&r.key))
+            }
+        }
+    }
+
+    /// Whether `row` is not read: what `New` counts.
+    pub fn is_fresh(
+        &self,
+        row: InboxRow,
+        notices: &Notices,
+        answers: Answers,
+        parts: &[Listed],
+    ) -> bool {
+        match row {
+            InboxRow::Notice(ix) => notices.unread_at(ix),
+            InboxRow::Agent(id) => (answers.iter()).any(|a| a.id == id && !notices.is_read(&a.key)),
+            InboxRow::Part(id) => {
+                (parts.iter()).any(|r| row_id(&r.key) == id && notices.part_fresh(r))
+            }
+        }
     }
 
     /// What is new, under each filter (`Counts`).
@@ -812,7 +830,7 @@ mod tests {
             notice(30, Kind::Review),
             notice(20, Kind::Failed),
         ];
-        // The newest is read: it keeps its place, first.
+        // The newest is read: it is under Read, after what is new.
         notices.mark_read("todo:50".into());
         let answers = [answer(7, 35, true, "Which rounding mode?")];
         let mut view = InboxView::default();
@@ -821,11 +839,11 @@ mod tests {
             assert_eq!(
                 view.rows(&notices, &answers, &[], "", cx),
                 [
-                    InboxRow::Notice(0),
                     InboxRow::Notice(1),
                     InboxRow::Agent(7),
                     InboxRow::Notice(2),
                     InboxRow::Notice(3),
+                    InboxRow::Notice(0),
                 ]
             );
             let counts = view.counts(&notices, &answers, &[], cx);
@@ -845,15 +863,20 @@ mod tests {
                 view.rows(&notices, &answers, &[], "", cx),
                 [InboxRow::Agent(7)]
             );
-            // Read, a row keeps its place; picked while new it is still new until another is picked.
+            // Read while the Inbox is on screen, a row keeps its place and group; once left it is under Read.
             view.filter = InboxFilter::default();
+            let before = view.rows(&notices, &answers, &[], "", cx);
+            notices.watch(true);
             notices.mark_read("todo:40".into());
-            view.kept = Some(InboxRow::Notice(1));
-            assert_eq!(
-                view.rows(&notices, &answers, &[], "", cx)[1],
-                InboxRow::Notice(1)
-            );
+            assert_eq!(view.rows(&notices, &answers, &[], "", cx), before);
             assert!(view.is_new(InboxRow::Notice(1), &notices, &answers, &[]));
+            assert!(!view.is_fresh(InboxRow::Notice(1), &notices, &answers, &[]));
+            // Done, the next row of its group is selected, not the next by time.
+            notices.at = 2;
+            notices.dismiss(2);
+            assert_eq!(notices.list[notices.at].key, "todo:20");
+            assert!(notices.watch(false));
+            assert!(!view.is_new(InboxRow::Notice(1), &notices, &answers, &[]));
         });
     }
 
