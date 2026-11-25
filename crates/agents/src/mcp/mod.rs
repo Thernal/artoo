@@ -479,8 +479,20 @@ fn draft_report(bus: &Bus, args: &Value) -> Result<String, String> {
         by,
         at: agents::now(),
     };
+    let before = bus.waiting_reports();
     bus.draft_report(&draft).map_err(|e| e.to_string())?;
-    Ok("The report opens in Artoo for the reviewer to check; nothing was sent.".to_owned())
+    let queued = if before > 0 {
+        format!(
+            " {before} earlier draft{} still wait for the reviewer; this one queues behind {}: do not draft more until they are checked.",
+            if before == 1 { "" } else { "s" },
+            if before == 1 { "it" } else { "them" },
+        )
+    } else {
+        String::new()
+    };
+    Ok(format!(
+        "The report opens in Artoo for the reviewer to check; nothing was sent.{queued}"
+    ))
 }
 
 /// What a tool adds when the reviewer cannot see its work yet: Artoo is not running (#153).
@@ -769,9 +781,12 @@ mod tests {
                 .unwrap()
                 .contains("nothing was sent")
         );
+        let second = call(json!({"title": "show failed", "description": "x"}));
+        let said = second["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(said.contains("1 earlier draft still wait"), "{said}");
         let drafts = bus.take_reports();
-        assert_eq!(drafts.len(), 1);
-        assert_eq!(drafts[0].title, "list_comments failed");
+        assert_eq!(drafts.len(), 2);
+        assert!(drafts.iter().any(|d| d.title == "list_comments failed"));
         assert!(bus.take_reports().is_empty(), "taken once");
     }
 

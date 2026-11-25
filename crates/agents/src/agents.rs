@@ -111,6 +111,11 @@ impl Bus {
         std::fs::write(dir.join(format!("{}.json", uid())), text)
     }
 
+    /// How many drafts of reports wait to be taken.
+    pub fn waiting_reports(&self) -> usize {
+        std::fs::read_dir(self.dir.join("reports")).map_or(0, |d| d.flatten().count())
+    }
+
     /// The agents' drafts of reports not taken yet, oldest first; taken, they are gone from here.
     pub fn take_reports(&self) -> Vec<ReportDraft> {
         let Ok(entries) = std::fs::read_dir(self.dir.join("reports")) else {

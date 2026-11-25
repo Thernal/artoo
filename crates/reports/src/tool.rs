@@ -17,6 +17,7 @@ use gpui::{
     Window, div, prelude::*,
 };
 use std::cell::Cell;
+use std::collections::VecDeque;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -97,6 +98,8 @@ pub(crate) struct Report {
     sent: Vec<Sent>,
     /// The extras have been ticked once: a later draft keeps what was unticked.
     ready: bool,
+    /// Agents' drafts taken from the agents but not shown yet: the one in hand is never replaced.
+    waiting: VecDeque<artoo_agents_api::ReportDraft>,
 }
 
 /// An extra of a report: its words, whether it goes, and why not when it can't.
@@ -134,6 +137,7 @@ impl Report {
             typing,
             sent: Vec::new(),
             ready: false,
+            waiting: VecDeque::new(),
         }
     }
 
@@ -178,10 +182,32 @@ impl Report {
         self.frame.show_tool(Some(ID), cx);
     }
 
-    /// An agent's draft (`report_problem`): it opens to be checked.
+    /// Agents' drafts (`report_problem`): they queue; one opens to be checked when nothing is in hand.
     fn take_drafts(&mut self, cx: &mut Context<Self>) {
-        let Some(d) = artoo_agents_api::get(cx).take().pop() else {
-            return;
+        let fresh = artoo_agents_api::get(cx).take();
+        let any = !fresh.is_empty();
+        self.waiting.extend(fresh);
+        if !self.show_next(cx) && any {
+            cx.notify();
+        }
+    }
+
+    /// Whether the writing in hand is the reviewer's to finish: words typed, not sent yet.
+    fn in_hand(&self) -> bool {
+        in_hand(
+            matches!(self.said, Some(Ok(_))),
+            &self.draft.title,
+            &self.draft.description,
+        )
+    }
+
+    /// The next waiting draft opens, unless a report is in hand; whether one opened.
+    fn show_next(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.in_hand() {
+            return false;
+        }
+        let Some(d) = self.waiting.pop_front() else {
+            return false;
         };
         self.prepare(cx);
         self.say(None);
@@ -197,6 +223,7 @@ impl Report {
             self.frame.show_tool(Some(ID), cx);
         }
         cx.notify();
+        true
     }
 
     /// What a report must not carry here: the hosts of the remotes and of the tokens kept, the
@@ -691,8 +718,11 @@ impl Render for Report {
                         bar_button("report-another", "Write another", "", false).on_click(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.say(None);
+                                this.draft.by = None;
                                 this.prepare(cx);
-                                this.set_focus(Focus::Title, cx);
+                                if !this.show_next(cx) {
+                                    this.set_focus(Focus::Title, cx);
+                                }
                             }),
                         ),
                     )
@@ -705,6 +735,21 @@ impl Render for Report {
                         "bot",
                         theme::agent(),
                         format!("{by} drafted this from an error it hit."),
+                    )
+                    .into_any_element(),
+                );
+            }
+            if !self.waiting.is_empty() {
+                body.push(
+                    note(
+                        "bot",
+                        theme::agent(),
+                        format!(
+                            "{} more drafted report{} waiting: {} after this one is sent or cleared.",
+                            self.waiting.len(),
+                            if self.waiting.len() == 1 { "" } else { "s" },
+                            if self.waiting.len() == 1 { "it opens" } else { "the next opens" },
+                        ),
                     )
                     .into_any_element(),
                 );
@@ -840,6 +885,12 @@ impl Render for Report {
     }
 }
 
+/// Whether a report is in hand: its sent word still shown, or any words in its fields. A draft an agent
+/// made never replaces one.
+fn in_hand(sent: bool, title: &str, description: &str) -> bool {
+    sent || !title.trim().is_empty() || !description.trim().is_empty()
+}
+
 /// Seconds since the epoch: when a report was sent.
 fn now() -> i64 {
     std::time::SystemTime::now()
@@ -923,4 +974,17 @@ fn extra_row(e: Extra, cx: &mut Context<Report>) -> impl IntoElement + use<> {
                         .child(e.why),
                 ),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::in_hand;
+
+    #[test]
+    fn a_report_in_hand_is_never_replaced() {
+        assert!(in_hand(false, "Crash", ""));
+        assert!(in_hand(false, " ", "steps"));
+        assert!(in_hand(true, "", ""));
+        assert!(!in_hand(false, "  ", ""));
+    }
 }
