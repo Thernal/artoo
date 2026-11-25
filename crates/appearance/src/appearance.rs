@@ -9,6 +9,7 @@
 
 use crate::cards::{
     ROWS, is_text, own, row_name, sample_diff, small_button, tag_of, theme_preview, value,
+    window_card,
 };
 use crate::themes as lists;
 use artoo_core::themes::{self, T, TOKENS, Theme};
@@ -30,6 +31,9 @@ use std::rc::Rc;
 fn swatch(t: &Theme) -> Div {
     artoo_ui_kit::controls::swatch([t.get(T::Bg3), t.get(T::Code1), t.get(T::Code2)], false)
 }
+
+/// Set up's word for a code theme that is the window's.
+const FOLLOW: &str = "Follow the window";
 
 /// The hex field's id as the tab's input.
 pub(crate) const INPUT: &str = "appearance.value";
@@ -189,7 +193,7 @@ impl Appearance {
         let (window, _) = in_force();
         let picker = self.theme_picker(
             "theme-pick",
-            &window,
+            Some(&window),
             window.label.clone(),
             (lists::THEMES, 0),
             cx,
@@ -202,7 +206,7 @@ impl Appearance {
         let (window, code) = in_force();
         let code_row = self.theme_picker(
             "code-theme-pick",
-            code.as_ref().unwrap_or(&window),
+            Some(code.as_ref().unwrap_or(&window)),
             code.as_ref()
                 .map_or(lists::SAME.to_owned(), |t| t.label.clone()),
             (lists::CODE_THEMES, 1),
@@ -211,12 +215,12 @@ impl Appearance {
         setting("Code theme", "", code_row).into_any_element()
     }
 
-    /// A theme row's button: the theme's swatch and name, ▾; a click drops `list` from it (#204), `under` where it is
+    /// A theme row's button: the theme's swatch (`t`; without it, Set up's lower box) and name, ▾; a click drops `list` from it (#204), `under` where it is
     /// drawn.
     fn theme_picker(
         &self,
         id: &'static str,
-        t: &Theme,
+        t: Option<&Theme>,
         label: String,
         (list, under): (&'static str, usize),
         cx: &mut Context<Self>,
@@ -226,8 +230,8 @@ impl Appearance {
             .id(id)
             .relative()
             .min_w(px(190.))
-            .h(px(28.))
-            .px(px(8.))
+            .h(px(if t.is_some() { 28. } else { 24. }))
+            .px(px(if t.is_some() { 8. } else { 10. }))
             .flex()
             .items_center()
             .gap(px(8.))
@@ -235,7 +239,7 @@ impl Appearance {
             .bg(theme::hover())
             .cursor_pointer()
             .hover(|s| s.bg(theme::selected()))
-            .child(swatch(t))
+            .children(t.map(swatch))
             .child(div().flex_1().text_size(px(13.)).child(label))
             .child(
                 icons::icon("chevron")
@@ -393,13 +397,48 @@ impl Appearance {
             .into_any_element()
     }
 
-    /// What Set up's Look draws of it (#204): the Theme and Code theme rows, as Settings draws them.
+    /// What Set up's Look draws of it: the window's themes as cards, three to a line — a click puts one on the
+    /// whole window —, then Code colours, which opens the code themes' list.
     pub(crate) fn render_short(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        const ACROSS: usize = 3;
+        let (window, code) = in_force();
+        let themes: Vec<Theme> = theme::all().iter().filter(|t| t.window).cloned().collect();
+        let mut lines = Vec::new();
+        for (line, some) in themes.chunks(ACROSS).enumerate() {
+            let cards = some.iter().enumerate().map(|(i, t)| {
+                let id = t.id.clone();
+                window_card(line * ACROSS + i, t, t.id == window.id).on_click(cx.listener(
+                    move |_, _: &ClickEvent, _, cx| {
+                        lists::window_theme(&id, true, cx);
+                        cx.notify();
+                    },
+                ))
+            });
+            lines.push(
+                div()
+                    .flex()
+                    .gap(px(12.))
+                    .children(cards.collect::<Vec<_>>())
+                    // A short last line keeps its cards as wide as the others.
+                    .children((some.len()..ACROSS).map(|_| div().flex_1().min_w_0())),
+            );
+        }
+        let colours = self.theme_picker(
+            "setup-code-colours",
+            None,
+            code.as_ref().map_or(FOLLOW.to_owned(), |t| t.label.clone()),
+            (lists::CODE_THEMES, 1),
+            cx,
+        );
         div()
             .flex()
             .flex_col()
-            .child(self.render_theme_row(cx))
-            .child(self.render_code_row(cx))
+            .child(div().flex().flex_col().gap(px(12.)).children(lines))
+            .child(div().mt(px(14.)).child(setting(
+                "Code colours",
+                "Syntax and the diff’s tints",
+                colours,
+            )))
             .into_any_element()
     }
 

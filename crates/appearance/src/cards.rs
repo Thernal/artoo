@@ -4,6 +4,7 @@
 
 use artoo_core::themes::{self, T, TOKENS, Theme};
 use artoo_ui_kit::format::plural;
+use artoo_ui_kit::hover::Hover as _;
 use artoo_ui_kit::{ROW_RADIUS, hover, icons, px, theme};
 use gpui::{Div, FontWeight, HighlightStyle, Rgba, StyledText, div, prelude::*, rgba};
 
@@ -386,6 +387,165 @@ pub fn small_button(
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
         .child(label.into())
+}
+
+/// A theme as Set up's Look offers it: the window in small — its tabs down the left, the first picked, and a few
+/// lines of a diff as bars in its code colours and tints —, its name under it, a sun on a light one, a ring on the
+/// one in force.
+pub fn window_card(ix: usize, t: &Theme, chosen: bool) -> gpui::Stateful<Div> {
+    let bar = |tok: T, wide: f32, mark: Option<T>| {
+        let bar = div().h(px(5.)).w_full().rounded(px(2.)).bg(c(t, tok));
+        div()
+            .w(gpui::relative(wide / 100.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .rounded(px(3.))
+            .when_some(mark, |d, m| d.py(px(2.)).bg(c(t, m)).px(px(2.)))
+            .child(bar)
+    };
+    // (the line's tint and gutter, indented, its bars)
+    type Bar = (T, f32, Option<T>);
+    let line = |tint: Option<(T, T)>, indented: bool, bars: &[Bar]| {
+        div()
+            .h(px(13.))
+            .pr(px(8.))
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .when_some(tint, |d, (back, _)| d.bg(c(t, back)))
+            .child(
+                div()
+                    .flex_none()
+                    .w(px(18.))
+                    .h_full()
+                    .when_some(tint, |d, (_, gutter)| d.bg(c(t, gutter))),
+            )
+            .children(indented.then(|| div().flex_none().w(px(10.))))
+            .children(bars.iter().map(|&(tok, wide, mark)| bar(tok, wide, mark)))
+    };
+    let removed = Some((T::Removed1, T::Removed2));
+    let added = Some((T::Added1, T::Added2));
+    let tab = |on: bool| {
+        div()
+            .h(px(18.))
+            .rounded(px(4.))
+            .overflow_hidden()
+            .bg(c(t, if on { T::FillHover } else { T::Bg3 }))
+            .when(on, |d| {
+                d.child(div().w(px(2.)).h_full().bg(c(t, T::Accent)))
+            })
+    };
+    let face = div()
+        .h(px(132.))
+        .flex()
+        .rounded(px(ROW_RADIUS))
+        .overflow_hidden()
+        .border_1()
+        .border_color(c(t, T::Border1))
+        .bg(c(t, T::Bg1))
+        .child(
+            div()
+                .flex_none()
+                .w(px(54.))
+                .px(px(5.))
+                .py(px(6.))
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .bg(c(t, T::Bg2))
+                .child(tab(true))
+                .children((0..3).map(|_| tab(false))),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .py(px(6.))
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .overflow_hidden()
+                .bg(c(t, T::Bg3))
+                .child(line(
+                    None,
+                    false,
+                    &[
+                        (T::Code1, 12., None),
+                        (T::Code2, 20., None),
+                        (T::Text3, 10., None),
+                    ],
+                ))
+                .child(line(
+                    None,
+                    true,
+                    &[
+                        (T::Code1, 9., None),
+                        (T::Text3, 14., None),
+                        (T::Code5, 22., None),
+                    ],
+                ))
+                .child(line(
+                    removed,
+                    true,
+                    &[(T::Text3, 14., None), (T::Code5, 18., Some(T::Removed3))],
+                ))
+                .child(line(
+                    added,
+                    true,
+                    &[
+                        (T::Text3, 14., None),
+                        (T::Code2, 16., Some(T::Added3)),
+                        (T::Text3, 8., None),
+                    ],
+                ))
+                .child(line(
+                    added,
+                    true,
+                    &[(T::Code4, 10., None), (T::Code3, 26., None)],
+                ))
+                .child(line(None, true, &[(T::Code6, 40., None)])),
+        );
+    let default = t.id == "one-dark";
+    let label = t.label.clone();
+    div()
+        .id(("setup-theme", ix))
+        .flex_1()
+        .min_w_0()
+        .p(px(6.))
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .rounded(px(10.))
+        .border_2()
+        .border_color(if chosen {
+            theme::accent()
+        } else {
+            gpui::transparent_black().into()
+        })
+        .cursor_pointer()
+        .when(!chosen, |d| d.hover(|s| s.bg(theme::hover())))
+        .child(face)
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .text_size(px(12.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(hover::cut(("setup-theme-name", ix), label.clone())),
+                )
+                .children(t.light().then(|| {
+                    icons::icon("sun")
+                        .flex_none()
+                        .size(px(13.))
+                        .text_color(theme::muted())
+                })),
+        )
+        .when(default, |d| d.tip(format!("{label}: Artoo’s default")))
 }
 
 /// A tag for a theme: default, light, yours, its problems (true: drawn as one).

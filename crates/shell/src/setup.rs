@@ -313,7 +313,7 @@ fn page(
                                     .child("Set up Artoo"),
                             )
                             .child(
-                                button("setup-later", "Later", Some("esc"), Kind::Plain)
+                                button("setup-later", "Later", None, Kind::Plain)
                                     .on_click(move |_: &ClickEvent, _, cx| shut(&later, cx)),
                             ),
                     )

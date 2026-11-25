@@ -1,6 +1,6 @@
 //! Set up's parts the tab offers (#143 B; the page is the shell's, `artoo_shell_api::setup`): Keys — the keymaps to
-//! start from, then the keys that matter by group — and Look — Appearance's rows' short form, Panes, the faces and
-//! the sizes. Each is its Settings section at its shortest, drawn by the same code (`key_presets`, `panes_chips`,
+//! start from, then the keys that matter by group — and Look — Appearance's rows' short form (the themes' cards and
+//! Code colours), Panes, the faces and the sizes. Each is its Settings section at its shortest, drawn by the same code (`key_presets`, `panes_chips`,
 //! `font_rows`, `settings::Rows::short`): what is set here is set there. Agents is the agents' part.
 
 use super::keymap::Keymap;
@@ -249,7 +249,7 @@ impl Workspace {
             .into_any_element()
     }
 
-    /// Look: what Appearance's owner draws of it (the Window themes as Settings draws them, then Code colours), then
+    /// Look: what Appearance's owner draws of it (the window themes as cards, then Code colours), then
     /// Panes, the faces and the sizes.
     fn render_setup_look(&self, cx: &mut Context<Self>) -> AnyElement {
         div()

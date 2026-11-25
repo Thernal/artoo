@@ -156,7 +156,7 @@ fn group_of(t: &Theme) -> &'static str {
 }
 
 /// Theme `id` on the whole window: tried, or kept (`chosen`).
-fn window_theme(id: &str, chosen: bool, cx: &mut App) {
+pub(crate) fn window_theme(id: &str, chosen: bool, cx: &mut App) {
     let mut choice = theme::choice();
     choice.window = id.to_owned();
     apply(choice, chosen, cx);

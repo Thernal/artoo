@@ -252,7 +252,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   extends it; ⌘K → Theme opens the same list over the window's middle; `theme.txt` keeps the window and code themes;
   the folder is re-read every 2 s, a repository open or not; the window root's rows in its section (Fonts and size,
   Several projects, Panes, Animations) placed by order between the themes (10) and Your own (80); Set up's Look draws
-  its rows' short form (`settings::Rows::short`: the Theme and Code theme rows); snapshot VIEW
+  its rows' short form (`settings::Rows::short`: the window themes as cards, `cards::window_card`, and Code
+  colours); snapshot VIEW
   `theme-edit:<id>`, `theme-token:<row>`, `theme-bases`, `theme-raise` its parts' (`theme:<id>`, `code-theme:<id>`,
   `theme-palette` the tab's); `appearance.rs` the entity — the theme edited, the hex field a part's input —, `cards.rs`
   the sample diff and the editor's preview; its `install` alone is shown). `crates/agents-api` (`artoo-agents-api`): the

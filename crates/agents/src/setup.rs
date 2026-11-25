@@ -11,7 +11,7 @@ use artoo_shell_api::setup::Part;
 use artoo_shell_api::{Frame, Toast};
 use artoo_ui_kit::discussion::{Kind, button};
 use artoo_ui_kit::hover::{self, Hover as _};
-use artoo_ui_kit::{icons, px, theme};
+use artoo_ui_kit::{ROW_RADIUS, icons, px, theme};
 use gpui::{AnyElement, App, AppContext, ClickEvent, Entity, FontWeight, div, prelude::*};
 use std::rc::Rc;
 
@@ -105,7 +105,7 @@ fn body(
                     (false, _) => "Connect all",
                 },
                 None,
-                Kind::Primary(theme::accent()),
+                Kind::Plain,
             )
             .on_click(move |_: &ClickEvent, _, cx| {
                 // The first agent Artoo connects itself (Claude Code).
@@ -186,10 +186,16 @@ fn body(
                 .px(px(14.))
                 .py(px(10.))
                 .child(
-                    icons::icon(icon)
+                    // The agent's glyph on its tile.
+                    div()
                         .flex_none()
-                        .size(px(18.))
-                        .text_color(theme::muted()),
+                        .size(px(28.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(ROW_RADIUS))
+                        .bg(theme::hover())
+                        .child(icons::icon(icon).size(px(15.)).text_color(theme::muted())),
                 )
                 .child(
                     div()
