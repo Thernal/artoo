@@ -465,6 +465,16 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   place (its group, or none beside a head); a head folds on a click, renames on a double click, drags with its
   pages. The last page out ends the group, said with Undo. Kept in `nav.txt` as the line's `groups=` column. No
   key reorders: ⌥↑ ⌥↓ are the requests'.
+- **Editing your own request** (Design round 46; `src/ui/editing.rs`, `crates/core/src/request_edits.rs`): where
+  the host lets you (`Details::can_edit`: the author, GitLab's Developer and up, GitHub's push — from the project's
+  read kept 15 minutes, and the repository's shared with the merge state) an open request's title edits where it stands (pencil or double click, ↵
+  saves, esc or a press elsewhere leaves it), its description in place (double click or E; the composer's editor,
+  kept on this Mac until saved or cancelled, ⌘↵), and its state chip `Draft ▾` marks it ready or back. Saved by
+  `Requests::edit_request` (GitLab one `PUT`, a draft said in the title; GitHub `PATCH` and the draft mutations).
+  `edit_request` (MCP) only proposes (`What::EditRequest`): the bar over the description — Compare (marked words,
+  or as it would read), Discard, Save (⌘↵) — and nothing reaches the host without the reviewer's press. Tests read
+  the requests at `http::with_transport` (`crates/hosts/src/editing_tests.rs`). No key marks ready: ⇧⌘R finds a
+  request.
 - **Keyboard**: focus zones (branches, commits, files, diff, the open tool window; `ui/zones.rs`) — the one with the keyboard has an
   outlined island. Tab / ⇧Tab or ⌃2…4 move between them (⌃1 is the branch quick switch); ↑ ↓ (j k) act in the zone, ← → (h l) step files (in the file
   tree they close and open folders), ↵ goes one step in, Space / PageUp / PageDown / Home / End move the diff. A new

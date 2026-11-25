@@ -69,11 +69,16 @@ impl Workspace {
         };
         let end = match compose.and_then(Compose::overview) {
             Some(i) if i == iid => self
-                .compose_box(this, cx)
+                .compose_box(this.clone(), cx)
                 .map(|boxed| self.beside_me(boxed.into_any_element())),
-            _ => Some(self.beside_me(self.idle_composer(iid, this, cx))),
+            _ => Some(self.beside_me(self.idle_composer(iid, this.clone(), cx))),
         };
-        OverviewComposer { end, paragraph }
+        let edits = self.overview_edits(iid, this, cx);
+        OverviewComposer {
+            end,
+            paragraph,
+            ..edits
+        }
     }
 
     /// The composer at the section's end beside my face.

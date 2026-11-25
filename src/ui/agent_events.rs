@@ -86,6 +86,11 @@ impl Workspace {
                 }
                 What::Notes { .. } => self.take_agent_notes(event, cx),
                 What::NewRequest(draft) => self.agent_drafted(event.agent, draft, cx),
+                What::EditRequest {
+                    number,
+                    title,
+                    description,
+                } => self.agent_proposed(event.agent, number, title, description, cx),
                 What::Point { place } => self.agent_pointed(event.agent, place, cx),
                 What::Open => {}
             }
@@ -260,6 +265,38 @@ impl Workspace {
         };
         let say = move |_| format!("{agent} drafted a merge request");
         self.agent_toast(act, "Open", 1, say, Some(said), cx);
+    }
+
+    /// `agent` proposed a new title or description for request `iid` (`edit_request`): kept over an earlier
+    /// proposal, shown over the request's description, and a toast whose Show goes there. Nothing is saved.
+    fn agent_proposed(
+        &mut self,
+        agent: String,
+        iid: u64,
+        title: Option<String>,
+        description: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let proposal = artoo_core::request_edits::Proposal {
+            agent: agent.clone(),
+            title,
+            description,
+            at: artoo_core::request_drafts::now() as i64,
+        };
+        self.set_proposal(iid, Some(proposal));
+        self.proposal_plain = false;
+        let number = self.number(iid);
+        let act = ShowPlace {
+            place: Place::Request {
+                iid,
+                note: None,
+                draft: None,
+            },
+            agent: agent.clone(),
+        };
+        let say = move |_| format!("{agent} proposes an edit");
+        self.agent_toast(act, "Show", 1, say, Some(number), cx);
+        cx.notify();
     }
 
     /// `agent` points at `place` (#154): only a toast says it, its Show going there.

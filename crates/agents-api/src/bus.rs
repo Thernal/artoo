@@ -138,6 +138,15 @@ pub enum What {
     },
     /// A merge request drafted for the reviewer to check and create (`draft_request`, #152).
     NewRequest(RequestDraft),
+    /// A new title or description proposed for a request that is there (`edit_request`): shown to the reviewer,
+    /// who saves it or not.
+    EditRequest {
+        number: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
     /// One place the agent points the reviewer at (`show`, #154).
     Point { place: Place },
 }

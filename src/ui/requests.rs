@@ -1349,6 +1349,9 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::ReplyMentioning { thread, login } => this.reply_mentioning(thread, &login, cx),
             Act::ShowThread(ix) => this.show_thread(ix, cx),
             Act::ParagraphNote(k) => this.start_paragraph_note(k, cx),
+            Act::EditTitle => this.start_title_edit(cx),
+            Act::EditDescription => this.start_description_edit(cx),
+            Act::StateMenu(at) => this.state_menu(at, cx),
             // The requests' own: answered before the tab is asked.
             Act::FoldCard(_) => {}
             Act::CompareSince(ix) => this.compare_since(ix, cx),

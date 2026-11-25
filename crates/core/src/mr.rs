@@ -228,6 +228,17 @@ pub struct Details {
     pub reviewers: Vec<String>,
     /// The reviewers, by name, whose last word was to request changes.
     pub changes_requested: Vec<String>,
+    /// The host lets the token's user edit the request: its title, its description, whether it is a draft.
+    pub can_edit: bool,
+}
+
+/// What is saved of a request that is there; what is left out stays as the host has it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Edits {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    /// Made a draft, or ready.
+    pub draft: Option<bool>,
 }
 
 /// A milestone a new request can be put in.

@@ -21,6 +21,7 @@ pub mod notice;
 pub mod platform;
 pub mod rank;
 pub mod request_drafts;
+pub mod request_edits;
 pub mod route;
 pub mod rows;
 pub mod search;

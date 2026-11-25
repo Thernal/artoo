@@ -54,7 +54,13 @@ pub struct Facts {
 impl Requests {
     /// Overview: the identity and its facts, then the description beside the facts column.
     pub fn render_overview(&self, m: &Mr, look: OverviewLook, cx: &App) -> AnyElement {
-        let OverviewComposer { end, paragraph } = look.composer;
+        let OverviewComposer {
+            end,
+            paragraph,
+            title: title_field,
+            description: edited,
+            proposal,
+        } = look.composer;
         let d = self.details.clone().unwrap_or_default();
         let text = self.description_of(m);
         let description = if text.trim().is_empty() {
@@ -79,6 +85,39 @@ impl Requests {
             )
             .into_any_element()
         };
+        // Yours to edit: an open request the host lets you write to (Design round 46).
+        let can_edit = d.can_edit && m.state == MrState::Opened;
+        let description = match edited {
+            Some(edited) => edited,
+            None if can_edit => {
+                let show = look.show.clone();
+                div()
+                    .id("overview-description")
+                    .on_click(move |e: &ClickEvent, _, cx| {
+                        if e.click_count() == 2 {
+                            show(Act::EditDescription, cx)
+                        }
+                    })
+                    .child(description)
+                    .into_any_element()
+            }
+            None => description,
+        };
+        let description = match proposal {
+            Some(bar) => div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .child(bar)
+                .child(description)
+                .into_any_element(),
+            None => description,
+        };
+        let title = match title_field {
+            Some(field) => Title::Field(field),
+            None => Title::Words(look.title),
+        };
+        let edit = can_edit.then(|| look.show.clone());
         // Until the first read answers, a card's body is tints (round 41), after a moment of nothing.
         let now = Instant::now();
         let phase = self.page.fresh.phase(now);
@@ -118,7 +157,7 @@ impl Requests {
                     .overflow_y_scroll()
                     .track_scroll(&self.page.scroll)
                     .when(moving, |s| s.child(frames()))
-                    .child(self.overview_identity(m, look.title, &look.facts))
+                    .child(self.overview_identity(m, title, edit, &look.facts))
                     .child(div().h(px(1.)).bg(theme::island_border()))
                     // The page scrolls as a whole: Description and Discussions as headed cards in the main
                     // column, Details beside them (round 41, P1).
@@ -154,7 +193,7 @@ impl Requests {
     /// Overview's head (Design M2): the title and its state on a line of their own; the branches on the next; then
     /// the facts as glyphs, each with its sentence in its tooltip — pipeline, approvals, how far your own review is,
     /// the versions — the author last, the one that changes (#190).
-    fn overview_identity(&self, m: &Mr, title: AnyElement, facts: &Facts) -> Div {
+    fn overview_identity(&self, m: &Mr, title: Title, edit: Option<Acts>, facts: &Facts) -> Div {
         let mine = self.login.as_deref().is_some_and(|me| me == m.author_login);
         let author = if mine { "You" } else { m.author.as_str() };
         let glyph = |id: &'static str, icon: &'static str, color, text: String, tip: String| {
@@ -266,19 +305,7 @@ impl Requests {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(
-                        hover::cut_with("overview-title", m.title.clone(), title)
-                            .min_w_0()
-                            .text_size(px(17.))
-                            .font_weight(FontWeight::SEMIBOLD),
-                    )
-                    .child(state_chip(m)),
-            )
+            .child(title_row(m, title, edit))
             // The branches, a line of their own: a long one is the subject.
             .child(
                 div()
@@ -525,6 +552,77 @@ fn card(title: &str, count: Option<usize>, body: impl IntoElement) -> Div {
                 .pl(px(24.))
                 .pr(px(20.))
                 .child(body),
+        )
+}
+
+/// The title as Overview has it: its words, or the field it is edited in.
+enum Title {
+    Words(AnyElement),
+    Field(AnyElement),
+}
+
+/// The title with the request's state after it. Where you may edit it (`edit`): a pencil beside the words under
+/// the pointer, or a double click, edits it where it stands, and the state is a control — `Draft ▾`.
+fn title_row(m: &Mr, title: Title, edit: Option<Acts>) -> Div {
+    let row = div().flex().items_center().gap(px(10.));
+    let size = |d: Div| d.text_size(px(17.)).font_weight(FontWeight::SEMIBOLD);
+    let words = match title {
+        Title::Field(field) => return row.child(size(div().flex_1().min_w_0()).child(field)),
+        Title::Words(words) => words,
+    };
+    let words = hover::cut_with("overview-title", m.title.clone(), words)
+        .min_w_0()
+        .text_size(px(17.))
+        .font_weight(FontWeight::SEMIBOLD);
+    let Some(show) = edit else {
+        return row.child(words).child(state_chip(m));
+    };
+    let (twice, pencil, menu) = (show.clone(), show.clone(), show);
+    row.group("overview-title-row")
+        .child(words.on_click(move |e: &ClickEvent, _, cx| {
+            if e.click_count() == 2 {
+                twice(Act::EditTitle, cx)
+            }
+        }))
+        .child(
+            div()
+                .id("overview-title-edit")
+                .flex_none()
+                .size(px(24.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(4.))
+                .cursor_pointer()
+                .invisible()
+                .group_hover("overview-title-row", |s| s.visible())
+                .hover(|s| s.bg(theme::hover()))
+                .child(
+                    icons::icon("pencil")
+                        .size(px(14.))
+                        .text_color(theme::muted()),
+                )
+                .tip("Edit the title  ·  double-click")
+                .on_click(move |_: &ClickEvent, _, cx| pencil(Act::EditTitle, cx)),
+        )
+        .child(
+            state_chip(m)
+                .id("overview-state")
+                .flex()
+                .items_center()
+                .gap(px(2.))
+                .cursor_pointer()
+                .child(
+                    icons::icon("chevron-down")
+                        .size(px(11.))
+                        .text_color(theme::muted()),
+                )
+                .tip(if m.draft {
+                    "Mark as ready"
+                } else {
+                    "Mark as a draft"
+                })
+                .on_click(move |e: &ClickEvent, _, cx| menu(Act::StateMenu(e.position()), cx)),
         )
 }
 

@@ -23,6 +23,7 @@ mod compare;
 mod complete;
 mod composer;
 mod create;
+mod editing;
 mod faces;
 mod fetch;
 mod file_view;
@@ -1627,6 +1628,16 @@ pub struct Workspace {
     /// name typed in `label_name` (`Field::Rename`).
     page_names: std::collections::BTreeMap<String, String>,
     renaming: Option<artoo_core::route::Route>,
+    /// The request whose title is being edited, its words in `label_name` (`Field::Title`).
+    title_editing: Option<u64>,
+    /// The request whose edit is on its way to the host.
+    saving_edit: Option<u64>,
+    /// An agent's proposal shown as it would read, not with its words marked.
+    proposal_plain: bool,
+    /// The proposals read (`editing`), by project and request.
+    proposals: std::cell::RefCell<
+        std::collections::HashMap<(PathBuf, u64), Option<artoo_core::request_edits::Proposal>>,
+    >,
     /// The group of open pages being renamed in its head (#246), its name typed in `label_name` too.
     renaming_group: Option<u64>,
     /// What features draw in this tab (#165): title-bar items, cards over it, Settings rows.
@@ -1779,6 +1790,10 @@ impl Workspace {
             page_names: storage::load_names(),
             renaming: None,
             renaming_group: None,
+            title_editing: None,
+            saving_edit: None,
+            proposal_plain: false,
+            proposals: Default::default(),
             parts: Vec::new(),
             frame: frame.clone(),
             editor_name: Default::default(),

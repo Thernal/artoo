@@ -5,6 +5,8 @@
 mod accounts;
 pub(crate) mod avatars;
 mod connect;
+#[cfg(test)]
+mod editing_tests;
 mod fixture;
 mod github;
 mod gitlab;

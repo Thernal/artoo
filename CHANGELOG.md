@@ -12,6 +12,8 @@ for someone using the app, not for someone reading the code; the commits follow 
   under them; + beside a paragraph of the description writes a note for your agent on it.
 - **Groups of open pages.** Drag one open page onto another, or use Move to group in its menu; groups fold, and
   pages and groups drag into the order you want, kept per project.
+- **Edit your own request.** Its title and description change where they stand, and Draft becomes ready from its
+  state; an agent can propose an edit, which you compare and save or discard.
 
 ## 2.0.0 — 2026-11-17
 

@@ -7,7 +7,7 @@
 
 use crate::agents::{self, Bus, Mark, RequestDraft, What};
 use crate::git::{DiffSettings, FileDiff, LineKind, Repo};
-use artoo_hosts_api::{Host, Hosts, Mr, Place};
+use artoo_hosts_api::{Host, Hosts, Mr, MrState, Place};
 use git2::Oid;
 use serde_json::Value;
 use std::fmt::Write as _;
@@ -592,6 +592,43 @@ pub fn request_place(
     ))
 }
 
+/// `edit_request` (Design round 46): a new title or description proposed for an open request, handed to the app
+/// to show over its description. Only read here: the reviewer saves it in Artoo, or discards it.
+pub fn edit_request(
+    hosts: &dyn Hosts,
+    bus: &Bus,
+    here: &Path,
+    project: &Path,
+    args: &Value,
+) -> Result<String, String> {
+    let iid = (args["request"].as_u64()).ok_or("request is missing: its number (!123, #123)")?;
+    let given = |key: &str| args[key].as_str().map(str::trim);
+    let title = given("title").filter(|t| !t.is_empty()).map(str::to_owned);
+    let description = given("description").map(str::to_owned);
+    if title.is_none() && description.is_none() {
+        return Err("Give a title, a description or both: what to propose".to_owned());
+    }
+    let (_, host) = host(hosts, here)?;
+    let m = find(&*host, iid)?;
+    if m.state != MrState::Opened {
+        return Err(format!(
+            "!{iid} is not open: there is nothing to propose an edit to."
+        ));
+    }
+    bus.event(&agents::event(
+        project.to_path_buf(),
+        What::EditRequest {
+            number: iid,
+            title,
+            description,
+        },
+    ))
+    .map_err(|e| e.to_string())?;
+    Ok(format!(
+        "Your proposal for !{iid} is in Artoo, over its description, for the reviewer to compare, discard or save. Nothing was saved or sent. Do not send it again: a new proposal replaces this one."
+    ))
+}
+
 /// `draft_request` (#152): a merge request for a branch, drafted by the agent and opened in the New
 /// merge request card, filled in, for the reviewer to check and create. Read here: the branch has
 /// commits its target has not; one not on origin, or with commits origin has not, is said, as the
@@ -837,6 +874,38 @@ mod tests {
         assert!(read.contains("## Pending comments (2)"), "{read}");
         assert!(read.contains("- 9002 · a.rs:15 · by "), "{read}");
         assert!(!read.contains("by the reviewer"), "{read}");
+        artoo_hosts::test_fixture(None);
+    }
+
+    #[test]
+    fn an_edit_is_proposed_to_the_app_and_nothing_is_saved() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let clone = dir.path().join("clone");
+        let git = git2::Repository::init(&clone).unwrap();
+        git.remote("origin", "https://gitlab.example.com/g/p.git")
+            .unwrap();
+        let host = dir.path().join("host");
+        std::fs::create_dir_all(&host).unwrap();
+        let request = json!([{"iid": 7, "title": "Louder", "description": "Shouts.",
+            "source_branch": "feature", "target_branch": "main",
+            "author": {"name": "Ann", "username": "ann"}}]);
+        std::fs::write(host.join("mrs.json"), request.to_string()).unwrap();
+        artoo_hosts::test_fixture(Some(host.clone()));
+        let hosts = artoo_hosts::hosts();
+        let bus = Bus::at(dir.path().join("agents"));
+        let here = clone.as_path();
+        let propose = |args: Value| edit_request(&*hosts, &bus, here, here, &args);
+        assert!(propose(json!({"request": 7})).is_err());
+        assert!(propose(json!({"request": 8, "title": "x"})).is_err());
+        let said = propose(json!({"request": 7, "description": "Shouts line 15."})).unwrap();
+        assert!(said.contains("Nothing was saved"), "{said}");
+        // The app hears of it; the host is sent nothing.
+        let events = bus.events();
+        assert!(matches!(
+            &events[..],
+            [e] if matches!(&e.what, What::EditRequest { number: 7, title: None, description: Some(d) } if d == "Shouts line 15.")
+        ));
+        assert!(!host.join("posted.txt").exists());
         artoo_hosts::test_fixture(None);
     }
 

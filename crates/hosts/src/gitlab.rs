@@ -11,8 +11,8 @@ use anyhow::{Result, anyhow, bail};
 use artoo_core::http;
 use artoo_hosts_api::MergeState;
 use artoo_hosts_api::{
-    Approvals, Award, Details, Draft, Label, Milestone, Mr, MrState, NewOptions, Note, PAST_PAGE,
-    PastPage, Pipeline, Place, Push, Size, Thread, Todo, Verdict, Whose,
+    Approvals, Award, Details, Draft, Edits, Label, Milestone, Mr, MrState, NewOptions, Note,
+    PAST_PAGE, PastPage, Pipeline, Place, Push, Size, Thread, Todo, Verdict, Whose,
 };
 use serde_json::Value;
 
@@ -587,7 +587,97 @@ pub fn details(remote: &WebRemote, iid: u64) -> Result<Details> {
         None => get(remote, &format!("merge_requests/{iid}/reviewers")).unwrap_or(Value::Null),
     };
     details.changes_requested = changes_requested(&states);
+    details.can_edit = can_edit(remote, &value);
     Ok(details)
+}
+
+/// Whether the token's user may edit the request `value`, by GitLab's rule: its author, or Developer and up on
+/// the project. Both are read already (kept 15 minutes); not known, no. The fixture's is its author.
+fn can_edit(remote: &WebRemote, value: &Value) -> bool {
+    let author = value["author"]["username"].as_str();
+    if author.is_some() && author == username(remote).ok().as_deref() {
+        return true;
+    }
+    if fixture().is_some() {
+        return false;
+    }
+    const DEVELOPER: u64 = 30;
+    project_raw(remote).is_ok_and(|p| {
+        ["project_access", "group_access"].iter().any(|side| {
+            p["permissions"][side]["access_level"]
+                .as_u64()
+                .is_some_and(|level| level >= DEVELOPER)
+        })
+    })
+}
+
+/// `title` said as a draft's, or as one's that is ready: GitLab keeps that in the title.
+pub fn draft_title(title: &str, draft: bool) -> String {
+    let mut rest = title.trim_start();
+    loop {
+        let lower = rest.to_ascii_lowercase();
+        let Some(prefix) = ["draft:", "[draft]", "(draft)", "wip:", "[wip]"]
+            .iter()
+            .find(|p| lower.starts_with(**p))
+        else {
+            break;
+        };
+        rest = rest[prefix.len()..].trim_start();
+    }
+    match draft {
+        true => format!("Draft: {rest}"),
+        false => rest.to_owned(),
+    }
+}
+
+/// Saves `edits` to request `iid`: one `PUT` of what is given; a draft made or unmade is said in the title, which
+/// is read first when no new one is given.
+pub fn edit_request(remote: &WebRemote, iid: u64, edits: &Edits) -> Result<Option<String>> {
+    let fixed = fixture();
+    let title = match (&edits.title, edits.draft) {
+        (title, Some(draft)) => {
+            let current = match title {
+                Some(title) => title.clone(),
+                None => {
+                    let value = match &fixed {
+                        Some(dir) => {
+                            let text = std::fs::read_to_string(dir.join("mrs.json"))?;
+                            let list: Vec<Value> = serde_json::from_str(&text)?;
+                            list.into_iter()
+                                .find(|m| m["iid"].as_u64() == Some(iid))
+                                .unwrap_or(Value::Null)
+                        }
+                        None => get(remote, &format!("merge_requests/{iid}"))?,
+                    };
+                    let current = text(&value, "title");
+                    if current.is_empty() {
+                        bail!("GitLab gave no title to say the draft in");
+                    }
+                    current
+                }
+            };
+            Some(draft_title(&current, draft))
+        }
+        (title, None) => title.clone(),
+    };
+    let mut form: Vec<(&str, String)> = Vec::new();
+    if let Some(title) = &title {
+        form.push(("title", title.clone()));
+    }
+    if let Some(description) = &edits.description {
+        form.push(("description", description.clone()));
+    }
+    if form.is_empty() {
+        return Ok(None);
+    }
+    if fixed.is_some() {
+        let said: Vec<String> = form.iter().map(|(k, v)| format!("{k}={v:?}")).collect();
+        record(format!("edit {iid} {}", said.join(" ")))?;
+        return Ok(title);
+    }
+    let value = call(remote, &format!("merge_requests/{iid}"), "PUT", &form)?;
+    let kept = text(&value, "title");
+    Ok((!kept.is_empty()).then_some(kept).or(title))
 }
 
 /// The names in GitLab's reviewers list whose state is `requested_changes`.
@@ -702,6 +792,7 @@ pub fn parse_details(m: &Value, labels: &Value) -> Details {
             .and_then(|l| hex_color(&text(l, "color")))
     };
     Details {
+        can_edit: false,
         description: text(m, "description"),
         labels: m
             .get("labels")

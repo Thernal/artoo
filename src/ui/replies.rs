@@ -109,6 +109,10 @@ impl Workspace {
         if !self.showing_request(cx) {
             return;
         }
+        // A proposal on screen is what ⌘↵ is on there: its Save wears the key (Design round 46).
+        if self.save_shown_proposal(cx) {
+            return;
+        }
         self.set_tool(Some(artoo_requests_api::DISCUSSIONS), cx);
         self.start_request_comment(cx);
     }

@@ -44,7 +44,8 @@ and the pending comments already there — and leave each remark with add_pendin
 gather them with gather_requests, each with a line on what you did there, so the reviewer finds them together. \
 Notes can also be left alone, on changes already opened, with annotate_changes; answers to them come back as review \
 comments. When a branch is ready for a merge request, you may draft its title and description with \
-draft_request; the reviewer checks it and creates it in Artoo. When you tell the reviewer where something is — a \
+draft_request; the reviewer checks it and creates it in Artoo. To change the title or description of one that is \
+already open, propose it with edit_request; the reviewer saves it or not. When you tell the reviewer where something is — a \
 file and a line, a commit, a comment on a merge request — point at it with show, so they can go there. \
 Pending comments are seen by the reviewer alone; the reviewer edits, deletes or keeps them and submits the review: \
 never submit, approve or publish anything yourself. \
@@ -231,6 +232,19 @@ fn tools() -> Value {
             }
         },
         {
+            "name": "edit_request",
+            "description": "Propose a new title, a new description or both for a merge request (a pull request on GitHub) that is already open. Artoo shows the proposal over the request's description, marked against what is there, for the reviewer to compare, discard or save. Nothing is saved or sent by this tool.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "request": {"type": "integer", "description": "The request's number (!123, #123)"},
+                    "title": {"type": "string", "description": "The proposed title; left out, the title stays"},
+                    "description": {"type": "string", "description": "The whole proposed description, in markdown; left out, it stays"}
+                },
+                "required": ["request"]
+            }
+        },
+        {
             "name": "show",
             "description": "Point the reviewer at one place in Artoo when you say where something is (\"the bug is in nav.rs:785\", \"look at commit a1b2c3d\"): a file and a line (in the diff on screen when that file is in it, else in Code), a commit, or a merge request at one of its comments or pending comments. Nothing on the reviewer's screen moves; a note offers to show it. Changes you made go with open_changes instead. Answers what it pointed at, or why it could not.",
             "inputSchema": {
@@ -348,6 +362,7 @@ fn call(
         "open_changes" => return changes::open_changes(bus, &here, &root, args),
         "annotate_changes" => return changes::annotate_changes(bus, &here, &root, args),
         "draft_request" => return requests::draft_request(hosts, bus, &here, &root, args),
+        "edit_request" => return requests::edit_request(hosts, bus, &here, &root, args),
         "show" => return show::show(hosts, bus, &here, &root, args),
         "say" => return say(bus, &root, args),
         _ => {}
@@ -663,7 +678,7 @@ mod tests {
         };
         bus.present(1, &presence).unwrap();
         let names = list(&bus);
-        assert_eq!(names.len(), 14);
+        assert_eq!(names.len(), 15);
         assert_eq!(names.last().map(String::as_str), Some("jira_issue"));
         // The window takes the call and answers it, as the app's beat does.
         let window = Bus::at(dir.clone());
@@ -715,7 +730,7 @@ mod tests {
         let (first, _) = said.split_once("\n\n").unwrap();
         assert!(first.contains("open_changes") && first.contains("after you commit"));
         let list = handle(&*hosts, &bus, "", &json!({"id": 2, "method": "tools/list"})).unwrap();
-        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 13);
+        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 14);
         assert!(
             handle(
                 &*hosts,

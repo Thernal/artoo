@@ -4,7 +4,7 @@
 
 use artoo_core::git::{BranchRef, DiffLine, Version, WebRemote};
 pub use artoo_core::mr::HostSides;
-use artoo_core::mr::{Approvals, Draft, Merge, Mr, MrState, Thread};
+use artoo_core::mr::{Approvals, Draft, Edits, Merge, Mr, MrState, Thread};
 use artoo_core::route::Place;
 use artoo_ui_kit::complete::Choice;
 use artoo_ui_kit::discussion::Card;
@@ -324,7 +324,10 @@ pub enum Act {
     /// Merging when the pipeline succeeds is cancelled.
     CancelAutoMerge,
     /// Your reaction `name` on note `note`, added or taken back.
-    React { note: u64, name: String },
+    React {
+        note: u64,
+        name: String,
+    },
     /// ☺+ opened on note `note`.
     OpenGrid(u64),
     /// ☺+ closed, when it is open on note `note`.
@@ -332,7 +335,10 @@ pub enum Act {
     /// A note for your agent on discussion `thread` (#50 G).
     ThreadNote(usize),
     /// A reply to discussion `thread` with `login` already mentioned.
-    ReplyMentioning { thread: usize, login: String },
+    ReplyMentioning {
+        thread: usize,
+        login: String,
+    },
     /// Outdated discussion `ix`'s version compared with the latest.
     CompareSince(usize),
     /// Discussion `ix` shown where it is: Changes at its line with it open, or the version it was written on when
@@ -342,10 +348,21 @@ pub enum Act {
     FoldCard(String),
     /// + on the description's paragraph `0`, counted from 1: a note on it for the agent (#241).
     ParagraphNote(u32),
+    /// The open request's title edited where it stands, or its description in place (Design round 46).
+    EditTitle,
+    EditDescription,
+    /// Its state chip's ▾ at a point: Mark as ready, or as a draft.
+    StateMenu(Point<Pixels>),
     /// The diff shows line `line` of file `path` (`old`: the removed side).
-    JumpToLine { path: String, line: u32, old: bool },
+    JumpToLine {
+        path: String,
+        line: u32,
+        old: bool,
+    },
     /// Submit review's card, on Approve when `approve` (the done card's, #188).
-    OpenSubmit { approve: bool },
+    OpenSubmit {
+        approve: bool,
+    },
     /// Pending comment `id` published alone (#138).
     SendNow(u64),
     /// Pending comment `id`'s right click in the Discussions window: Send now, Delete (#199).
@@ -384,7 +401,10 @@ pub enum Act {
     /// Request `iid`'s row picked in the list, by a click.
     PickRequest(u64),
     /// Request `iid` opened, at note `note` (a discussion waiting for you) when there is one.
-    OpenRequest { iid: u64, note: Option<u64> },
+    OpenRequest {
+        iid: u64,
+        note: Option<u64>,
+    },
     /// The list's group folded or unfolded.
     ToggleGroup(Group),
     /// The merged or closed page that could not be read, read again.
@@ -398,11 +418,16 @@ pub enum Act {
     /// Back to your branch from the request open.
     LeaveRequest,
     /// The outdated discussion's stepper: its stops `a` → `b` compared, at its line.
-    SinceStep { a: usize, b: usize },
+    SinceStep {
+        a: usize,
+        b: usize,
+    },
     /// The outdated discussion's comparison left for all the request's changes.
     SinceAll,
     /// ↓ (`down`) or ↑ in the Discussions window: the next or the previous discussion, shown in the diff.
-    StepThread { down: bool },
+    StepThread {
+        down: bool,
+    },
 }
 
 /// How the tab answers what the requests' views ask.
@@ -670,6 +695,16 @@ pub type Hears = Rc<dyn Fn(&Event, &mut App)>;
 #[derive(Clone)]
 pub struct TabActs(pub Acts);
 
+/// What of an open request can be edited, as it is now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Editable {
+    pub title: String,
+    pub description: String,
+    pub draft: bool,
+    /// The host lets you: an open request of yours, or one you may write to.
+    pub can: bool,
+}
+
 /// The kind of place a note for an agent on a request's description is on (`artoo_agents_api::places`, #241).
 pub const DESCRIPTION_PLACE: &str = "requests.description";
 
@@ -680,10 +715,14 @@ pub struct OverviewComposers(pub Composers);
 /// Overview's composers on a request, as the tab draws them now.
 pub type Composers = Rc<dyn Fn(u64, &App) -> OverviewComposer>;
 
-/// The composer at the end of Overview's discussions, and the note on a paragraph of the description while one
-/// is written (its number, from 1).
+/// The composer at the end of Overview's discussions, the note on a paragraph of the description while one is
+/// written (its number, from 1), and what the tab draws while the request is edited: the title's field, the
+/// description's editor or an agent's proposed text in its place, the proposal's bar over it.
 #[derive(Default)]
 pub struct OverviewComposer {
+    pub title: Option<AnyElement>,
+    pub description: Option<AnyElement>,
+    pub proposal: Option<AnyElement>,
     pub end: Option<AnyElement>,
     pub paragraph: Option<(u32, AnyElement)>,
 }
@@ -895,6 +934,12 @@ pub trait Requests {
     /// The data of a note's place on request `number` (`DESCRIPTION_PLACE`): paragraph `k` of its description,
     /// from 1, or with 0 the request.
     fn description_place(&self, number: u64, k: u32, cx: &App) -> Option<String>;
+    /// Saves `edits` to request `number` on its host, what shows of it changed once it is taken; `done` told
+    /// either way. False without a host.
+    fn edit(&self, number: u64, edits: Edits, done: Answered, cx: &mut App) -> bool;
+    /// Request `number`'s title, description, whether it is a draft, and whether the host lets you edit it; none
+    /// while it is not the one open and read.
+    fn editable(&self, number: u64, cx: &App) -> Option<Editable>;
     fn open_grid(&self, note: u64, cx: &mut App);
     fn close_grid(&self, cx: &mut App);
     fn grid_note(&self, cx: &App) -> Option<u64>;

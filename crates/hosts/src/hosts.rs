@@ -156,6 +156,10 @@ impl Requests for GitLab {
         gitlab::details(&self.remote, iid)
     }
 
+    fn edit_request(&self, iid: u64, edits: &Edits) -> Result<Option<String>> {
+        gitlab::edit_request(&self.remote, iid, edits)
+    }
+
     fn size(&self, iid: u64) -> Result<Option<Size>> {
         gitlab::size(&self.remote, iid)
     }
@@ -418,6 +422,10 @@ impl Requests for GitHub {
 
     fn details(&self, iid: u64) -> Result<Details> {
         github::details(&self.remote, iid)
+    }
+
+    fn edit_request(&self, iid: u64, edits: &Edits) -> Result<Option<String>> {
+        github::edit_request(&self.remote, iid, edits)
     }
 
     fn size(&self, iid: u64) -> Result<Option<Size>> {

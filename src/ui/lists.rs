@@ -37,7 +37,9 @@ impl Workspace {
             Field::Branches => (&self.bfilter, input::Look::default()),
             Field::Keys => (&self.keys_filter, input::Look::default()),
             Field::Settings => (&self.settings_query, input::Look::default()),
-            Field::Label | Field::Rename => (&self.label_name, input::Look::default()),
+            Field::Label | Field::Rename | Field::Title => {
+                (&self.label_name, input::Look::default())
+            }
         };
         let el = div()
             .id(id)
@@ -95,6 +97,20 @@ impl Workspace {
             ) {
                 Edit::Enter { .. } => self.save_label(cx),
                 Edit::Escape => self.close_label(cx),
+                Edit::Changed | Edit::Selected | Edit::Ignored => {}
+            }
+            cx.notify();
+            return true;
+        }
+        if field == Field::Title {
+            match input::edit(
+                &mut self.label_name,
+                &mut self.field_edit,
+                &event.keystroke,
+                cx,
+            ) {
+                Edit::Enter { .. } => self.save_title(cx),
+                Edit::Escape => self.cancel_title(cx),
                 Edit::Changed | Edit::Selected | Edit::Ignored => {}
             }
             cx.notify();
@@ -169,7 +185,7 @@ impl Workspace {
             Field::Branches => &mut self.bfilter,
             Field::Keys => &mut self.keys_filter,
             Field::Settings => &mut self.settings_query,
-            Field::Label | Field::Rename => &mut self.label_name,
+            Field::Label | Field::Rename | Field::Title => &mut self.label_name,
         };
         let edit = input::edit(text, &mut self.field_edit, &event.keystroke, cx);
         match edit {
@@ -202,6 +218,8 @@ pub enum Field {
     /// The name of a project or a chat being given (`labeling.rs`).
     Label,
     /// The name of an open page being given in its row under a space (`nav.rs`, Rename…).
+    /// The open request's title, edited where it stands (Design round 46).
+    Title,
     Rename,
 }
 

@@ -326,6 +326,8 @@ impl Workspace {
     /// Edit: the composer in place of one's own comment, its text in it.
     pub(super) fn start_edit(&mut self, change: Change, cx: &mut Context<Self>) {
         let (path, old, line, text) = match change {
+            // Its own start (`start_description_edit`): the text is the request's.
+            Change::Description(_) => return,
             Change::Agent(id) => {
                 let Some(c) = self.comments(cx).iter().find(|c| c.id == id) else {
                     return;
@@ -403,6 +405,11 @@ impl Workspace {
         if self.compose.is_some() {
             return;
         }
+        // On a request's Overview, where no discussion is picked, E edits your description.
+        if self.page_section(cx) == Some(super::nav::Section::Overview) && self.showing_request(cx)
+        {
+            return self.start_description_edit(cx);
+        }
         let Some(thread) = self.acting_thread(cx) else {
             return;
         };
@@ -424,10 +431,12 @@ impl Workspace {
             return;
         };
         let body = compose.edit.text().trim().to_owned();
-        if body.is_empty() {
+        // A description may be saved empty.
+        if body.is_empty() && !matches!(change, Change::Description(_)) {
             return;
         }
         match change {
+            Change::Description(iid) => self.save_description(iid, cx),
             Change::Agent(id) => {
                 self.agents.edit_comment(id, body, cx);
                 self.compose = None;
@@ -554,7 +563,11 @@ impl Workspace {
     }
 
     pub(super) fn cancel_comment(&mut self, cx: &mut Context<Self>) {
-        if self.compose.take().is_some() {
+        if let Some(gone) = self.compose.take() {
+            // Cancelled, a description's edit is not kept.
+            if let Target::Edit(Change::Description(iid)) = gone.target {
+                self.keep_description(iid, None);
+            }
             self.refresh_rows(cx);
             self.rv().remeasure_pages(cx);
             cx.notify();
@@ -663,6 +676,7 @@ impl Workspace {
                 .and_then(|c| c.completion_key(key, at, &choices))
         {
             if changed {
+                self.keep_description_edit();
                 self.diff_list(cx).remeasure();
             }
             return cx.notify();
@@ -699,6 +713,7 @@ impl Workspace {
             Typed::Changed => {}
         }
         // The box grows with its text.
+        self.keep_description_edit();
         self.diff_list(cx).remeasure();
         cx.notify();
     }
@@ -791,6 +806,7 @@ impl Workspace {
             return;
         };
         compose.apply(helper);
+        self.keep_description_edit();
         self.diff_list(cx).remeasure();
         cx.notify();
     }
@@ -819,6 +835,7 @@ impl Workspace {
             None => compose.emoji = None,
         }
         self.take_keyboard(Input::Compose, cx);
+        self.keep_description_edit();
         self.diff_list(cx).remeasure();
         cx.notify();
     }
@@ -1143,7 +1160,7 @@ impl Workspace {
 
     /// The one input component, open and in the box that gives it the keyboard, its presses answered here.
     #[allow(clippy::too_many_arguments)]
-    fn open_input(
+    pub(super) fn open_input(
         &self,
         compose: &Compose,
         tone: gpui::Rgba,

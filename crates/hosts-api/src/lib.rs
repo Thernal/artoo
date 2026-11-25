@@ -146,6 +146,13 @@ pub trait Requests: Send + Sync {
     /// Request `iid`'s description, labels in their colours, milestone and assignees.
     fn details(&self, iid: u64) -> Result<Details>;
 
+    /// Saves `edits` to request `iid`; the title as the host keeps it after, when that says something (GitLab
+    /// says a draft in it).
+    fn edit_request(&self, iid: u64, edits: &Edits) -> Result<Option<String>> {
+        let _ = (iid, edits);
+        anyhow::bail!("This host takes no edit of a request")
+    }
+
     /// How large request `iid` is, as the host counts it (#189): for a request whose head is not in the clone.
     /// `None` when the host has no count, or counts no file.
     fn size(&self, iid: u64) -> Result<Option<Size>>;

@@ -47,7 +47,10 @@ const GROUPS: &[Group] = &[
             ("c", "comment by line number"),
             ("↑ ↓ in it", "step the line"),
             ("Tab in the box", "agent / merge request"),
-            ("⌘↵", "add or post"),
+            (
+                "⌘↵",
+                "add or post · save an agent's proposed edit on screen",
+            ),
             (
                 "⇧⌘↵",
                 "keep pending · submit review (comment, approve, request changes)",
@@ -59,7 +62,10 @@ const GROUPS: &[Group] = &[
                 "the Inbox: mentions, review requests, replies (j k ↵ e)",
             ),
             ("r  x  o", "reply to, resolve, fold a discussion"),
-            ("e", "edit your comment in the discussion"),
+            (
+                "e",
+                "edit your comment in the discussion · on a request's Overview, your description",
+            ),
             ("⇧e", "react to the discussion's newest note"),
             ("⌘⇧D", "show or hide the Discussions window · esc hides it"),
             ("⌥M", "comments as markdown / raw text"),

@@ -55,6 +55,8 @@ pub enum Change {
     Note { thread: usize, note: u64 },
     /// One's pending comment `0` on the open merge request, before the review is sent (#200).
     Draft(u64),
+    /// The description of request `0`, edited in place (Design round 46).
+    Description(u64),
 }
 
 /// A comment being written.
@@ -1138,7 +1140,7 @@ impl Compose {
             | Target::AnswerValue(_) => Source::Agent,
             Target::Request(_)
             | Target::Reply(_)
-            | Target::Edit(Change::Note { .. } | Change::Draft(_))
+            | Target::Edit(Change::Note { .. } | Change::Draft(_) | Change::Description(_))
             | Target::InboxReply => Source::GitLab,
         }
     }

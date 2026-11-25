@@ -10,8 +10,8 @@ use crate::git::{LineKind, WebRemote};
 use anyhow::{Result, anyhow, bail};
 use artoo_core::http;
 use artoo_hosts_api::{
-    Approvals, Award, Details, Draft, Label, Mr, Note, Pipeline, Place, Push, Size, Thread, Todo,
-    Verdict,
+    Approvals, Award, Details, Draft, Edits, Label, Mr, Note, Pipeline, Place, Push, Size, Thread,
+    Todo, Verdict,
 };
 use serde_json::{Value, json};
 
@@ -651,7 +651,64 @@ pub fn details(remote: &WebRemote, number: u64) -> Result<Details> {
     };
     let mut details = parse_details(&value);
     details.changes_requested = changes_requested(remote, number);
+    details.can_edit = can_edit(remote, &value);
     Ok(details)
+}
+
+/// The repository as GitHub describes it to the token's user, one read shared by a page's edit rights and its
+/// merge state.
+fn repository(remote: &WebRemote) -> Result<Value> {
+    crate::shared::of(&format!("{}|repository", remote.base), || {
+        let (_, _, repo) = api(remote)?;
+        get(remote, &format!("/repos/{repo}"))
+    })
+}
+
+/// Whether the token's user may edit the pull request `value`: its author, or one who may push to the
+/// repository; not known, no. The fixture's is its author.
+fn can_edit(remote: &WebRemote, value: &Value) -> bool {
+    let author = value["user"]["login"].as_str();
+    if author.is_some() && author == username(remote).ok().as_deref() {
+        return true;
+    }
+    if crate::fixture::fixture().is_some() {
+        return false;
+    }
+    repository(remote).is_ok_and(|r| r["permissions"]["push"] == true)
+}
+
+/// Saves `edits` to pull request `number`: the title and the description in one `PATCH`, a draft made or unmade
+/// by GitHub's mutation for it.
+pub fn edit_request(remote: &WebRemote, number: u64, edits: &Edits) -> Result<Option<String>> {
+    let mut body = serde_json::Map::new();
+    if let Some(title) = &edits.title {
+        body.insert("title".to_owned(), json!(title));
+    }
+    if let Some(description) = &edits.description {
+        body.insert("body".to_owned(), json!(description));
+    }
+    if !body.is_empty() {
+        let body = Value::Object(body);
+        if !crate::fixture::record(format!("edit {number} {body}"))? {
+            rest(remote, "PATCH", &format!("pulls/{number}"), Some(&body))?;
+        }
+    }
+    if let Some(draft) = edits.draft
+        && !crate::fixture::record(format!("draft {number} {draft}"))?
+    {
+        let pull = get(remote, &format!("pulls/{number}"))?;
+        let id = s(&pull["node_id"]);
+        if id.is_empty() {
+            bail!("GitHub gave no id for this pull request");
+        }
+        let mutation = if draft {
+            "mutation($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { pullRequest { isDraft } } }"
+        } else {
+            "mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } } }"
+        };
+        graphql(remote, mutation, json!({ "id": id }))?;
+    }
+    Ok(edits.title.clone())
 }
 
 /// How large pull request `number` is as GitHub counts it (#189): its files, lines and commits, from the pull
@@ -678,6 +735,7 @@ fn parse_size(p: &Value) -> Option<Size> {
 
 pub fn parse_details(p: &Value) -> Details {
     Details {
+        can_edit: false,
         description: s(&p["body"]),
         labels: p["labels"]
             .as_array()
@@ -1357,13 +1415,7 @@ pub fn merge_state(remote: &WebRemote, number: u64) -> Result<artoo_hosts_api::M
             read_fixture(&format!("merge-{number}.json")).unwrap_or(Ok(Value::Null))?,
             read_fixture("repo.json").unwrap_or(Ok(Value::Null))?,
         ),
-        None => {
-            let (_, _, repo) = api(remote)?;
-            (
-                pull(remote, number)?,
-                get(remote, &format!("/repos/{repo}"))?,
-            )
-        }
+        None => (pull(remote, number)?, repository(remote)?),
     };
     Ok(parse_merge_state(&pull, &repo))
 }

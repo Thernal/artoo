@@ -4,10 +4,10 @@
 
 use crate::group::Group;
 use artoo_core::git::{BranchRef, RefKind, Version};
-use artoo_hosts_api::{self as mr, Draft, Mr, Pipeline, Thread};
+use artoo_hosts_api::{self as mr, Draft, Edits, Mr, Pipeline, Thread};
 use artoo_requests_api::{
-    Answered, Change, DraftLook, Drafted, InboxFilter, InboxRow, Moved, OnDraft, OnInbox, OnThread,
-    Pair, Since, SubmitLook, ThreadLook,
+    Answered, Change, DraftLook, Drafted, Editable, InboxFilter, InboxRow, Moved, OnDraft, OnInbox,
+    OnThread, Pair, Since, SubmitLook, ThreadLook,
 };
 use artoo_ui_kit::fresh::SlotAction;
 use gpui::KeyDownEvent;
@@ -196,6 +196,28 @@ impl Requests {
 
     /// Request `iid` wherever it was read: the open list, the merged or closed, or the ones that
     /// left the open list while open in the menu.
+    /// What shows of request `number` once its host took `edits`, before it is read again; `title` as the host
+    /// keeps it.
+    fn edited(&mut self, number: u64, edits: &Edits, title: Option<String>) {
+        let past = self.past.scopes.iter_mut().flat_map(|p| &mut p.list);
+        for m in (self.list.iter_mut().chain(past)).filter(|m| m.iid == number) {
+            if let Some(title) = &title {
+                m.title = title.clone();
+            }
+            if let Some(draft) = edits.draft {
+                m.draft = draft;
+            }
+            if let Some(description) = &edits.description {
+                m.description = description.clone();
+            }
+        }
+        if self.current == Some(number)
+            && let (Some(details), Some(description)) = (self.details.as_mut(), &edits.description)
+        {
+            details.description = description.clone();
+        }
+    }
+
     pub fn find(&self, iid: u64) -> Option<&Mr> {
         self.list
             .iter()
@@ -1062,6 +1084,47 @@ impl artoo_requests_api::Requests for Handle {
 
     fn description_place(&self, number: u64, k: u32, cx: &App) -> Option<String> {
         self.0.upgrade()?.read(cx).description_place(number, k)
+    }
+
+    fn edit(&self, number: u64, edits: Edits, done: Answered, cx: &mut App) -> bool {
+        let mut sent = false;
+        self.with_host(cx, |_, host, cx| {
+            sent = true;
+            cx.spawn(async move |this, cx| {
+                let saved = edits.clone();
+                let result = (cx.background_executor())
+                    .spawn(async move { host.edit_request(number, &saved) })
+                    .await;
+                let answer = this.update(cx, |rq, cx| {
+                    cx.notify();
+                    match result {
+                        Ok(title) => {
+                            rq.edited(number, &edits, title);
+                            Ok(())
+                        }
+                        Err(e) => Err(Some(format!("{e:#}"))),
+                    }
+                });
+                if let Ok(answer) = answer {
+                    cx.update(|cx| done(answer, cx));
+                }
+            })
+            .detach();
+        });
+        sent
+    }
+
+    fn editable(&self, number: u64, cx: &App) -> Option<Editable> {
+        let requests = self.0.upgrade()?;
+        let rq = requests.read(cx);
+        let m = rq.find(number).filter(|_| rq.current == Some(number))?;
+        let details = rq.details.as_ref()?;
+        Some(Editable {
+            title: m.title.clone(),
+            description: rq.description_of(m).to_owned(),
+            draft: m.draft,
+            can: details.can_edit && m.state == artoo_hosts_api::MrState::Opened,
+        })
     }
 
     fn open_grid(&self, note: u64, cx: &mut App) {
