@@ -160,6 +160,15 @@ pub type OnAnswer = Rc<dyn Fn(AnswerEvent, &mut App)>;
 pub struct From {
     pub agent: String,
     pub chat: String,
+    /// The open request the note was written on; none for one on the working tree, a branch or a plugin's place.
+    pub about: Option<About>,
+}
+
+/// The request an answer is about, as the Inbox names it.
+pub struct About {
+    pub number: u64,
+    pub title: String,
+    pub author: String,
 }
 
 /// How an answer's row looks.
@@ -191,6 +200,7 @@ pub trait Renderer {
         c: &Comment,
         drafts: &[u64],
         lines: Option<&dyn Fn(u32) -> Option<String>>,
+        agent: Option<&str>,
         on: OnForm,
     ) -> Option<AnyElement>;
 
@@ -250,10 +260,11 @@ pub fn form(
     c: &Comment,
     drafts: &[u64],
     lines: Option<&dyn Fn(u32) -> Option<String>>,
+    agent: Option<&str>,
     on: OnForm,
     cx: &App,
 ) -> Option<AnyElement> {
-    renderer(cx)?.form(c, drafts, lines, on)
+    renderer(cx)?.form(c, drafts, lines, agent, on)
 }
 
 /// Under an earlier question of the agent's: its form as it was, what was picked marked.

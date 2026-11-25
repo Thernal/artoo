@@ -133,6 +133,7 @@ impl Workspace {
             c,
             &self.agent_drafts(cx),
             open.map(|_| &line as &dyn Fn(u32) -> Option<String>),
+            self.agent_name_of(c, cx).as_deref(),
             on,
             cx,
         )

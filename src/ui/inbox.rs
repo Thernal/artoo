@@ -9,7 +9,9 @@
 
 use super::composer::Target;
 use super::{Workspace, px};
-use artoo_agents_api::view::{AnswerEvent, AnswerLook, From, OnAnswer, answer_preview, answer_row};
+use artoo_agents_api::view::{
+    About, AnswerEvent, AnswerLook, From, OnAnswer, answer_preview, answer_row,
+};
 pub(super) use artoo_requests_api::InboxRow;
 use artoo_requests_api::{InboxEvent, OnInbox, RowLook};
 use artoo_ui_kit::markdown::Selecting;
@@ -363,7 +365,24 @@ impl Workspace {
             })
             .filter(|a| !a.is_empty())
             .unwrap_or_else(|| "Agent".to_owned());
-        From { agent, chat: title }
+        From {
+            agent,
+            chat: title,
+            about: self.about_of(c, cx),
+        }
+    }
+
+    /// The open request note `c` was written on: the one its branch is the source of. A plugin's place names none.
+    fn about_of(&self, c: &crate::comment::Comment, cx: &App) -> Option<About> {
+        let branch = c.branch.as_deref().filter(|_| c.on.is_none())?;
+        let list = self.requests_api()?.list(cx);
+        list.into_iter()
+            .find(|m| m.source == branch)
+            .map(|m| About {
+                number: m.iid,
+                title: m.title,
+                author: m.author,
+            })
     }
 
     /// How the Inbox's agents' answers ask the tab.
@@ -409,7 +428,7 @@ impl artoo_requests_api::InboxHost for InboxHost {
     fn answer_preview(&self, id: u64, cx: &App) -> Option<AnyElement> {
         let this = self.0.upgrade()?.read(cx);
         let c = this.comments(cx).iter().find(|c| c.id == id)?;
-        let thread = this.render_thread(id, 0., self.0.clone(), cx);
+        let thread = this.render_answer_thread(id, self.0.clone(), cx);
         let on = Workspace::answer_on(self.0.clone());
         Some(answer_preview(c, this.agent_of(c, cx), thread, &on, cx))
     }

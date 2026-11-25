@@ -91,9 +91,10 @@ pub fn form(
     c: &Comment,
     _drafts: &[u64],
     lines: Option<&dyn Fn(u32) -> Option<String>>,
+    agent: Option<&str>,
     on: OnForm,
 ) -> Option<AnyElement> {
-    form_at(c, lines, on, false)
+    form_at(c, lines, agent, on, false)
 }
 
 /// `form` as the conversation draws it (#220): inside the question's own card, so no margin of its own and no
@@ -101,14 +102,16 @@ pub fn form(
 pub fn bare(
     c: &Comment,
     lines: Option<&dyn Fn(u32) -> Option<String>>,
+    agent: Option<&str>,
     on: OnForm,
 ) -> Option<AnyElement> {
-    form_at(c, lines, on, true)
+    form_at(c, lines, agent, on, true)
 }
 
 fn form_at(
     c: &Comment,
     lines: Option<&dyn Fn(u32) -> Option<String>>,
+    agent: Option<&str>,
     on: OnForm,
     bare: bool,
 ) -> Option<AnyElement> {
@@ -241,7 +244,11 @@ fn form_at(
                     )
                     .child(mark(answer.your_call, false))
                     .child("Up to you")
-                    .child(div().text_color(theme::faint()).child("Claude decides"))
+                    .child(
+                        div()
+                            .text_color(theme::faint())
+                            .child(format!("{} decides", agent.unwrap_or("The agent"))),
+                    )
                     .on_click(move |_, _, cx| {
                         call(FormEvent::Pick(id, None), cx);
                     }),
@@ -292,7 +299,7 @@ fn form_at(
                             .min_w_0()
                             .text_size(px(12.))
                             .text_color(theme::faint())
-                            .child("Goes to your agent at once"),
+                            .child(format!("Goes to {} at once", agent.unwrap_or("your agent"))),
                     )
                     .child(
                         button(

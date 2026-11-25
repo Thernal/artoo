@@ -101,9 +101,10 @@ impl Renderer for RendererImpl {
         c: &Comment,
         drafts: &[u64],
         lines: Option<&dyn Fn(u32) -> Option<String>>,
+        agent: Option<&str>,
         on: OnForm,
     ) -> Option<AnyElement> {
-        crate::form::form(c, drafts, lines, on)
+        crate::form::form(c, drafts, lines, agent, on)
     }
 
     fn record(&self, form: &Form, answered: Option<&Answered>) -> AnyElement {

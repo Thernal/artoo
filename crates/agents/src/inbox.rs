@@ -1,41 +1,44 @@
-//! Your notes an agent answered, in the Inbox (#116): purple where a notice is blue. A row says who and what, the
-//! note's place and the start of what the agent wrote; the answer selected shows whose and where, the lines the note
-//! is on as they were, its thread (the tab's) and the way to its line. A click asks the tab an `AnswerEvent`.
+//! Your notes an agent answered, in the Inbox (#116): purple where a notice is blue. A row says what it is about (the
+//! request, else the note's place) and the start of what the agent wrote; the answer selected shows the request, its
+//! thread (the tab's) and the way to its line. A note on no request shows its place and its lines instead. A click asks the tab an `AnswerEvent`.
 
 use crate::review::{Comment, State};
 use artoo_core::git::LineKind;
 use artoo_core::markdown::plain;
 use artoo_ui_kit::controls::bar_button;
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine, excerpt_view};
-use artoo_ui_kit::hover::{self, CutInTip, RowTip};
-use artoo_ui_kit::{ROW_RADIUS, format, icons, px, theme};
+use artoo_ui_kit::hover::{self, CutInTip, Hover as _, RowTip};
+use artoo_ui_kit::{ROW_RADIUS, discussion, format, icons, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Div, FontWeight, Stateful, div, prelude::*};
 
 /// What an answer is drawn with and a click on it asks, the contract's.
-pub use artoo_agents_api::view::{AnswerEvent, AnswerLook, From, OnAnswer};
+pub use artoo_agents_api::view::{About, AnswerEvent, AnswerLook, From, OnAnswer};
 
-/// What the agent did, as the row says it: asked, your answer waiting to be sent, done.
-pub fn verb(c: &Comment) -> &'static str {
-    match c.state {
-        State::Addressed => "addressed your note",
-        State::Draft => "asks you · answered, not sent",
-        _ => "asks you",
-    }
-}
+/// What the agent did, as the row's tip says it: asked, your answer waiting to be sent, done.
+pub use artoo_agents_api::comment::verb;
 
 /// Where a note is written: `refunds/`, `Money.kt:23`, a plugin's place (`PAY-412 · description · ¶4`, #212).
 pub fn note_place(c: &Comment) -> String {
     c.reads()
 }
 
-/// The answer to note `c` (#116): who and what, the note's place, the start of what the agent wrote.
+/// What an answer is about, as its row's title says it: `!398 Refactor the login screen state`, else the note's
+/// place.
+fn about_title(c: &Comment, about: Option<&About>) -> String {
+    match about {
+        Some(a) => format!("{} {}", words::number(a.number), a.title),
+        None => note_place(c),
+    }
+}
+
+/// The answer to note `c` (#116): what it is about, the start of what the agent wrote; who, what and where in the tip.
 pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> Stateful<Div> {
     let AnswerLook {
         fresh,
         on: picked,
         wide,
     } = look;
-    let From { agent, chat } = from;
+    let From { agent, chat, about } = from;
     let id = c.id;
     let at = c.replies.last().map_or(0, |r| r.at);
     let said = c.replies.last().map(|r| plain(&r.body)).unwrap_or_default();
@@ -47,7 +50,8 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
         .to_owned();
     let place = note_place(c);
     let verb = verb(c);
-    let mut tip = vec![format!("{agent} {verb}"), place.clone()];
+    let title = about_title(c, about.as_ref());
+    let mut tip = vec![format!("{agent} {verb}"), place];
     if !chat.is_empty() {
         tip.push(format!("chat “{chat}”"));
     }
@@ -56,8 +60,7 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
         tip.push(said.trim().to_owned());
     }
     let on = on.clone();
-    // The Inbox's own row (`artoo_requests::inbox_view`): a face, the title and the short time, the place, the gist.
-    let title = format!("{agent} {verb}");
+    // The Inbox's own row (`artoo_requests::inbox_view`): a face, the title and the short time, the gist.
     div()
         .id(("inbox-agent", id as usize))
         .mx(px(6.))
@@ -119,13 +122,6 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                                 .text_color(theme::faint()),
                         ),
                 )
-                .child(
-                    div()
-                        .cut_in_tip()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(place),
-                )
                 .children((wide && !gist.is_empty()).then(|| {
                     div()
                         .cut_in_tip()
@@ -138,54 +134,85 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
         .on_click(move |_: &ClickEvent, _, cx| on(AnswerEvent::Pick(id), cx))
 }
 
-/// The answer to note `c` selected: whose and where, the lines the note is on as they were, the purple `thread`
-/// itself — your note, what the agent said, its form, your answer and Send, or Resolve —, and the way to its line.
+/// The answer to note `c` selected: the request's number, author and title, the purple `thread` itself — your note,
+/// what the agent said, its form, your answer and Send, or Resolve —, and the way to its line. On no request the head
+/// says whose and where, and the lines the note is on are shown as they were.
 pub fn answer_preview(c: &Comment, from: From, thread: AnyElement, on: &OnAnswer) -> AnyElement {
-    let From { agent, chat } = from;
+    let From { agent, chat, about } = from;
     let id = c.id;
     let at = c.replies.last().map_or(0, |r| r.at);
+    let when = div()
+        .id("inbox-agent-when")
+        .child(format::short_ago(at))
+        .tip(hover::full_date(at));
     let props = div()
         .flex()
         .flex_wrap()
         .items_center()
         .gap_2()
         .text_size(px(12.))
-        .text_color(theme::muted())
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .text_color(theme::agent())
-                .child(icons::icon("bot").size(px(14.)).text_color(theme::agent()))
-                .child(if chat.is_empty() {
-                    agent.clone()
-                } else {
-                    format!("{agent} · {chat}")
-                })
-                .child(div().text_color(theme::agent()).child(verb(c))),
-        )
-        .children(c.branch.clone().filter(|b| !b.is_empty()).map(|b| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(
-                    icons::icon("branch")
-                        .size(px(14.))
-                        .text_color(theme::muted()),
-                )
-                .child(div().font_family(theme::code_font()).child(b))
-        }))
-        .child(div().flex_1())
-        .child(div().text_color(theme::faint()).child(format::ago(at)));
+        .text_color(theme::muted());
+    // As a request's notice heads its preview (#202): the number, its author, when.
+    let props = match &about {
+        Some(a) => props
+            .child(
+                div()
+                    .font_family(theme::code_font())
+                    .text_color(theme::accent())
+                    .child(words::number(a.number)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .min_w_0()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(discussion::avatar(&a.author, false, 16.))
+                    .child(div().flex_none().child(a.author.clone())),
+            )
+            .child(when),
+        None => props
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .text_color(theme::agent())
+                    .child(icons::icon("bot").size(px(14.)).text_color(theme::agent()))
+                    .child(if chat.is_empty() {
+                        agent.clone()
+                    } else {
+                        format!("{agent} · {chat}")
+                    })
+                    .child(div().text_color(theme::agent()).child(verb(c))),
+            )
+            .children(c.branch.clone().filter(|b| !b.is_empty()).map(|b| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(
+                        icons::icon("branch")
+                            .size(px(14.))
+                            .text_color(theme::muted()),
+                    )
+                    .child(div().font_family(theme::code_font()).child(b))
+            }))
+            .child(div().flex_1())
+            .child(when.text_color(theme::faint())),
+    };
     let title = div()
         .text_size(px(19.))
         .line_height(px(26.))
         .font_weight(FontWeight::SEMIBOLD)
-        .child(note_place(c));
-    // The lines the note is on, as they were when it was written.
-    let code = (!c.is_folder() && c.on.is_none() && !c.code.is_empty()).then(|| {
+        .child(
+            about
+                .as_ref()
+                .map_or_else(|| note_place(c), |a| a.title.clone()),
+        );
+    // The lines the note is on, as they were when it was written; on a request the thread's head names the place.
+    let lines = about.is_none() && !c.is_folder() && c.on.is_none() && !c.code.is_empty();
+    let code = lines.then(|| {
         let first = c.line.saturating_sub(c.above.len() as u32);
         let lines = c
             .above

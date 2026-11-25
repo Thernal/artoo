@@ -253,6 +253,47 @@ impl Workspace {
         this: WeakEntity<Self>,
         cx: &gpui::App,
     ) -> gpui::AnyElement {
+        self.thread_card(id, indent, false, this, cx)
+    }
+
+    /// The thread of comment `id` as the Inbox previews its answer: the card's head says who, where and what
+    /// the agent did (`Claude  LoginViewModel.kt:51  Claude asks you`).
+    pub(super) fn render_answer_thread(
+        &self,
+        id: u64,
+        this: WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> gpui::AnyElement {
+        self.thread_card(id, 0., true, this, cx)
+    }
+
+    /// The agent comment `c` is for or from, by its name: `Claude`, not `Claude Code`; `None` when no chat of
+    /// the tab's is the one it went to.
+    pub(super) fn agent_name_of(
+        &self,
+        c: &crate::comment::Comment,
+        cx: &gpui::App,
+    ) -> Option<String> {
+        c.sent
+            .as_ref()
+            .and_then(|s| {
+                self.agents
+                    .chats(cx)
+                    .iter()
+                    .find(|chat| chat.session == s.session)
+            })
+            .map(|chat| chat.agent.trim_end_matches(" Code").to_owned())
+            .filter(|n| !n.is_empty())
+    }
+
+    fn thread_card(
+        &self,
+        id: u64,
+        indent: f32,
+        answer: bool,
+        this: WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> gpui::AnyElement {
         let Some(comment) = self.comments(cx).iter().find(|c| c.id == id) else {
             return div().into_any_element();
         };
@@ -263,18 +304,9 @@ impl Workspace {
         let (fold, delete, raw) = (this.clone(), this.clone(), this.clone());
         let (editing, asking) = (this.clone(), this);
         let draft = comment.state == State::Draft;
-        // The agent it is for, by its name: `Claude`, not `Claude Code`.
-        let to = comment
-            .sent
-            .as_ref()
-            .and_then(|s| {
-                self.agents
-                    .chats(cx)
-                    .iter()
-                    .find(|c| c.session == s.session)
-            })
-            .map(|c| c.agent.trim_end_matches(" Code").to_owned())
-            .filter(|n| !n.is_empty())
+        // The agent it is for, by its name.
+        let to = self
+            .agent_name_of(comment, cx)
             .unwrap_or_else(|| "Claude".to_owned());
         // The far end: when it went, or that it did not, with its own send (A8, K1a).
         let sent_at = comment
@@ -315,9 +347,30 @@ impl Workspace {
                     .text_size(px(13.))
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .text_color(theme::text())
-                    .child(format!("To {to}")),
+                    .child(if answer {
+                        to.clone()
+                    } else {
+                        format!("To {to}")
+                    }),
             )
-            .child(if open {
+            .children(answer.then(|| {
+                div()
+                    .min_w_0()
+                    .font_family(theme::code_font())
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .child(super::hover::cut("answer-place", comment.reads()))
+            }))
+            .children(answer.then(|| {
+                div()
+                    .flex_none()
+                    .ml(px(8.))
+                    .text_size(px(12.))
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .text_color(theme::agent())
+                    .child(format!("{to} {}", artoo_agents_api::comment::verb(comment)))
+            }))
+            .child(if open || answer {
                 div().flex_1().into_any_element()
             } else {
                 super::hover::cut("summary", self.one_line(&comment.body))
@@ -412,6 +465,9 @@ impl Workspace {
                         }),
                     )
                     .into_any_element()
+            } else if answer {
+                // The preview's head already says when.
+                div().into_any_element()
             } else {
                 div()
                     .flex_none()

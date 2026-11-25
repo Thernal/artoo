@@ -240,6 +240,15 @@ pub enum State {
     Resolved,
 }
 
+/// What the agent did on comment `c`, as it is said: asked, your answer waiting to be sent, done.
+pub fn verb(c: &Comment) -> &'static str {
+    match c.state {
+        State::Addressed => "addressed your note",
+        State::Draft => "asks you · answered, not sent",
+        _ => "asks you",
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sent {
     /// The chat's session id; empty for "whichever chat asks" (a new chat).

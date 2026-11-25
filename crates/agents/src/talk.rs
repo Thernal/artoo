@@ -612,7 +612,8 @@ fn bubble(key: usize, s: &Say, comments: &[Comment], look: &Look, cx: &App) -> A
                     host.act(Act::Form(event), cx);
                 }
             });
-            let steps = crate::form::bare(c, None, on);
+            let agent = look.name.trim_end_matches(" Code");
+            let steps = crate::form::bare(c, None, Some(agent), on);
             corners(div())
                 .border_1()
                 .border_color(theme::warning())
