@@ -44,6 +44,8 @@ pub struct Wear {
     pub mark: Option<(String, Rgba)>,
     /// A setting's value in force, quiet at the row's end (`SF Pro`); empty for none.
     pub value: String,
+    /// The row's tooltip, on a long hover (a plugin's name and owner); empty for none.
+    pub tip: String,
     /// What ↵ does on it, as the foot says it (`install`); empty: `open`.
     pub verb: &'static str,
 }

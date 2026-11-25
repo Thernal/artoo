@@ -9,8 +9,7 @@ use artoo_shell_api::settings::Rows;
 use artoo_ui_kit::hover::Hover as _;
 use artoo_ui_kit::{ROW_RADIUS, controls, hover, icons, px, theme};
 use gpui::{
-    App, ClickEvent, ClipboardItem, Context, Entity, FontWeight, Render, SharedString, Window, div,
-    prelude::*,
+    App, ClickEvent, ClipboardItem, Context, Entity, Render, SharedString, Window, div, prelude::*,
 };
 use std::rc::Rc;
 use std::sync::Arc;
@@ -96,55 +95,71 @@ impl Render for AgentsSettings {
             let c = self.connect.read(cx);
             (c.busy, c.said.clone())
         };
-        // `tip`: what the label leaves out, on a hover.
-        let command = |id: String, label: String, tip: Option<&'static str>, text: String| {
+        // The command that does it by hand, on one mono line: `>_`, the command, its copy icon.
+        let command = |id: String, text: String| {
             let copy = text.clone();
             div()
                 .flex()
-                .flex_col()
-                .gap_1()
-                .py(px(8.))
+                .items_center()
+                .gap(px(8.))
+                .h(px(28.))
+                .pl(px(8.))
+                .pr(px(2.))
+                .rounded(px(ROW_RADIUS))
+                .border_1()
+                .border_color(theme::island_border())
+                .bg(theme::base())
                 .child(
-                    div()
-                        .id(SharedString::from(format!("{id}-label")))
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(label)
-                        .when_some(tip, |d, tip| {
-                            d.tooltip_show_delay(artoo_ui_kit::hover::LONG)
-                                .tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
-                        }),
+                    icons::icon("terminal")
+                        .flex_none()
+                        .size(px(13.))
+                        .text_color(theme::faint()),
                 )
                 .child(
+                    hover::name(SharedString::from(format!("{id}-text")), text)
+                        .flex_1()
+                        .min_w_0()
+                        .font_family(theme::code_font())
+                        .text_size(px(12.)),
+                )
+                .child(
+                    icon_button(id, "copy", "Copy the command").on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
+                    }),
+                )
+        };
+        // The reason it failed, in red with its warning glyph, over the command.
+        let failure = |why: String, id: String, text: String| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .pl(px(32.))
+                .pr(px(12.))
+                .pt(px(2.))
+                .pb(px(10.))
+                .border_b_1()
+                .border_color(theme::island_border())
+                .child(
                     div()
-                        .id(SharedString::from(id))
                         .flex()
                         .items_center()
-                        .gap_2()
-                        .px_2()
-                        .py_1()
-                        .rounded(px(ROW_RADIUS))
-                        .bg(theme::base())
-                        .cursor_pointer()
-                        .hover(|s| s.bg(theme::hover()))
+                        .gap(px(6.))
+                        .text_size(px(12.))
+                        .text_color(theme::removed())
                         .child(
-                            div()
+                            icons::icon("triangle-alert")
+                                .flex_none()
+                                .size(px(14.))
+                                .text_color(theme::removed()),
+                        )
+                        .child(
+                            hover::cut(SharedString::from(format!("{id}-why")), why)
                                 .flex_1()
-                                .min_w_0()
-                                .font_family(theme::code_font())
-                                .text_size(px(12.))
-                                .child(text),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child("Copy"),
-                        )
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                        }),
+                                .min_w_0(),
+                        ),
                 )
+                .child(command(id, text))
         };
         // One row an agent (#201), on one line: its name, then its state as a glyph with its sentence as tooltip, and
         // what can be done — Connect all while one is not (the developer, 2026-11-14: the way to connect stays in
@@ -200,8 +215,8 @@ impl Render for AgentsSettings {
                     (false, None) => "not yet".to_owned(),
                 };
                 let copy = by_hand.clone();
-                // Connected: the ok glyph; else the dashed ring, its sentence the tooltip, the command to copy as an
-                // icon and Look again, which reads whether Codex has it now.
+                // Connected: the ok glyph; else a half ring (limited) or the dashed one, its sentence the tooltip, the
+                // command to copy as an icon and Look again, which reads whether Codex has it now.
                 let mut end = Vec::new();
                 if on {
                     end.push(state(
@@ -212,7 +227,10 @@ impl Render for AgentsSettings {
                 } else {
                     end.push(state(
                         "agents-state-codex",
-                        "circle-dashed",
+                        match provider.limits() {
+                            Some(_) => "circle-half",
+                            None => "circle-dashed",
+                        },
                         match provider.limits() {
                             Some(_) => {
                                 "Not found: a Codex session open here listens by itself".into()
@@ -242,11 +260,20 @@ impl Render for AgentsSettings {
                 continue;
             };
             // Claude Code: each profile, connected or not yet.
-            let profiles: Vec<(String, crate::claude::Link, bool, bool)> = if word == "claude" {
+            let profiles: Vec<Profile> = if word == "claude" {
                 (crate::claude::profiles().iter())
                     .map(|p| {
                         let (state, server, skill) = crate::claude::link(p);
-                        (profile_name(p), state, server, skill)
+                        Profile {
+                            path: profile_name(p),
+                            folder: p
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default(),
+                            link: state,
+                            server,
+                            skill,
+                        }
                     })
                     .collect()
             } else {
@@ -258,19 +285,18 @@ impl Render for AgentsSettings {
                 "No profile found (~/.claude)".to_owned()
             } else {
                 (profiles.iter())
-                    .map(|(n, state, ..)| {
-                        let word = match state {
+                    .map(|p| {
+                        let word = match p.link {
                             Link::Whole => "connected",
                             Link::Partly => "partly",
                             Link::Not => "not yet",
                         };
-                        format!("{n} {word}")
+                        format!("{} {word}", p.path)
                     })
                     .collect::<Vec<_>>()
                     .join(" · ")
             };
-            let all_in =
-                !profiles.is_empty() && profiles.iter().all(|(_, s, ..)| *s == Link::Whole);
+            let all_in = !profiles.is_empty() && profiles.iter().all(|p| p.link == Link::Whole);
             let to_connect = provider.clone();
             let none = word == "claude" && profiles.is_empty();
             // Space on the keyboard's row connects it (#203), again once it is.
@@ -286,89 +312,157 @@ impl Render for AgentsSettings {
                     }),
                 );
             }
-            let mut end = Vec::new();
-            if !none {
-                // Each profile's state, or the one glyph when all are in.
-                if all_in {
-                    end.push(state(
-                        "agents-state-claude",
-                        "circle-check",
-                        "Connected: listens with Artoo agent-watch".into(),
-                    ));
-                } else {
-                    for (ix, (path, link, server, skill)) in profiles.iter().enumerate() {
-                        let (glyph, tip) = profile_state(path, *link, *server, *skill);
-                        end.push(state(format!("agents-state-claude-{ix}"), glyph, tip));
-                    }
-                }
-                let button = div()
-                    .id(SharedString::from(format!("agents-connect-{word}")))
-                    .cursor_pointer();
-                let on_click = cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let provider = to_connect.clone();
-                    this.connect.update(cx, |c, cx| c.connect(provider, cx))
-                });
-                end.push(if all_in {
-                    // Connected: the same act, quiet, for a profile added since or Artoo moved.
-                    icon_button(
-                        format!("agents-connect-{word}"),
-                        "rotate-ccw",
-                        "Connect again",
-                    )
-                    .on_click(on_click)
-                    .into_any_element()
-                } else {
-                    button
-                        .px_3()
-                        .h(px(24.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(ROW_RADIUS))
-                        .bg(theme::agent())
-                        .text_color(theme::base())
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(match (busy, profiles.len()) {
-                            (true, _) => "Connecting…",
-                            (false, 0 | 1) => "Connect",
-                            (false, _) => "Connect all",
-                        })
-                        .on_click(on_click)
-                        .into_any_element()
-                });
-            }
+            // Which profile the last failure names (`<folder>: why`); a failure naming none is under the agent.
             let failed = said
                 .as_ref()
-                .filter(|(by, text)| *by == name && text.starts_with("Not connected"));
-            rows = rows
-                .child(row(
-                    format!("agents-row-{word}"),
-                    name.to_owned(),
-                    facts,
-                    end,
-                ))
-                .children(
-                    said.as_ref()
-                        .filter(|(by, _)| *by == name)
-                        .map(|(_, text)| {
+                .filter(|(by, _)| *by == name)
+                .and_then(|(_, text)| text.strip_prefix("Not connected — "));
+            let failed_in = failed.and_then(|why| {
+                (profiles.iter())
+                    .position(|p| why.starts_with(&format!("{}: ", p.folder)))
+                    .map(|ix| {
+                        let why = why[profiles[ix].folder.len() + 2..].to_owned();
+                        (ix, why)
+                    })
+            });
+            let mut end = Vec::new();
+            if !none {
+                if all_in {
+                    // Connected: the ok glyph where there are no rows of profiles, and the same act, quiet, for a
+                    // profile added since or Artoo moved.
+                    if profiles.is_empty() {
+                        end.push(state(
+                            "agents-state-claude",
+                            "circle-check",
+                            "Connected: listens with Artoo agent-watch".into(),
+                        ));
+                    }
+                    end.push(
+                        icon_button(
+                            format!("agents-connect-{word}"),
+                            "rotate-ccw",
+                            "Connect again",
+                        )
+                        .on_click(connect_click(self.connect.clone(), to_connect.clone()))
+                        .into_any_element(),
+                    );
+                } else {
+                    end.push(
+                        text_button(
+                            format!("agents-connect-{word}"),
+                            match (busy, profiles.len()) {
+                                (true, _) => "Connecting…",
+                                (false, 0 | 1) => "Connect",
+                                (false, _) => "Connect all",
+                            },
+                        )
+                        .on_click(connect_click(self.connect.clone(), to_connect.clone()))
+                        .into_any_element(),
+                    );
+                }
+            }
+            rows = rows.child(row(
+                format!("agents-row-{word}"),
+                name.to_owned(),
+                facts,
+                end,
+            ));
+            // One row a profile: its folder, its glyph, Connect again on the one that failed and its reason under it.
+            for (ix, p) in profiles.iter().enumerate() {
+                let (glyph, tip) = profile_state(&p.path, p.link, p.server, p.skill);
+                let failure_here = failed_in.as_ref().filter(|(at, _)| *at == ix);
+                rows = rows.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .min_h(px(28.))
+                        .pl(px(32.))
+                        .pr(px(2.))
+                        .py(px(2.))
+                        .when(failure_here.is_none(), |d| {
+                            d.border_b_1().border_color(theme::island_border())
+                        })
+                        .child(
+                            hover::name(("agents-profile-path", ix), p.path.clone())
+                                .flex_1()
+                                .min_w_0()
+                                .font_family(theme::code_font())
+                                .text_size(px(12.)),
+                        )
+                        .child(
                             div()
-                                .py(px(6.))
-                                .text_size(px(12.))
-                                .text_color(theme::muted())
-                                .child(text.clone())
-                        }),
-                )
-                // The command by hand comes with a failure only.
-                .children(failed.map(|_| {
-                    command(
+                                .w(px(32.))
+                                .flex_none()
+                                .flex()
+                                .justify_center()
+                                .child(state(format!("agents-state-claude-{ix}"), glyph, tip)),
+                        )
+                        .child(div().w(px(104.)).flex_none().flex().justify_end().children(
+                            failure_here.map(|_| {
+                                text_button(
+                                    format!("agents-again-{ix}"),
+                                    match busy {
+                                        true => "Connecting…",
+                                        false => "Connect again",
+                                    },
+                                )
+                                .on_click(connect_click(self.connect.clone(), to_connect.clone()))
+                            }),
+                        )),
+                );
+                if let Some((_, why)) = failure_here {
+                    let command_here = match p.folder == ".claude" {
+                        true => by_hand.clone(),
+                        false => format!("CLAUDE_CONFIG_DIR={} {by_hand}", p.path),
+                    };
+                    rows = rows.child(failure(
+                        format!("Not connected — {why}"),
                         format!("agents-cmd-{word}"),
-                        "By hand, in a terminal:".into(),
-                        None,
+                        command_here,
+                    ));
+                }
+            }
+            // What was said of the agent as a whole: that it connected, or a failure naming no profile.
+            if failed_in.is_none() {
+                if let Some(why) = failed {
+                    rows = rows.child(failure(
+                        format!("Not connected — {why}"),
+                        format!("agents-cmd-{word}"),
                         by_hand,
-                    )
-                }));
+                    ));
+                } else if let Some((_, text)) = said.as_ref().filter(|(by, _)| *by == name) {
+                    rows = rows.child(
+                        div()
+                            .py(px(6.))
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .child(text.clone()),
+                    );
+                }
+            }
         }
         rows
     }
+}
+
+/// A click that connects `provider`: Connect all's and a failed profile's Connect again.
+fn connect_click(
+    connect: Entity<Connect>,
+    provider: Arc<dyn Provider>,
+) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 'static {
+    move |_, _, cx| connect.update(cx, |c, cx| c.connect(provider.clone(), cx))
+}
+
+/// A Claude Code profile as its row draws it.
+struct Profile {
+    /// Its folder as shown (`~/.claude-work`).
+    path: String,
+    /// Its folder's name, as a failure names it.
+    folder: String,
+    link: Link,
+    server: bool,
+    skill: bool,
 }
 
 /// A profile's folder as it is shown: under the home folder, `~/…`, the whole of it (cut in its middle where the room
@@ -385,9 +479,9 @@ pub(crate) fn profile_state(
         Link::Whole => ("circle-check", format!("{path}: connected")),
         Link::Not => ("circle-dashed", format!("{path}: not connected yet")),
         Link::Partly => (
-            "circle-dot",
+            "circle-half",
             format!(
-                "Partly connected: {path} · Server {} · Skill {}",
+                "Partly connected: Server {} · Skill {}",
                 yes(server),
                 yes(skill)
             ),
@@ -403,7 +497,8 @@ pub(crate) fn profile_name(path: &std::path::Path) -> String {
     }
 }
 
-/// A state as a glyph, its sentence the tooltip: the ok circle in the added colour, the dashed ring faint.
+/// A state as a glyph, its sentence the tooltip: the ok circle in the added colour, the half ring muted, the dashed
+/// ring faint.
 pub(crate) fn state(
     id: impl Into<SharedString>,
     glyph: &'static str,
@@ -411,10 +506,10 @@ pub(crate) fn state(
 ) -> gpui::AnyElement {
     let ok = glyph == "circle-check";
     let el = div().id(id.into()).flex_none().flex().items_center().child(
-        icons::icon(glyph).size(px(16.)).text_color(if ok {
-            theme::added()
-        } else {
-            theme::faint()
+        icons::icon(glyph).size(px(16.)).text_color(match glyph {
+            _ if ok => theme::added(),
+            "circle-half" => theme::muted(),
+            _ => theme::faint(),
         }),
     );
     // "Title: the sentence" is drawn as the design draws it: a title and, under it, a quieter line.
@@ -479,10 +574,7 @@ mod state_tests {
         let not = profile_state(".claude", Link::Not, false, false);
         assert_eq!(not.0, "circle-dashed");
         let partly = profile_state(".claude-work", Link::Partly, true, false);
-        assert_eq!(partly.0, "circle-dot");
-        assert_eq!(
-            partly.1,
-            "Partly connected: .claude-work · Server yes · Skill not yet"
-        );
+        assert_eq!(partly.0, "circle-half");
+        assert_eq!(partly.1, "Partly connected: Server yes · Skill not yet");
     }
 }

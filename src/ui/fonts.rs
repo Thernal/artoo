@@ -1,7 +1,7 @@
 //! Settings → Appearance → Fonts and size (#24 A): the interface's face and the code's, each
 //! picked from a menu that draws every face in itself — a few installed ones, and Other… for all
-//! of them in ⌘K's window —, the code's size in points, the interface size, its tooltip saying
-//! where the narrow layout folds at that size (`narrow.rs`: the steps grow with it).
+//! of them in ⌘K's window —, the code's size in points (Set up's Look only), the interface size, its
+//! row's tooltip saying where the narrow layout folds at that size (`narrow.rs`: the steps grow with it).
 
 use super::faces::{CODE_FACES, UI_FACES, fold_line, short_list};
 pub(super) use super::faces::{face_family, face_label, installed};
@@ -9,6 +9,7 @@ use super::menu::{Act, Entry};
 use super::{ROW_RADIUS, Workspace, icons, px, theme};
 use artoo_ui_kit::controls::setting_row;
 use artoo_ui_kit::controls::{chip, group};
+use artoo_ui_kit::hover::Hover as _;
 use gpui::{AnyElement, ClickEvent, Context, Pixels, Point, div, prelude::*};
 
 /// The code's size in points at code size `zoom` (%), as the diff draws it.
@@ -22,36 +23,42 @@ pub(super) fn zoom_for(points: u16) -> u16 {
 }
 
 impl Workspace {
-    /// Interface and its face, Code with its face and size, Interface size (here, and Set up's
-    /// Look).
-    pub(super) fn font_rows(&self, cx: &mut Context<Self>) -> [AnyElement; 3] {
+    /// Interface and its face, Code and its face (`sized`, in Set up's Look: its size too), Interface size.
+    pub(super) fn font_rows(&self, sized: bool, cx: &mut Context<Self>) -> [AnyElement; 3] {
         let faces = theme::faces();
         let s = self.settings.clone();
         let ui_zoom =
             group()
-                .child(chip("ui-zoom-out", "−", false).on_click(
-                    cx.listener(|this, _: &ClickEvent, window, cx| this.ui_zoom_by(-1, window, cx)),
-                ))
+                .child(
+                    chip("ui-zoom-out", "−", false)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.ui_zoom_by(-1, window, cx)
+                        }))
+                        .tip("Smaller ⌘−, from anywhere"),
+                )
                 .child(
                     chip(
                         "ui-zoom-reset",
                         format!("{} %", s.ui_zoom),
                         s.ui_zoom != 100,
                     )
-                    .on_click(cx.listener(
-                        |this, _: &ClickEvent, window, cx| this.set_ui_zoom(100, window, cx),
-                    )),
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.set_ui_zoom(100, window, cx)
+                    }))
+                    .tip("⌘0 back to 100 %, from anywhere"),
                 )
-                .child(chip("ui-zoom-in", "+", false).on_click(
-                    cx.listener(|this, _: &ClickEvent, window, cx| this.ui_zoom_by(1, window, cx)),
-                ));
-        // When the layout narrows at this size: the size's tooltip, not a paragraph (#202).
-        let folds: gpui::SharedString = fold_line(s.ui_zoom).into();
-        let ui_zoom = div()
-            .id("ui-zoom")
-            .child(ui_zoom)
-            .tooltip_show_delay(super::hover::LONG)
-            .tooltip(move |_, cx| cx.new(|_| super::TipOwned(folds.clone())).into());
+                .child(
+                    chip("ui-zoom-in", "+", false)
+                        .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                            this.ui_zoom_by(1, window, cx)
+                        }))
+                        .tip_two("Larger ⌘+", "From anywhere; ⌘0 back to 100 %"),
+                );
+        // Off 100 %, when the layout narrows at this size: the row's tooltip, not a paragraph (#202).
+        let size_line: gpui::SharedString = match s.ui_zoom {
+            100 => "⌘+ and ⌘− change it from anywhere; ⌘0 back to 100 %".into(),
+            zoom => fold_line(zoom).into(),
+        };
         let points = code_points(s.zoom);
         let code_size = group()
             .child(chip("code-size-down", "−", false).on_click(cx.listener(
@@ -71,7 +78,7 @@ impl Workspace {
             .items_center()
             .gap_2()
             .child(self.face_picker(true, faces.code.as_deref(), cx))
-            .child(code_size);
+            .children(sized.then_some(code_size));
         // Each off its default carries a dot and Reset (#203): the code's face and size go back together.
         let reset =
             |cx: &mut Context<Self>, act: fn(&mut Self, &mut gpui::Window, &mut Context<Self>)| {
@@ -111,7 +118,7 @@ impl Workspace {
             setting_row(
                 "Interface size",
                 "Interface size",
-                "⌘+ and ⌘− change it from anywhere; ⌘0 back to 100 %",
+                size_line,
                 ui_zoom,
                 size_reset.flatten(),
             )
@@ -155,7 +162,8 @@ impl Workspace {
             }))
     }
 
-    /// A face's menu: the default, a few installed faces, each in itself; Other… for all, with no heading or hint (as the design draws it).
+    /// A face's menu: the default, a few installed faces, each in itself; Other… for all, what it opens its tooltip,
+    /// with no heading or hint (as the design draws it).
     pub(super) fn open_faces(&mut self, code: bool, at: Point<Pixels>, cx: &mut Context<Self>) {
         let faces = theme::faces();
         let chosen = if code { faces.code } else { faces.ui };
@@ -177,10 +185,13 @@ impl Workspace {
                 (None, entries),
                 (
                     None,
-                    vec![Entry::new(
-                        "Other…",
-                        Act::new(move |this, _, cx| this.open_all_faces(code, cx)),
-                    )],
+                    vec![
+                        Entry::new(
+                            "Other…",
+                            Act::new(move |this, _, cx| this.open_all_faces(code, cx)),
+                        )
+                        .tip_two("Other…", "any installed face"),
+                    ],
                 ),
             ],
             cx,

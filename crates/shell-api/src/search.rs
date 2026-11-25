@@ -190,6 +190,12 @@ impl Find {
         self
     }
 
+    /// The row's tooltip.
+    pub fn tip(mut self, tip: impl Into<String>) -> Self {
+        self.wear.tip = tip.into();
+        self
+    }
+
     /// What ↵ does here, said in the foot: `install`.
     pub fn verb(mut self, verb: &'static str) -> Self {
         self.wear.verb = verb;

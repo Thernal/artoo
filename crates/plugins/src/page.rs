@@ -2086,6 +2086,11 @@ fn scope(page: Entity<Page>, frame: Rc<dyn Frame>) -> Search {
                 }
                 seen.push(name.clone());
                 let detail = item.about.clone();
+                // Who wrote it, on the row's hover.
+                let by = match item.author.is_empty() {
+                    true => name.clone(),
+                    false => format!("{name} · {}", item.author),
+                };
                 let stars = item.stars;
                 let lock = item.offer.as_ref().is_some_and(|o| o.private);
                 let mark = item
@@ -2122,6 +2127,7 @@ fn scope(page: Entity<Page>, frame: Rc<dyn Frame>) -> Search {
                     .glyph("puzzle")
                     .mark(mark, hue)
                     .verb(verb)
+                    .tip(by)
                     .in_folder();
                 found.push(match stars {
                     None if lock => find.badge(

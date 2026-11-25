@@ -44,10 +44,8 @@ fn list_of(code: bool, edit: EditTheme) -> List {
         says: Rc::new(move |_| {
             let n = theme::all().iter().filter(|t| offered(t)).count();
             Said {
-                title: Some(format!(
-                    "{} · {n}",
-                    if code { "Code theme" } else { "Theme" }
-                )),
+                // No heading over the filter: its placeholder counts them, the groups theirs.
+                title: None,
                 placeholder: format!("Filter {n} themes").into(),
                 empty: "No theme by that name.",
             }

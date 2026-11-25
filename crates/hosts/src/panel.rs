@@ -967,7 +967,12 @@ impl Panel {
                 div()
                     .text_size(px(12.))
                     .text_color(theme::muted())
-                    .child(line),
+                    .max_w(px(640.))
+                    .w_full()
+                    .flex()
+                    .justify_center()
+                    // A long host is cut in its middle.
+                    .child(hover::name("connect-host", line)),
             )
             .child(card)
             .child(
@@ -1384,6 +1389,12 @@ fn not_here(not: &[NotHere], remote: &WebRemote) -> Option<AnyElement> {
             .flex_col()
             .gap(px(4.))
             .children(not.iter().map(|n| {
+                // A token for cloning only: its scope in a pill, as a way's, the sentence its tooltip.
+                let scope = cloning_only(&n.why);
+                let why = match scope {
+                    Some(_) => "Its token is for cloning only".to_owned(),
+                    None => n.why.clone(),
+                };
                 let (icon, name) = match &n.via {
                     Via::Cli => ("terminal", cli.to_owned()),
                     Via::Git(from) => ("branch", capital(from)),
@@ -1400,14 +1411,31 @@ fn not_here(not: &[NotHere], remote: &WebRemote) -> Option<AnyElement> {
                     .id(SharedString::from(format!("not-here-{name}")))
                     .child(icons::icon(icon).size(px(14.)).text_color(theme::faint()))
                     .child(name)
+                    .children(scope.map(scope_pill))
                     .tooltip_show_delay(artoo_ui_kit::hover::LONG)
                     .tooltip({
-                        let why = SharedString::from(n.why.clone());
+                        let why = SharedString::from(why);
                         move |_, cx| cx.new(|_| hover::TipOwned(why.clone())).into()
                     })
             }))
             .into_any_element()
     })
+}
+
+/// The scopes of a token refused for being for cloning only, as `connect::refused` says it.
+fn cloning_only(why: &str) -> Option<&str> {
+    why.strip_prefix("its token is for cloning only (")?
+        .strip_suffix(')')
+}
+
+/// A token's scope in a pill.
+fn scope_pill(scope: impl Into<SharedString>) -> gpui::Div {
+    div()
+        .flex_none()
+        .px(px(5.))
+        .rounded(px(4.))
+        .bg(theme::hover())
+        .child(scope.into())
 }
 
 /// "git's credential helper" → "Git's credential helper", for a name that starts a row.
@@ -1441,14 +1469,7 @@ fn way_row(
         .gap(px(6.))
         .text_size(px(11.))
         .text_color(theme::muted())
-        .children(scope.map(|s| {
-            div()
-                .flex_none()
-                .px(px(5.))
-                .rounded(px(4.))
-                .bg(theme::hover())
-                .child(s)
-        }))
+        .children(scope.map(scope_pill))
         .children(span);
     let tip = SharedString::from(what.clone());
     let row = div()
@@ -1485,7 +1506,7 @@ fn way_row(
                         .gap(px(6.))
                         .min_w_0()
                         .child(
-                            hover::cut("name", name)
+                            hover::name("name", name)
                                 .text_size(px(13.))
                                 .font_weight(FontWeight::SEMIBOLD),
                         )
@@ -1881,5 +1902,19 @@ pub(crate) fn parts(frame: Rc<dyn Frame>, cx: &mut App) -> artoo_shell_api::Part
             ),
         ],
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod cloning_tests {
+    use super::cloning_only;
+
+    #[test]
+    fn a_token_for_cloning_only_names_its_scopes_and_other_reasons_none() {
+        assert_eq!(
+            cloning_only("its token is for cloning only (read_repository)"),
+            Some("read_repository")
+        );
+        assert_eq!(cloning_only("gitlab.example.com refused its token"), None);
     }
 }

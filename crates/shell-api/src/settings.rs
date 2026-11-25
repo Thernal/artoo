@@ -30,6 +30,8 @@ pub struct Named {
     pub section: &'static str,
     /// Its name on its row.
     pub label: &'static str,
+    /// Its name in ⌘K, where its row's is too short to stand alone (`Code font` for `Code`).
+    pub found_as: Option<&'static str>,
     /// Its row's line, if it has one.
     pub detail: &'static str,
     /// What it answers to beyond its label: what it is about, the old section's name.
@@ -59,9 +61,17 @@ impl Named {
         Self {
             section,
             label,
+            found_as: None,
             detail: "",
             words: "",
             value: None,
+        }
+    }
+
+    pub const fn found_as(self, name: &'static str) -> Self {
+        Self {
+            found_as: Some(name),
+            ..self
         }
     }
 

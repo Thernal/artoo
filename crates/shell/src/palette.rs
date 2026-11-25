@@ -83,6 +83,7 @@ fn rows(
         let (run, aside) = (host.clone(), host.clone());
         rows.push(
             row(("palette-item", ix), selected)
+                .when(!item.wear.tip.is_empty(), |s| s.tip(item.wear.tip.clone()))
                 .h(px(if dropped { 22. } else { 32. }))
                 .when(dropped, |s| s.px(px(6.)).gap(px(8.)).text_size(px(13.)))
                 .when(!dropped, |s| s.gap_3())
@@ -240,9 +241,11 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
                 div()
                     .id("palette-hint")
                     .flex_none()
+                    .flex()
+                    .gap(px(10.))
                     .text_size(px(11.))
                     .text_color(theme::faint())
-                    .child(hint)
+                    .children(hint.split("  ").map(|key| div().child(key)))
                     .tip(tip)
             }));
         let list = div()

@@ -265,7 +265,7 @@ impl Workspace {
                 "Islands float with gaps; flat ones touch.",
                 self.panes_chips(cx),
             ))
-            .children(self.font_rows(cx))
+            .children(self.font_rows(true, cx))
             .into_any_element()
     }
 }

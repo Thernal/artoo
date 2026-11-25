@@ -92,7 +92,7 @@ fn settings_search(tab: WeakEntity<Workspace>) -> Search {
                     // Its section follows its name, as a file's folder does.
                     Find::new(
                         "Settings",
-                        n.label.to_owned(),
+                        n.found_as.unwrap_or(n.label).to_owned(),
                         title(section).to_owned(),
                         open,
                     )

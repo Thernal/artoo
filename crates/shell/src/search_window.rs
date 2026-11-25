@@ -880,11 +880,12 @@ impl Render for Machine {
         let tries = (p.items.get(p.at))
             .is_some_and(|i| matches!(i.pick, Pick::Found { tried: Some(_), .. }));
         let hint = under.map(|_| match tries {
+            // Three things apart: two spaces between them.
             true => (
-                "↑↓ preview ↵ esc",
+                "↑↓ preview  ↵  esc",
                 "↑↓ previews a theme · ↵ keeps it · esc goes back",
             ),
-            false => ("↑↓ ↵ esc", "↑↓ moves · ↵ picks · esc goes back"),
+            false => ("↑↓  ↵  esc", "↑↓ moves · ↵ picks · esc goes back"),
         });
         let follow = self.follow.replace(false);
         // A tab come to (⇥, a click, the window opened on another) is scrolled into sight, once.

@@ -177,10 +177,17 @@ const ICONS: &[(&str, &str)] = &[
         "circle-check",
         lucide!(r#"<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>"#),
     ),
-    // A profile with part of Artoo in it.
     (
         "circle-dot",
         lucide!(r#"<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1"/>"#),
+    ),
+    // A profile with part of Artoo in it, an agent with limits: a ring, its right half full.
+    (
+        "circle-half",
+        lucide!(
+            r#"<circle cx="12" cy="12" r="8.5" opacity=".5"/>"#
+            r#"<path d="M12 3.5a8.5 8.5 0 0 1 0 17"/>"#
+        ),
     ),
     (
         "circle-dashed",

@@ -304,7 +304,7 @@ impl Workspace {
             .border_color(theme::island_border())
             .children(self.review_api().map(|r| r.mark_preview(s.mark_style)))
             .into_any_element();
-        let [ui_face, code_face, ui_size] = self.font_rows(cx);
+        let [ui_face, code_face, ui_size] = self.font_rows(false, cx);
         // A repository's settings under its name (#203).
         let repo: gpui::SharedString = (self.root.as_ref())
             .and_then(|r| r.file_name())
@@ -519,7 +519,6 @@ impl Workspace {
             Own::named(INTERFACE_FONT, 41, ui_face),
             Own::named(CODE_FONT, 42, code_face),
             Own::named(INTERFACE_SIZE, 43, ui_size),
-            Own::part(APPEARANCE, 59, subhead("Window")),
             Own::row_to(
                 PANES,
                 60,
@@ -944,7 +943,7 @@ fn reset(
     Box::new(cx.listener(move |this, _: &ClickEvent, window, cx| act(this, window, cx)))
 }
 
-/// A part's heading over its rows: Fonts and size, Window, a repository's name.
+/// A part's heading over its rows: Fonts and size, a repository's name.
 fn subhead(title: impl Into<gpui::SharedString>) -> impl IntoElement {
     div()
         .pt(px(18.))
@@ -1010,9 +1009,11 @@ const MARK_REVIEWED: Named = Named::new(REVIEW, "Mark reviewed as I scroll past"
     .detail("With all files in one scroll.")
     .words("diff viewed");
 const INTERFACE_FONT: Named = Named::new(APPEARANCE, "Interface")
+    .found_as("Interface font")
     .words("interface font face typeface")
     .value(|| artoo_ui_kit::theme::ui_font().to_string());
 const CODE_FONT: Named = Named::new(APPEARANCE, "Code")
+    .found_as("Code font")
     .value(|| artoo_ui_kit::theme::code_font().to_string())
     .detail("Grows with the interface size.")
     .words("code font face typeface monospace size points");
