@@ -708,7 +708,7 @@ pub fn draft_request(
     ))
     .map_err(|e| e.to_string())?;
     let mut out = format!(
-        "Your draft is in Artoo: {source} → {target}, \"{title}\", {commits} commit(s). It is not on the reviewer's screen yet: the branch is under Branches with a dot, and the New merge request card opens, filled in, when the reviewer opens that branch or the toast's Open. Nothing was created or sent: the reviewer checks it, edits it and creates it."
+        "Your draft is in Artoo: {source} → {target}, \"{title}\", {commits} commit(s). It is not on the reviewer's screen yet: it is kept under Request drafts in Branches (and the branch has a dot), and the New merge request card opens, filled in, when the reviewer opens that branch or the toast's Open, at once when that branch is already on screen. Do not send it again: a new draft for the branch replaces this one. Nothing was created or sent: the reviewer checks it, edits it and creates it."
     );
     // Artoo never pushes: the host makes the request from what origin has.
     if pushed.is_none() {
