@@ -450,3 +450,20 @@ pub fn rich_switch(id: impl Into<ElementId>, rich: bool) -> Stateful<Div> {
                 .into()
         })
 }
+/// An Inbox row's title on its way between read (`v` 0: muted, regular) and unread (1: the text's colour,
+/// semibold).
+pub fn unread_title(title: Div, v: f32) -> Div {
+    let (from, to) = (theme::muted(), theme::text());
+    let mix = |a, b| crate::motion::mix(a, b, v);
+    title
+        .text_color(gpui::Rgba {
+            r: mix(from.r, to.r),
+            g: mix(from.g, to.g),
+            b: mix(from.b, to.b),
+            a: mix(from.a, to.a),
+        })
+        .font_weight(gpui::FontWeight(mix(
+            gpui::FontWeight::NORMAL.0,
+            gpui::FontWeight::SEMIBOLD.0,
+        )))
+}

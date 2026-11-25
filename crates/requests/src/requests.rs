@@ -1175,10 +1175,10 @@ impl artoo_requests_api::Requests for Handle {
         Some((n.iid, n.note))
     }
 
-    fn dismiss_notice(&self, ix: usize, cx: &mut App) {
-        if let Some(notices) = self.notices() {
-            self.update(cx, |rq, cx| rq.dismiss_notice(notices, ix, cx));
-        }
+    fn dismiss_notice(&self, ix: usize, cx: &mut App) -> Option<artoo_requests_api::Dismissed> {
+        let notices = self.notices()?;
+        self.update(cx, |rq, cx| rq.dismiss_notice(notices, ix, cx))
+            .flatten()
     }
 
     fn read_all_notices(&self, others: Vec<String>, cx: &mut App) {

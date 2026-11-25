@@ -8,7 +8,7 @@ use artoo_core::markdown::plain;
 use artoo_ui_kit::controls::bar_button;
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine, excerpt_view};
 use artoo_ui_kit::hover::{self, CutInTip, Hover as _, RowTip};
-use artoo_ui_kit::{ROW_RADIUS, discussion, format, icons, px, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, discussion, format, icons, motion, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Div, FontWeight, Stateful, div, prelude::*};
 
 /// What an answer is drawn with and a click on it asks, the contract's.
@@ -73,14 +73,20 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
         .cursor_pointer()
         .when(picked, |s| s.bg(theme::selected()))
         .hover(|s| s.bg(theme::hover()))
-        .child(
+        // Read where it is, as the requests' rows (round 41).
+        .child(motion::toward(
             div()
                 .flex_none()
                 .mt(px(6.))
                 .size(px(7.))
                 .rounded_full()
-                .when(fresh, |s| s.bg(theme::agent())),
-        )
+                .bg(theme::agent()),
+            ("inbox-agent-dot", id as usize),
+            fresh,
+            false,
+            motion::FAST,
+            |dot, v| dot.opacity(v),
+        ))
         // Claude's mark: the bot in the agent's colour.
         .child(
             div()
@@ -107,15 +113,17 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                     div()
                         .flex()
                         .gap_2()
-                        .child(
+                        .child(motion::toward(
                             div()
                                 .flex_1()
                                 .min_w_0()
-                                .cut_in_tip()
-                                .text_color(if fresh { theme::text() } else { theme::muted() })
-                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD))
-                                .child(title),
-                        )
+                                .child(div().cut_in_tip().child(title)),
+                            ("inbox-agent-title", id as usize),
+                            fresh,
+                            false,
+                            motion::FAST,
+                            discussion::unread_title,
+                        ))
                         .child(
                             format::time_cell(at)
                                 .text_size(px(11.))

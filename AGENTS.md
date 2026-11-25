@@ -345,6 +345,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   (and one gone from the host) waits behind `1 new ↑` — fields change in place — and lands on that click, `⌘R` or leaving
   the Inbox (`Requests::watch_inbox`), fading in; away from it a read shows at once. `ARTOO_SNAPSHOT_FRESH=<state>` on
   the Inbox forces a state of `inbox.html`.
+- **Reading and Done in place** (round 41): a row read fades its dot and eases its title's weight where it is
+  (`motion::toward`, keyed by the notice). Done takes the row from the list at once, draws it on its way out
+  (`inbox_view::gone_row`: fade 120 ms, gap 160 ms) and says `Done · Undo ⌘Z`; the toast holds
+  `Dismissed::undo`, and only when it is dropped unused (the toast gone, or the app quitting) is the to-do marked done on
+  the host or the comment counted as read (`Notices::confirm_done`) — a host takes no Done back.
 - **A bar never clips** (#186): what does not fit the page bar folds into its `⋯`, never cut off at the edge, in its
   order (`BarAction::fold_order`, #188: a request's Merge, then its Description, then its pipeline; the last first
   among the same), the title cut last. Each action is a `bar::BarAction` with its row in `⋯` (`folds`; the approval

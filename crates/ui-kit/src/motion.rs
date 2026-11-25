@@ -32,6 +32,10 @@ pub const SKELETON_HOLD: Duration = Duration::from_millis(400);
 /// The skeleton fades into the content in this time.
 pub const SKELETON_FADE: Duration = Duration::from_millis(150);
 
+/// A notice done in the Inbox: its row's content fades, then the gap closes.
+pub const DONE_FADE: Duration = Duration::from_millis(120);
+pub const DONE_CLOSE: Duration = Duration::from_millis(160);
+
 /// Settings → Appearance → Animations, shared by every window.
 static ON: AtomicBool = AtomicBool::new(true);
 

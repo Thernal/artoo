@@ -17,6 +17,8 @@ pub struct Current {
     pub(super) held: Option<Vec<Notice>>,
     /// The Inbox is on screen: only then does a new notice wait.
     watched: bool,
+    /// The rows just done, drawn on their way out, and when each was done.
+    leaving: Vec<(Notice, Instant)>,
     /// The keys that just landed, and when.
     landed: Option<(HashSet<String>, Instant)>,
     /// When what is listed was read.
@@ -28,6 +30,31 @@ pub struct Current {
     reading_todos: bool,
     /// The slot's and the hairline's timing, and the first read's tints.
     pub(crate) clock: Freshness,
+}
+
+/// How long a row done is kept to be drawn: its fade, its gap closing, and the frames after.
+const LEAVES: std::time::Duration = std::time::Duration::from_millis(500);
+
+impl Current {
+    /// Row `n` done at `at`: drawn until it has gone.
+    pub(super) fn leave(&mut self, n: Notice, at: Instant) {
+        self.leaving.retain(|(_, since)| at < *since + LEAVES);
+        self.leaving.push((n, at));
+    }
+
+    /// Row `key` is back.
+    pub(super) fn stay(&mut self, key: &str) {
+        self.leaving.retain(|(n, _)| n.key != key);
+    }
+
+    pub(super) fn leaving(&self, at: Instant) -> Vec<&Notice> {
+        let mut rows: Vec<&Notice> = (self.leaving.iter())
+            .filter(|(_, since)| at < *since + LEAVES)
+            .map(|(n, _)| n)
+            .collect();
+        rows.sort_by_key(|n| std::cmp::Reverse(n.created));
+        rows
+    }
 }
 
 impl Notices {
@@ -308,7 +335,7 @@ mod tests {
         n.watch(true);
         n.put(read(vec![notice("a", 1), notice("b", 0)]));
         n.put(read(vec![notice("c", 2), notice("a", 1), notice("b", 0)]));
-        let done = n.dismiss(0, None).unwrap();
+        let done = n.dismiss(0).unwrap();
         assert_eq!(done.key, "a");
         n.apply_held();
         assert_eq!(keys(&n), ["c", "b"]);

@@ -15,10 +15,12 @@ use artoo_ui_kit::excerpt::excerpt_view;
 use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip, Tip, WasCut};
 use artoo_ui_kit::keys::{self, On};
 use artoo_ui_kit::markdown::{self, Selecting};
+use artoo_ui_kit::motion;
+use artoo_ui_kit::room::Heights;
 use artoo_ui_kit::{ROW_RADIUS, format, fresh, gap, icons, island, px, theme, words};
 use gpui::{
-    AnyElement, App, Bounds, ClickEvent, Div, Entity, FontWeight, MouseButton, MouseDownEvent,
-    Pixels, SharedString, Stateful, canvas, div, prelude::*,
+    Animation, AnimationExt, AnyElement, App, Bounds, ClickEvent, Div, Entity, FontWeight,
+    MouseButton, MouseDownEvent, Pixels, SharedString, Stateful, canvas, div, prelude::*,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -624,6 +626,8 @@ fn tip_words(says: &str, source: &str, at: i64, text: &str, wide: bool) -> Strin
 /// under it; unread is a dot and a heavier title, read the same row with neither, in its place (Design round 10, U4).
 struct RowDraw<'a> {
     id: gpui::ElementId,
+    /// The notice's key: what its motion to read is known by.
+    key: &'a str,
     lead: Div,
     /// What it is about; what happened when it is about nothing.
     title: String,
@@ -639,6 +643,7 @@ struct RowDraw<'a> {
 fn draw_row(row: RowDraw) -> Stateful<Div> {
     let RowDraw {
         id,
+        key,
         lead,
         title,
         at,
@@ -668,14 +673,20 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         .cursor_pointer()
         .when(on, |s| s.bg(theme::selected()))
         .hover(|s| s.bg(theme::hover()))
-        .child(
+        // Read where it is: the dot fades and the title's weight goes regular (round 41).
+        .child(motion::toward(
             div()
                 .flex_none()
                 .mt(px(6.))
                 .size(px(7.))
                 .rounded_full()
-                .when(fresh, |s| s.bg(theme::accent())),
-        )
+                .bg(theme::accent()),
+            SharedString::from(format!("inbox-dot-{key}")),
+            fresh,
+            false,
+            motion::FAST,
+            |dot, v| dot.opacity(v),
+        ))
         .child(lead)
         .child(
             div()
@@ -688,12 +699,14 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
                     div()
                         .flex()
                         .gap_2()
-                        .child(
-                            hover::cut_in_row(title.clone(), title, &title_cut)
-                                .flex_1()
-                                .text_color(if fresh { theme::text() } else { theme::muted() })
-                                .when(fresh, |s| s.font_weight(FontWeight::SEMIBOLD)),
-                        )
+                        .child(motion::toward(
+                            hover::cut_in_row(title.clone(), title, &title_cut).flex_1(),
+                            SharedString::from(format!("inbox-title-{key}")),
+                            fresh,
+                            false,
+                            motion::FAST,
+                            discussion::unread_title,
+                        ))
                         .children((!project.is_empty()).then(|| {
                             hover::cut_in_row(project.to_owned(), project.to_owned(), &project_cut)
                                 .flex_none()
@@ -761,6 +774,7 @@ pub fn notice_row(
     let (menu, pick) = (on.clone(), on.clone());
     draw_row(RowDraw {
         id: ("inbox-row", ix).into(),
+        key: &n.key,
         lead: lead(face, badge, 20.),
         title: format!("{} {}", words::number(n.iid), n.title),
         at: n.created,
@@ -779,6 +793,48 @@ pub fn notice_row(
         )
     })
     .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::Pick(ix), cx))
+}
+
+/// Notice `n` just done, where it was: its content fades, then the gap closes (round 41). It answers nothing.
+pub fn gone_row(n: &Notice, source: &str, wide: bool, heights: &Heights) -> AnyElement {
+    let look = RowLook {
+        fresh: false,
+        on: false,
+        wide,
+    };
+    let still: OnInbox = Rc::new(|_, _| {});
+    let row = notice_row(n, 0, source, look, &still);
+    let height = format!("inbox-gone-{}", n.key);
+    let heights = heights.clone();
+    let total = motion::DONE_FADE + motion::DONE_CLOSE;
+    div()
+        // Its own ids: the row now at its place has the same ones.
+        .id(SharedString::from(height.clone()))
+        .flex_none()
+        .overflow_hidden()
+        .child(
+            div()
+                .relative()
+                .flex_none()
+                .child(row)
+                .child(heights.measure(height.clone())),
+        )
+        .with_animation(
+            SharedString::from(format!("{height}-going")),
+            Animation::new(total),
+            move |gone, t| {
+                let at = total.mul_f32(t);
+                let fade = at.div_duration_f32(motion::DONE_FADE).min(1.);
+                let close = (at.saturating_sub(motion::DONE_FADE))
+                    .div_duration_f32(motion::DONE_CLOSE)
+                    .min(1.);
+                let tall = heights.get(&height);
+                gone.opacity(1. - motion::ease(fade)).when(close > 0., |g| {
+                    g.max_h(gpui::px(tall * (1. - motion::ease(close))))
+                })
+            },
+        )
+        .into_any_element()
 }
 
 /// A part's row (a plugin's, #196), drawn as a notice's is: a person's face, or its source's mark, with the badge its
@@ -807,6 +863,7 @@ pub fn part_row(
     let pick = on.clone();
     draw_row(RowDraw {
         id: ("inbox-part", id).into(),
+        key: &r.key,
         lead: lead(face, r.badge.or(badge), 20.),
         title: if r.about.is_empty() {
             r.says.clone()

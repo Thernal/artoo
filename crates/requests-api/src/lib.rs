@@ -241,6 +241,14 @@ pub trait InboxHost {
 /// line when the discussion is on code.
 pub type ReplyTo = (u64, Option<String>, Option<(String, u32)>);
 
+/// A notice just done in the Inbox, for the toast that says so: `undo` puts its row back. The source hears of it
+/// once `undo` is dropped unused, so whoever holds it says how long it can be taken back.
+pub struct Dismissed {
+    /// What it was about: `!398 Refund rounding`.
+    pub about: String,
+    pub undo: Rc<dyn Fn(&mut App)>,
+}
+
 /// A notification new since the last read, said to the system (#26) and as a toast (#198): its key, its request and
 /// the request's title, what happened.
 pub struct News {
@@ -865,9 +873,9 @@ pub trait Requests {
     fn refresh_notices(&self, me: &str, cx: &mut App);
     /// Notice `ix` opened, read from now on: its request and its note.
     fn open_notice(&self, ix: usize, cx: &mut App) -> Option<(u64, Option<u64>)>;
-    /// `e`: done with notice `ix` — a to-do marked done on the host (refused, it comes back and the tab hears why),
-    /// a comment read from now on.
-    fn dismiss_notice(&self, ix: usize, cx: &mut App);
+    /// `e`: done with notice `ix`, gone at once; once nothing can undo it, a to-do is marked done on the host
+    /// (refused, it comes back and the tab hears why), a comment read from now on.
+    fn dismiss_notice(&self, ix: usize, cx: &mut App) -> Option<Dismissed>;
     /// Everything listed read, and `others` (the agents' answers' keys) with it; key `key` read.
     fn read_all_notices(&self, others: Vec<String>, cx: &mut App);
     fn mark_read(&self, key: String, cx: &mut App);

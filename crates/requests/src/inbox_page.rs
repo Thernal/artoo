@@ -11,6 +11,7 @@ use crate::notices::Notices;
 use crate::requests::Requests;
 use artoo_agents_api::tab::Agents;
 use artoo_shell_api::{Frame, Pages, Screen};
+use artoo_ui_kit::room::Heights;
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{island, motion, px, theme};
 use gpui::{
@@ -30,6 +31,8 @@ pub struct InboxPage {
     frame: Rc<dyn Frame>,
     /// The list's width as last drawn: the room its rows have (#79).
     widths: Widths,
+    /// The heights of rows just done, as last drawn: what their gaps close from.
+    heights: Heights,
 }
 
 /// The Inbox's page in a tab.
@@ -51,6 +54,7 @@ pub fn pages(
             requests,
             frame,
             widths: Widths::default(),
+            heights: Heights::default(),
         }
     });
     Pages {
@@ -80,6 +84,10 @@ pub fn pages(
 
 impl Render for InboxPage {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A row done is drawn until its gap has closed, and the page once more without it.
+        if !self.notices.read(cx).leaving(Instant::now()).is_empty() {
+            window.request_animation_frame();
+        }
         // A column: the page is stretched across to its width, whatever its content's least width.
         div()
             .flex_1()
@@ -129,7 +137,7 @@ impl InboxPage {
             div().flex_1().into_any_element()
         } else if let Some(failed) = failed.filter(|_| rows.is_empty()) {
             inbox_view::failed(failed, requests.error.clone().unwrap_or_default())
-        } else if rows.is_empty() {
+        } else if rows.is_empty() && notices.leaving(Instant::now()).is_empty() {
             let others = !notices.list.is_empty() || !answers.is_empty() || !parts.is_empty();
             let source = (view.filter.source)
                 .and_then(|id| {
@@ -272,8 +280,19 @@ impl InboxPage {
         let named = self.host(cx).unwrap_or("Merge requests");
         let mut list: Vec<AnyElement> = Vec::new();
         let now = Instant::now();
+        // The rows just done, each drawn before the first row older than it.
+        let mut gone = notices.leaving(now).into_iter().peekable();
+        let gone_row = |n| inbox_view::gone_row(n, named, wide, &self.heights);
         // One list in time's order: a row read keeps its place (Design round 10, U4).
         for &row in rows {
+            let at = match row {
+                InboxRow::Notice(ix) => notices.list.get(ix).map(|n| n.created),
+                InboxRow::Agent(id) => (answers.iter()).find(|a| a.id == id).map(|a| a.at),
+                InboxRow::Part(id) => part(id).map(|r| r.at),
+            };
+            while let Some(n) = gone.next_if(|n| at.is_some_and(|at| n.created >= at)) {
+                list.push(gone_row(n));
+            }
             let picked = current == Some(row);
             list.push(match row {
                 InboxRow::Notice(ix) => {
@@ -320,6 +339,7 @@ impl InboxPage {
                 },
             });
         }
+        list.extend(gone.map(gone_row));
         let preview = current
             .filter(|r| rows.contains(r))
             .and_then(|r| match r {

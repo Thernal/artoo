@@ -5,6 +5,7 @@
 use super::Workspace;
 use crate::links::Target;
 use artoo_requests_api::News;
+use artoo_ui_kit::toast::Words;
 use gpui::Context;
 
 impl Workspace {
@@ -52,11 +53,16 @@ impl Workspace {
         );
     }
 
-    /// `e`: done with notice `ix` — a to-do is marked done on GitLab, a comment counts as read
-    /// from now on.
+    /// `e`: done with notice `ix`, said with Undo; once its toast has gone, a to-do is marked done
+    /// on the host, a comment counts as read from now on.
     pub(super) fn dismiss_notice(&mut self, ix: usize, cx: &mut Context<Self>) {
-        if let Some(requests) = self.requests_api() {
-            requests.dismiss_notice(ix, cx);
+        if let Some(done) = self
+            .requests_api()
+            .and_then(|requests| requests.dismiss_notice(ix, cx))
+        {
+            let words = Words::new("Done").about(done.about);
+            self.toasts
+                .update(cx, |t, cx| t.show_with(words, "Undo", done.undo, cx));
         }
         cx.notify();
     }

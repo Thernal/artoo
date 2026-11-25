@@ -13,12 +13,16 @@ use crate::seen;
 use crate::waiting::{Me, Waiting};
 use artoo_core::links::{self, Target};
 use artoo_hosts_api::{Host, Mr, Thread, Todo};
-use artoo_requests_api::News;
+use artoo_requests_api::{Dismissed, News};
+use artoo_ui_kit::words;
+use futures::channel::oneshot;
 use gpui::{App, Context, Entity, Task};
+use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How often the list is read again while the app runs.
 pub const EVERY: Duration = Duration::from_secs(180);
@@ -186,9 +190,10 @@ pub struct Notices {
     /// Notices already there or already said to the system's notifications: each is said once,
     /// and none of those listed at the first read (#26).
     told: HashSet<String>,
-    /// To-dos marked done here, the host not yet answered: a read that was already under way still lists them, and
-    /// none of those show again. Cleared when the host confirms, or when the notice is put back.
-    pending_done: HashSet<u64>,
+    /// The keys of notices done here and not yet done at their source (its toast can still undo it, or the host has
+    /// not answered): a read still lists them, and none of those show again. Cleared when the source takes it, or
+    /// when the notice is put back.
+    pending_done: HashSet<String>,
     /// How current the list is, and what waits to be shown (round 41).
     pub current: current::Current,
 }
@@ -427,9 +432,9 @@ impl Notices {
         // Everything read: only then may read keys no longer listed be forgotten.
         if arrived.complete {
             let before = self.read.len();
-            let shown = &self.list;
+            let (shown, pending) = (&self.list, &self.pending_done);
             self.read
-                .retain(|k| read.iter().chain(shown).any(|n| &n.key == k));
+                .retain(|k| pending.contains(k) || read.iter().chain(shown).any(|n| &n.key == k));
             if self.read.len() != before {
                 self.save_read();
             }
@@ -447,9 +452,9 @@ impl Notices {
         self.current.held.as_deref().unwrap_or(&self.list)
     }
 
-    /// Whether `n` is a to-do marked done here that the host has not confirmed yet.
+    /// Whether `n` was done here and its source has not taken it yet.
     fn is_pending(&self, n: &Notice) -> bool {
-        n.todo.is_some_and(|id| self.pending_done.contains(&id))
+        self.pending_done.contains(&n.key)
     }
 
     /// The to-dos alone were read (opening the Inbox): they replace the listed to-dos, the notices from discussions
@@ -484,11 +489,6 @@ impl Notices {
         news
     }
 
-    /// The host marked to-do `id` done: it is no longer held back.
-    pub fn confirm_done(&mut self, id: u64) {
-        self.pending_done.remove(&id);
-    }
-
     /// Notice `ix` opened: read from now on. Whether it was unread until now comes with it.
     pub fn open(&mut self, ix: usize) -> Option<(Notice, bool)> {
         let n = self.list.get(ix).cloned()?;
@@ -504,9 +504,9 @@ impl Notices {
         }
     }
 
-    /// Done with notice `ix` of project `base`: gone from the list; a discussion resolved is known, a comment
-    /// counts as read from now on. The notice, to put back if its to-do is not marked done.
-    pub fn dismiss(&mut self, ix: usize, base: Option<&str>) -> Option<Notice> {
+    /// Done with notice `ix`: gone from the list at once, its row drawn on its way out; nothing is written or sent
+    /// until `confirm_done`. The notice, to put back on Undo or a refusal.
+    pub fn dismiss(&mut self, ix: usize) -> Option<Notice> {
         if ix >= self.list.len() {
             return None;
         }
@@ -514,10 +514,16 @@ impl Notices {
         if let Some(held) = self.current.held.as_mut() {
             held.retain(|m| m.key != n.key);
         }
-        if let Some(id) = n.todo {
-            self.pending_done.insert(id);
-        }
+        self.pending_done.insert(n.key.clone());
         self.at = self.at.min(self.list.len().saturating_sub(1));
+        self.current.leave(n.clone(), Instant::now());
+        Some(n)
+    }
+
+    /// Notice `n` of project `base` is done at its source: a discussion resolved is known, a comment counts as read
+    /// from now on; it is no longer held back.
+    pub fn confirm_done(&mut self, n: &Notice, base: Option<&str>) {
+        self.pending_done.remove(&n.key);
         if let Some(key) = n.resolved.clone() {
             self.known_resolved.insert(key);
             self.save_seen();
@@ -527,14 +533,12 @@ impl Notices {
             *floor = (*floor).max(id);
             self.save_seen();
         }
-        Some(n)
     }
 
-    /// Notice `n`, dismissed at `ix`, back where it was: its to-do was not marked done.
+    /// Notice `n`, dismissed at `ix`, back where it was and selected: undone, or not marked done.
     pub fn put_back(&mut self, ix: usize, n: Notice) {
-        if let Some(id) = n.todo {
-            self.pending_done.remove(&id);
-        }
+        self.pending_done.remove(&n.key);
+        self.current.stay(&n.key);
         if let Some(held) = self.current.held.as_mut()
             && !held.iter().any(|m| m.key == n.key)
         {
@@ -542,9 +546,19 @@ impl Notices {
             held.sort_by_key(|n| std::cmp::Reverse(n.created));
         }
         if !self.list.iter().any(|m| m.key == n.key) {
-            let at = ix.min(self.list.len());
+            // By its time, newest first; `ix` among those of the same time. Two done undone in either order land
+            // in their places.
+            let from = self.list.partition_point(|m| m.created > n.created);
+            let to = self.list.partition_point(|m| m.created >= n.created);
+            let at = ix.clamp(from, to);
             self.list.insert(at, n);
+            self.at = at;
         }
+    }
+
+    /// The rows done a moment before `at`, newest first: still drawn, fading and closing their gap.
+    pub fn leaving(&self, at: Instant) -> Vec<&Notice> {
+        self.current.leaving(at)
     }
 
     /// Everything listed, and the `others` (an agent's answers in the Inbox), counts as read.
@@ -1022,38 +1036,98 @@ impl Requests {
         .detach();
     }
 
-    /// `e`: done with notice `ix` of `notices`: gone at once; a to-do is marked done on the host, and a refusal puts it
-    /// back where it was and says why (#139).
+    /// `e`: done with notice `ix` of `notices`: gone at once. It is done at its source only once nothing can undo
+    /// it — the toast that holds `Dismissed::undo` has gone, or the app quits —, as a host takes no Done back; a
+    /// refusal puts it back where it was and says why (#139).
     pub(crate) fn dismiss_notice(
         &mut self,
         notices: Entity<Notices>,
         ix: usize,
         cx: &mut Context<Self>,
-    ) {
+    ) -> Option<Dismissed> {
         let base = self.web.as_ref().map(|w| w.base.clone());
-        let Some(n) = notices.update(cx, |ns, _| ns.dismiss(ix, base.as_deref())) else {
-            return;
-        };
-        if let Some(id) = n.todo
-            && let Some(host) = self.host(cx)
-        {
-            cx.spawn(async move |this, cx| {
-                let done = cx
-                    .background_executor()
-                    .spawn(async move { host.mark_todo_done(id) })
-                    .await;
-                this.update(cx, |_, cx| match done {
-                    Ok(()) => notices.update(cx, |ns, _| ns.confirm_done(id)),
-                    Err(e) => {
-                        notices.update(cx, |ns, _| ns.put_back(ix, n));
-                        cx.emit(Event::Failed(format!("Not marked done — {e:#}")));
+        let n = notices.update(cx, |ns, cx| {
+            cx.notify();
+            ns.dismiss(ix)
+        })?;
+        let about = format!("{} {}", words::number(n.iid), n.title);
+        let host = n.todo.and_then(|id| Some((id, self.host(cx)?)));
+        // Taken by whichever comes first: the toast gone, or the app quitting.
+        let work = Rc::new(Cell::new(Some(host)));
+        let (undo, undone) = oneshot::channel::<()>();
+        let quit = {
+            let (work, notices, n, base) = (work.clone(), notices.clone(), n.clone(), base.clone());
+            cx.on_app_quit(move |_, cx| {
+                let taken = work.take();
+                if taken.is_some() {
+                    notices.update(cx, |ns, _| ns.confirm_done(&n, base.as_deref()));
+                }
+                cx.background_executor().spawn(async move {
+                    if let Some(Some((id, host))) = taken {
+                        // Quitting: nowhere left to say a refusal; the to-do is listed again next time.
+                        let _ = host.mark_todo_done(id);
                     }
                 })
-                .ok();
             })
-            .detach();
-        }
+        };
+        cx.spawn(async move |this, cx| {
+            // An answer is Undo; the sender dropped, the toast has gone.
+            let undone = undone.await.is_ok();
+            drop(quit);
+            let Some(host) = work.take() else {
+                return;
+            };
+            // Another project opened in the tab since: its list takes no row of this one.
+            let here = |this: &gpui::WeakEntity<Requests>, cx: &mut gpui::AsyncApp| {
+                this.read_with(cx, |rq, _| {
+                    rq.web.as_ref().map(|w| &w.base) == base.as_ref()
+                })
+                .unwrap_or(false)
+            };
+            if undone {
+                if here(&this, cx) {
+                    notices.update(cx, |ns, cx| {
+                        ns.put_back(ix, n);
+                        cx.notify();
+                    });
+                }
+                return;
+            }
+            let done = match host {
+                Some((id, host)) => {
+                    cx.background_executor()
+                        .spawn(async move { host.mark_todo_done(id) })
+                        .await
+                }
+                None => Ok(()),
+            };
+            match done {
+                Ok(()) => notices.update(cx, |ns, _| ns.confirm_done(&n, base.as_deref())),
+                Err(e) => {
+                    if here(&this, cx) {
+                        notices.update(cx, |ns, cx| {
+                            ns.put_back(ix, n);
+                            cx.notify();
+                        });
+                    }
+                    this.update(cx, |_, cx| {
+                        cx.emit(Event::Failed(format!("Not marked done — {e:#}")));
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
         cx.notify();
+        let undo = Cell::new(Some(undo));
+        Some(Dismissed {
+            about,
+            undo: Rc::new(move |_| {
+                if let Some(undo) = undo.take() {
+                    let _ = undo.send(());
+                }
+            }),
+        })
     }
 }
 
@@ -1370,7 +1444,7 @@ pub(super) mod tests {
             .unwrap();
         notices.put(first);
         // Done on to-do 1; a read begun before it still lists it.
-        notices.dismiss(0, None).unwrap();
+        notices.dismiss(0).unwrap();
         let late = notices
             .arrive(Ok(found(vec![todo_notice(1), todo_notice(2)], true)), 1)
             .unwrap();
@@ -1381,13 +1455,54 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn undo_returns_the_row_to_its_place_and_selects_it() {
+        let mut notices = Notices::default();
+        let at = |id, created| Notice {
+            created,
+            ..todo_notice(id)
+        };
+        let first = notices
+            .arrive(Ok(found(vec![at(1, 30), at(2, 20), at(3, 10)], true)), 0)
+            .unwrap();
+        notices.put(first);
+        let keys = |n: &Notices| n.list.iter().filter_map(|n| n.todo).collect::<Vec<_>>();
+        // Two done in the middle and undone oldest toast first.
+        let two = notices.dismiss(1).unwrap();
+        let three = notices.dismiss(1).unwrap();
+        assert_eq!(keys(&notices), [1]);
+        notices.put_back(1, two);
+        assert_eq!(keys(&notices), [1, 2]);
+        notices.put_back(1, three);
+        assert_eq!(keys(&notices), [1, 2, 3]);
+        assert_eq!(notices.at, 2, "the one put back is selected");
+        assert!(notices.leaving(Instant::now()).is_empty());
+    }
+
+    #[test]
+    fn a_comment_done_counts_as_read_only_once_confirmed() {
+        let mut notices = Notices::default();
+        let comment = Notice {
+            todo: None,
+            note: Some(9),
+            iid: 4,
+            ..todo_notice(1)
+        };
+        notices.list = vec![comment];
+        let n = notices.dismiss(0).unwrap();
+        assert!(notices.seen.is_empty(), "Undo has nothing to take back");
+        assert_eq!(notices.leaving(Instant::now()).len(), 1);
+        notices.confirm_done(&n, Some("host/pay"));
+        assert_eq!(notices.seen.get("host/pay|4"), Some(&9));
+    }
+
+    #[test]
     fn a_failed_done_is_listed_again() {
         let mut notices = Notices::default();
         let first = notices
             .arrive(Ok(found(vec![todo_notice(7)], true)), 0)
             .unwrap();
         notices.put(first);
-        let n = notices.dismiss(0, None).unwrap();
+        let n = notices.dismiss(0).unwrap();
         assert!(notices.list.is_empty());
         notices.put_back(0, n);
         assert_eq!(notices.list.len(), 1);
