@@ -39,6 +39,12 @@ pub struct SectionLook {
 /// The Changes section's key in `storage::PANEL`: open or folded.
 const OPEN_KEY: &str = "show_files";
 
+/// A folder row's element id: its key, which no other row has. Two rows with one id share a press, so a click on
+/// one of them was taken for nothing (folders of one depth with paths equally long did).
+fn dir_row_id(path: &str) -> gpui::ElementId {
+    gpui::ElementId::Name(format!("dir-{path}").into())
+}
+
 /// Whether the Changes section was left open.
 pub fn changes_left_open() -> bool {
     storage::value(storage::PANEL, OPEN_KEY, storage::LAYOUT).is_none_or(|v| v != "false")
@@ -337,7 +343,7 @@ impl Review {
                     .py(px(1.))
                     .child(
                         row(
-                            ("dir", path.len() * 31 + *depth),
+                            dir_row_id(path),
                             self.fcursor.as_deref() == Some(path.as_str()),
                         )
                         .h(px(26.))
@@ -851,5 +857,47 @@ fn status_word(change: ChangeKind, old: Option<&str>) -> String {
         ChangeKind::Copied => format!("Copied from {}", old.unwrap_or_default()),
         ChangeKind::TypeChanged => "Type changed".into(),
         ChangeKind::Modified => "Modified".into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{Modifiers, Render, TestAppContext, Window, point};
+    use std::cell::RefCell;
+
+    /// Folder rows drawn as the tree draws them, one under another, saying which was clicked.
+    struct Folders {
+        paths: [&'static str; 3],
+        clicked: Rc<RefCell<Vec<&'static str>>>,
+    }
+
+    impl Render for Folders {
+        fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+            div().size_full().children(self.paths.map(|path| {
+                let clicked = self.clicked.clone();
+                row(dir_row_id(path), false)
+                    .h(gpui::px(20.))
+                    .on_click(move |_, _, _| clicked.borrow_mut().push(path))
+            }))
+        }
+    }
+
+    #[gpui::test]
+    fn every_folder_row_takes_its_own_click(cx: &mut TestAppContext) {
+        // Paths equally long at one depth.
+        let paths = ["core/data", "core/main", "core/test"];
+        let clicked = Rc::new(RefCell::new(Vec::new()));
+        let heard = clicked.clone();
+        let (_, cx) = cx.add_window_view(move |_, _| Folders {
+            paths,
+            clicked: heard,
+        });
+        cx.run_until_parked();
+        for at in 0..paths.len() {
+            let y = 10. + 20. * at as f32;
+            cx.simulate_click(point(gpui::px(10.), gpui::px(y)), Modifiers::none());
+        }
+        assert_eq!(*clicked.borrow(), paths);
     }
 }

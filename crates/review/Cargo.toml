@@ -22,5 +22,7 @@ regex.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# A test clicks rows drawn in a window.
+gpui = { workspace = true, features = ["test-support"] }
 # A test builds diffs by hand (`git::Hunk`) and touches no user data.
 artoo-core = { path = "../core", features = ["sandbox"] }
