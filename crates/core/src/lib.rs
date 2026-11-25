@@ -15,6 +15,7 @@ pub mod labels;
 pub mod links;
 pub mod markdown;
 pub mod mddiff;
+mod mdhtml;
 pub mod mr;
 pub mod notice;
 pub mod platform;

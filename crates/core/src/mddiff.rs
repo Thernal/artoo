@@ -189,7 +189,8 @@ fn like(old: &Block, new: &Block) -> bool {
         (Block::List { start: x, .. }, Block::List { start: y, .. }) => x.is_some() == y.is_some(),
         (Block::Table { .. }, Block::Table { .. })
         | (Block::Quote(_), Block::Quote(_))
-        | (Block::Html(_), Block::Html(_)) => true,
+        | (Block::Centered(_), Block::Centered(_))
+        | (Block::Details { .. }, Block::Details { .. }) => true,
         _ => false,
     }
 }

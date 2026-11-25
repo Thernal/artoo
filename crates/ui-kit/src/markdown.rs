@@ -655,25 +655,23 @@ fn block(block: &Block, ctx: &mut Ctx) -> AnyElement {
             .my(px(2.))
             .bg(theme::island_border())
             .into_any_element(),
-        // In a document, HTML reads as what it shows: its words and its images (#11).
-        Block::Html(text) if ctx.doc.is_some() => {
-            let images = markdown::html_images(text);
-            let words = markdown::html_text(text);
-            let centred = text.to_ascii_lowercase().contains("align=\"center\"");
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .when(centred, |s| s.items_center())
-                .children((!words.is_empty()).then(|| div().child(words)))
-                .children(picture_row(&images, ctx))
-                .into_any_element()
-        }
-        Block::Html(text) => div()
-            .font_family(theme::code_font())
-            .text_size(px(11.))
-            .text_color(theme::faint())
-            .child(text.clone())
+        // HTML's `<details>` (#231): the markdown here is drawn without state of its own, so there
+        // is no fold to click: the summary in bold, its body under it.
+        Block::Details { summary, body } => div()
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .child(inline(summary, ctx)),
+            )
+            .child(blocks_of(body, ctx).pl(px(10.)))
+            .into_any_element(),
+        // HTML's `align="center"` (#231).
+        Block::Centered(blocks) => blocks_of(blocks, ctx)
+            .items_center()
+            .text_center()
             .into_any_element(),
     }
 }

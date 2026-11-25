@@ -49,7 +49,7 @@ impl Requests {
 }
 
 /// The pictures a text draws, in order, as the kit's markdown draws them in a comment: a paragraph's images, in a
-/// quote or a list too (a heading's, a table's and HTML's are drawn as written); each one's address and its words.
+/// quote or a list too (a heading's and a table's are drawn as written); HTML's `<img>` is a paragraph's image (#231); each one's address and its words.
 fn written(body: &str) -> Vec<(String, String)> {
     let mut found = Vec::new();
     for block in markdown::parse(body) {
@@ -67,7 +67,9 @@ fn collect(block: &markdown::Block, found: &mut Vec<(String, String)>) {
                 i.text[s.range.clone()].trim().to_owned(),
             )
         })),
-        Block::Quote(blocks) => blocks.iter().for_each(|b| collect(b, found)),
+        Block::Quote(blocks) | Block::Centered(blocks) | Block::Details { body: blocks, .. } => {
+            blocks.iter().for_each(|b| collect(b, found))
+        }
         Block::List { items, .. } => {
             (items.iter().flat_map(|i| &i.blocks)).for_each(|b| collect(b, found))
         }
@@ -170,9 +172,12 @@ mod tests {
 
         let images = rq.images();
         let names: Vec<_> = images.iter().map(|i| i.name.as_str()).collect();
-        assert_eq!(names, ["before.png", "after.png", "ledger x.png"]);
+        assert_eq!(
+            names,
+            ["before.png", "after.png", "raw.png", "ledger x.png"]
+        );
         assert_eq!(images[0].added, Some(("Juniper Hale".to_owned(), 100)));
-        assert_eq!(images[2].added, Some(("Ember Lind".to_owned(), 200)));
+        assert_eq!(images[3].added, Some(("Ember Lind".to_owned(), 200)));
         let source = images[0].source.as_ref().unwrap();
         assert_eq!(source.name, "GitLab");
         assert_eq!(

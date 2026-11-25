@@ -3,6 +3,7 @@
 //! which put the markers in for the writer at the caret or around the selection. A changed `.md`
 //! file is read with `parse_lines` (each block with its source lines) and marked by `mddiff`.
 
+use crate::mdhtml::{self, Tok};
 use crate::textedit::TextEdit;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use std::ops::Range;
@@ -29,8 +30,13 @@ pub enum Block {
         rows: Vec<Vec<Inline>>,
     },
     Rule,
-    /// Raw HTML, shown as written.
-    Html(String),
+    /// HTML's `<details>` (#231): its `<summary>` line and what it holds.
+    Details {
+        summary: Inline,
+        body: Vec<Block>,
+    },
+    /// HTML's `align="center"` / `<center>` (#231): the blocks it holds, in the middle.
+    Centered(Vec<Block>),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -109,6 +115,12 @@ enum Frame {
         rows: Vec<Vec<Inline>>,
         row: Vec<Inline>,
     },
+    /// From HTML (#231).
+    Centered(Vec<Block>),
+    Details {
+        summary: Option<Inline>,
+        blocks: Vec<Block>,
+    },
 }
 
 #[derive(Default)]
@@ -119,7 +131,24 @@ struct Builder {
     inline: Option<Inline>,
     heading: Option<u8>,
     code: Option<(String, String)>,
+    /// An HTML block's lines, read as one when it ends (a tag may span lines).
     html: Option<String>,
+    /// Frames opened by HTML tags, parallel to `frames`: only those a closing tag may close.
+    from_html: Vec<bool>,
+    /// A `<pre>` being read, a `<script>` or `<style>` being skipped.
+    pre: Option<String>,
+    skip: Option<String>,
+    /// Open `<p>`, `<div>`, `<center>`…: name, and whether it opened a `Centered` frame.
+    boxes: Vec<(String, bool)>,
+    /// A table cell or a `<summary>` is being filled: no block breaks inside.
+    cell: bool,
+    summary: bool,
+    /// Styles and links opened by HTML tags; a paragraph's end drops what was left open.
+    hbold: u32,
+    hitalic: u32,
+    hstrike: u32,
+    hcode: u32,
+    hlinks: Vec<Option<String>>,
     bold: u32,
     italic: u32,
     strike: u32,
@@ -130,10 +159,10 @@ struct Builder {
 impl Builder {
     fn style(&self, code: bool) -> Style {
         Style {
-            bold: self.bold > 0,
-            italic: self.italic > 0,
-            strike: self.strike > 0,
-            code,
+            bold: self.bold + self.hbold > 0,
+            italic: self.italic + self.hitalic > 0,
+            strike: self.strike + self.hstrike > 0,
+            code: code || self.hcode > 0,
             image: self.image > 0,
         }
     }
@@ -142,6 +171,9 @@ impl Builder {
         match self.frames.last_mut() {
             Some(Frame::Quote(blocks)) => blocks.push(block),
             Some(Frame::Item(item)) => item.blocks.push(block),
+            Some(Frame::Centered(blocks)) | Some(Frame::Details { blocks, .. }) => {
+                blocks.push(block)
+            }
             _ => self.root.push(block),
         }
     }
@@ -157,11 +189,11 @@ impl Builder {
         if let Some((_, body)) = self.code.as_mut() {
             return body.push_str(text);
         }
-        if let Some(html) = self.html.as_mut() {
-            return html.push_str(text);
-        }
         let style = self.style(code);
-        let link = self.links.last().cloned();
+        let link = match self.hlinks.last() {
+            Some(link) => link.clone(),
+            None => self.links.last().cloned(),
+        };
         self.inline
             .get_or_insert_with(Inline::default)
             .push(text, style, link.as_ref());
@@ -169,7 +201,11 @@ impl Builder {
 
     fn start(&mut self, tag: Tag<'_>) {
         match tag {
-            Tag::Paragraph | Tag::TableCell => self.inline = Some(Inline::default()),
+            Tag::Paragraph => self.inline = Some(Inline::default()),
+            Tag::TableCell => {
+                self.cell = true;
+                self.inline = Some(Inline::default())
+            }
             Tag::Heading { level, .. } => {
                 self.close_loose();
                 self.heading = Some(level as u8);
@@ -177,7 +213,7 @@ impl Builder {
             }
             Tag::BlockQuote(_) => {
                 self.close_loose();
-                self.frames.push(Frame::Quote(Vec::new()));
+                self.push(Frame::Quote(Vec::new()), false);
             }
             Tag::CodeBlock(kind) => {
                 self.close_loose();
@@ -192,19 +228,22 @@ impl Builder {
                 self.code = Some((lang, String::new()));
             }
             Tag::HtmlBlock => {
-                self.close_loose();
+                self.brk();
                 self.html = Some(String::new());
             }
             Tag::List(start) => {
                 self.close_loose();
-                self.frames.push(Frame::List(start, Vec::new()));
+                self.push(Frame::List(start, Vec::new()), false);
             }
-            Tag::Item => self.frames.push(Frame::Item(Item::default())),
-            Tag::Table(_) => self.frames.push(Frame::Table {
-                head: Vec::new(),
-                rows: Vec::new(),
-                row: Vec::new(),
-            }),
+            Tag::Item => self.push(Frame::Item(Item::default()), false),
+            Tag::Table(_) => self.push(
+                Frame::Table {
+                    head: Vec::new(),
+                    rows: Vec::new(),
+                    row: Vec::new(),
+                },
+                false,
+            ),
             Tag::Emphasis => self.italic += 1,
             Tag::Strong => self.bold += 1,
             Tag::Strikethrough => self.strike += 1,
@@ -219,16 +258,27 @@ impl Builder {
     }
 
     fn end(&mut self, tag: TagEnd) {
+        // A frame an HTML tag left open inside this one closes with it.
+        if matches!(
+            tag,
+            TagEnd::Item | TagEnd::List(_) | TagEnd::BlockQuote(_) | TagEnd::Table
+        ) {
+            self.close_html_frames();
+        }
         match tag {
-            TagEnd::Paragraph => self.close_loose(),
+            TagEnd::Paragraph => {
+                self.close_loose();
+                self.drop_html_styles();
+            }
             TagEnd::Heading(_) => {
+                self.drop_html_styles();
                 let inline = self.inline.take().unwrap_or_default();
                 let level = self.heading.take().unwrap_or(1);
                 self.block(Block::Heading(level, inline));
             }
             TagEnd::BlockQuote(_) => {
                 self.close_loose();
-                if let Some(Frame::Quote(blocks)) = self.frames.pop() {
+                if let Some(Frame::Quote(blocks)) = self.pop() {
                     self.block(Block::Quote(blocks));
                 }
             }
@@ -244,23 +294,27 @@ impl Builder {
             }
             TagEnd::HtmlBlock => {
                 if let Some(html) = self.html.take() {
-                    self.block(Block::Html(html.trim_end().to_owned()));
+                    self.html(&html);
                 }
+                self.brk();
             }
             TagEnd::Item => {
                 self.close_loose();
-                if let Some(Frame::Item(item)) = self.frames.pop()
+                self.drop_html_styles();
+                if let Some(Frame::Item(item)) = self.pop()
                     && let Some(Frame::List(_, items)) = self.frames.last_mut()
                 {
                     items.push(item);
                 }
             }
             TagEnd::List(_) => {
-                if let Some(Frame::List(start, items)) = self.frames.pop() {
+                if let Some(Frame::List(start, items)) = self.pop() {
                     self.block(Block::List { start, items });
                 }
             }
             TagEnd::TableCell => {
+                self.cell = false;
+                self.drop_html_styles();
                 let cell = self.inline.take().unwrap_or_default();
                 if let Some(Frame::Table { row, .. }) = self.frames.last_mut() {
                     row.push(cell);
@@ -277,7 +331,7 @@ impl Builder {
                 }
             }
             TagEnd::Table => {
-                if let Some(Frame::Table { head, rows, .. }) = self.frames.pop() {
+                if let Some(Frame::Table { head, rows, .. }) = self.pop() {
                     self.block(Block::Table { head, rows });
                 }
             }
@@ -290,6 +344,408 @@ impl Builder {
             TagEnd::Image => {
                 self.links.pop();
                 self.image = self.image.saturating_sub(1);
+            }
+            _ => {}
+        }
+    }
+}
+
+// ---- HTML inside Markdown (#231) -------------------------------------------------------------
+
+/// Is this `align="center"`, or a `text-align: center` style?
+fn centered(attrs: &[(String, String)]) -> bool {
+    Tok::attr(attrs, "align").is_some_and(|a| a.trim().eq_ignore_ascii_case("center"))
+        || Tok::attr(attrs, "style").is_some_and(|s| {
+            let s: String = s
+                .split_whitespace()
+                .collect::<String>()
+                .to_ascii_lowercase();
+            s.contains("text-align:center")
+        })
+}
+
+/// A link a page may follow: no script or data address.
+fn safe_href(href: &str) -> Option<String> {
+    let h = href.trim();
+    let lower = h.to_ascii_lowercase();
+    let bad = ["javascript:", "data:", "vbscript:"];
+    (!h.is_empty() && !bad.iter().any(|b| lower.starts_with(b))).then(|| h.to_owned())
+}
+
+impl Builder {
+    fn push(&mut self, frame: Frame, html: bool) {
+        self.frames.push(frame);
+        self.from_html.push(html);
+    }
+
+    fn pop(&mut self) -> Option<Frame> {
+        self.from_html.pop();
+        self.frames.pop()
+    }
+
+    fn top_is_html(&self) -> bool {
+        self.from_html.last() == Some(&true)
+    }
+
+    /// A break between blocks. Where only a line of text fits (a cell, a heading, a summary) it is
+    /// a space.
+    fn brk(&mut self) {
+        if self.cell || self.summary || self.heading.is_some() {
+            if self.inline.as_ref().is_some_and(|i| !i.text.ends_with(' ')) {
+                self.text(" ", false);
+            }
+        } else {
+            self.close_loose();
+        }
+    }
+
+    /// What a paragraph's end leaves of HTML styles and links opened and never closed.
+    fn drop_html_styles(&mut self) {
+        self.hbold = 0;
+        self.hitalic = 0;
+        self.hstrike = 0;
+        self.hcode = 0;
+        self.hlinks.clear();
+    }
+
+    /// The end of the body: whatever HTML left open is closed where it stands.
+    fn finish(&mut self) {
+        if let Some(text) = self.pre.take() {
+            self.pre_block(text);
+        }
+        self.close_loose();
+        self.cell = false;
+        self.summary = false;
+        while !self.frames.is_empty() {
+            self.finish_top();
+        }
+        self.close_loose();
+    }
+
+    fn close_html_frames(&mut self) {
+        self.close_loose();
+        while self.top_is_html() {
+            self.finish_top();
+        }
+    }
+
+    /// Closes the innermost frame, whatever opened it, into the blocks.
+    fn finish_top(&mut self) {
+        if matches!(self.frames.last(), Some(Frame::Table { .. })) {
+            self.end_cell();
+            self.end_row();
+        }
+        self.close_loose();
+        let Some(frame) = self.pop() else { return };
+        match frame {
+            Frame::Quote(blocks) => self.block(Block::Quote(blocks)),
+            Frame::Centered(blocks) => self.block(Block::Centered(blocks)),
+            Frame::Details { summary, blocks } => {
+                let summary = summary.unwrap_or_else(|| Inline {
+                    text: "Details".to_owned(),
+                    ..Default::default()
+                });
+                self.block(Block::Details {
+                    summary,
+                    body: blocks,
+                })
+            }
+            Frame::List(start, items) => self.block(Block::List { start, items }),
+            Frame::Item(item) => match self.frames.last_mut() {
+                Some(Frame::List(_, items)) => items.push(item),
+                _ => item.blocks.into_iter().for_each(|b| self.block(b)),
+            },
+            Frame::Table { head, rows, .. } => self.block(Block::Table { head, rows }),
+        }
+    }
+
+    /// A closing tag: the innermost frame of that kind HTML opened, and what is inside it.
+    fn close_frame(&mut self, is: fn(&Frame) -> bool) {
+        self.brk();
+        let found = self
+            .frames
+            .iter()
+            .zip(&self.from_html)
+            .rposition(|(f, &html)| html && is(f));
+        // Only through frames HTML opened: a Markdown one is not closed by a stray tag.
+        let reach = self.from_html.iter().rposition(|h| !h).map_or(0, |i| i + 1);
+        if let Some(at) = found.filter(|&at| at >= reach) {
+            while self.frames.len() > at {
+                self.finish_top();
+            }
+        }
+    }
+
+    fn end_cell(&mut self) {
+        if self.cell && matches!(self.frames.last(), Some(Frame::Table { .. })) {
+            self.cell = false;
+            let cell = self.inline.take().unwrap_or_default();
+            if let Some(Frame::Table { row, .. }) = self.frames.last_mut() {
+                row.push(cell);
+            }
+        }
+    }
+
+    /// A row of an HTML table: the first is the head.
+    fn end_row(&mut self) {
+        if let Some(Frame::Table { head, rows, row }) = self.frames.last_mut()
+            && !row.is_empty()
+        {
+            let done = std::mem::take(row);
+            if head.is_empty() {
+                *head = done
+            } else {
+                rows.push(done)
+            }
+        }
+    }
+
+    fn pre_block(&mut self, text: String) {
+        let text = text.trim_end_matches('\n').to_owned();
+        self.block(Block::Code {
+            lang: String::new(),
+            text,
+            marks: Vec::new(),
+        });
+    }
+
+    /// Raw HTML: text, tags and comments in the order they come.
+    fn html(&mut self, src: &str) {
+        for tok in mdhtml::tokens(src) {
+            if let Some(name) = &self.skip {
+                if matches!(&tok, Tok::Close(n) if n == name) {
+                    self.skip = None;
+                }
+                continue;
+            }
+            if let Some(pre) = self.pre.as_mut() {
+                match tok {
+                    Tok::Text(t) => pre.push_str(
+                        t.strip_prefix('\n')
+                            .filter(|_| pre.is_empty())
+                            .unwrap_or(&t),
+                    ),
+                    Tok::Close(n) if n == "pre" => {
+                        let text = self.pre.take().unwrap_or_default();
+                        self.pre_block(text);
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+            match tok {
+                Tok::Text(t) => self.html_text(&t),
+                Tok::Open { name, attrs } => self.open(&name, &attrs),
+                Tok::Close(name) => self.close(&name),
+            }
+        }
+    }
+
+    /// Text between tags: runs of white space are one space, none at a block's start.
+    fn html_text(&mut self, t: &str) {
+        let mut out = String::with_capacity(t.len());
+        for word in t.split_inclusive(char::is_whitespace) {
+            let trimmed = word.trim_end_matches(char::is_whitespace);
+            out.push_str(trimmed);
+            if trimmed.len() != word.len() && !out.ends_with(' ') {
+                out.push(' ');
+            }
+        }
+        if t.starts_with(char::is_whitespace) && !out.starts_with(' ') {
+            out.insert(0, ' ');
+        }
+        let empty = self.inline.as_ref().is_none_or(|i| i.text.is_empty());
+        let out = if empty { out.trim_start() } else { &out };
+        if !out.is_empty() {
+            self.text(out, false);
+        }
+    }
+
+    fn open(&mut self, name: &str, attrs: &[(String, String)]) {
+        match name {
+            "br" => {
+                if self.inline.as_ref().is_some_and(|i| !i.text.is_empty()) {
+                    self.text("\n", false)
+                }
+            }
+            "hr" => {
+                self.brk();
+                if !self.cell && !self.summary && self.heading.is_none() {
+                    self.block(Block::Rule);
+                }
+            }
+            "b" | "strong" => self.hbold += 1,
+            "i" | "em" | "cite" | "dfn" | "var" => self.hitalic += 1,
+            "s" | "del" | "strike" => self.hstrike += 1,
+            "code" | "kbd" | "samp" | "tt" => self.hcode += 1,
+            "a" => self
+                .hlinks
+                .push(Tok::attr(attrs, "href").and_then(safe_href)),
+            "img" => {
+                let Some(src) = Tok::attr(attrs, "src").filter(|s| !s.trim().is_empty()) else {
+                    return;
+                };
+                self.hlinks.push(Some(src.trim().to_owned()));
+                self.image += 1;
+                self.text("🖼 ", false);
+                self.text(Tok::attr(attrs, "alt").unwrap_or_default(), false);
+                self.image -= 1;
+                self.hlinks.pop();
+            }
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                self.brk();
+                if !self.cell && !self.summary && self.heading.is_none() {
+                    self.heading = Some(name.as_bytes()[1] - b'0');
+                    self.inline = Some(Inline::default());
+                }
+            }
+            "p" | "div" | "center" | "section" | "article" | "header" | "footer" | "main"
+            | "aside" | "nav" | "figure" | "figcaption" | "address" | "dl" | "dt" | "dd" => {
+                self.brk();
+                let framed = (name == "center" || centered(attrs))
+                    && !self.cell
+                    && !self.summary
+                    && self.heading.is_none();
+                if framed {
+                    self.push(Frame::Centered(Vec::new()), true);
+                }
+                self.boxes.push((name.to_owned(), framed));
+            }
+            "blockquote" => {
+                self.brk();
+                if !self.cell && !self.summary && self.heading.is_none() {
+                    self.push(Frame::Quote(Vec::new()), true);
+                }
+            }
+            "ul" | "ol" => {
+                self.brk();
+                if !self.cell && !self.summary && self.heading.is_none() {
+                    let start = (name == "ol")
+                        .then(|| Tok::attr(attrs, "start").and_then(|s| s.trim().parse().ok()))
+                        .map(|s: Option<u64>| s.unwrap_or(1));
+                    self.push(Frame::List(start, Vec::new()), true);
+                }
+            }
+            "li" => {
+                self.brk();
+                if self.cell || self.summary || self.heading.is_some() {
+                    return;
+                }
+                if self.top_is_html() && matches!(self.frames.last(), Some(Frame::Item(_))) {
+                    self.finish_top();
+                }
+                if !matches!(self.frames.last(), Some(Frame::List(..))) {
+                    self.push(Frame::List(None, Vec::new()), true);
+                }
+                self.push(Frame::Item(Item::default()), true);
+            }
+            "table" => {
+                self.brk();
+                if !self.cell && !self.summary && self.heading.is_none() {
+                    let table = Frame::Table {
+                        head: Vec::new(),
+                        rows: Vec::new(),
+                        row: Vec::new(),
+                    };
+                    self.push(table, true);
+                }
+            }
+            "tr" => {
+                self.end_cell();
+                self.end_row();
+            }
+            "td" | "th" => {
+                self.end_cell();
+                if matches!(self.frames.last(), Some(Frame::Table { .. })) && self.top_is_html() {
+                    self.cell = true;
+                    self.inline = Some(Inline::default());
+                } else {
+                    self.brk();
+                }
+            }
+            "details" => {
+                self.brk();
+                if !self.cell && !self.summary && self.heading.is_none() {
+                    self.push(
+                        Frame::Details {
+                            summary: None,
+                            blocks: Vec::new(),
+                        },
+                        true,
+                    );
+                }
+            }
+            "summary" => {
+                self.brk();
+                if self.top_is_html()
+                    && matches!(
+                        self.frames.last(),
+                        Some(Frame::Details { summary: None, .. })
+                    )
+                {
+                    self.summary = true;
+                    self.inline = Some(Inline::default());
+                }
+            }
+            "pre" => {
+                self.brk();
+                if !self.cell && !self.summary && self.heading.is_none() {
+                    self.pre = Some(String::new());
+                }
+            }
+            "script" | "style" | "title" => self.skip = Some(name.to_owned()),
+            _ => {}
+        }
+    }
+
+    fn close(&mut self, name: &str) {
+        match name {
+            "b" | "strong" => self.hbold = self.hbold.saturating_sub(1),
+            "i" | "em" | "cite" | "dfn" | "var" => self.hitalic = self.hitalic.saturating_sub(1),
+            "s" | "del" | "strike" => self.hstrike = self.hstrike.saturating_sub(1),
+            "code" | "kbd" | "samp" | "tt" => self.hcode = self.hcode.saturating_sub(1),
+            "a" => {
+                self.hlinks.pop();
+            }
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+                if let Some(level) = self.heading.take() {
+                    let inline = self.inline.take().unwrap_or_default();
+                    self.block(Block::Heading(level, inline));
+                }
+            }
+            "p" | "div" | "center" | "section" | "article" | "header" | "footer" | "main"
+            | "aside" | "nav" | "figure" | "figcaption" | "address" | "dl" | "dt" | "dd" => {
+                self.brk();
+                if let Some(at) = self.boxes.iter().rposition(|(n, _)| n == name) {
+                    while self.boxes.len() > at {
+                        let (_, framed) = self.boxes.pop().unwrap_or_default();
+                        if framed {
+                            self.close_frame(|f| matches!(f, Frame::Centered(_)));
+                        }
+                    }
+                }
+            }
+            "blockquote" => self.close_frame(|f| matches!(f, Frame::Quote(_))),
+            "ul" | "ol" => self.close_frame(|f| matches!(f, Frame::List(..))),
+            "li" => {
+                self.brk();
+                if self.top_is_html() && matches!(self.frames.last(), Some(Frame::Item(_))) {
+                    self.finish_top();
+                }
+            }
+            "table" => self.close_frame(|f| matches!(f, Frame::Table { .. })),
+            "tr" => {
+                self.end_cell();
+                self.end_row();
+            }
+            "td" | "th" => self.end_cell(),
+            "details" => self.close_frame(|f| matches!(f, Frame::Details { .. })),
+            "summary" if self.summary => {
+                self.summary = false;
+                let line = self.inline.take().unwrap_or_default();
+                if let Some(Frame::Details { summary, .. }) = self.frames.last_mut() {
+                    *summary = Some(line);
+                }
             }
             _ => {}
         }
@@ -312,15 +768,11 @@ impl Builder {
             }
             Event::Text(t) => self.text(&t, false),
             Event::Code(t) => self.text(&t, true),
-            Event::Html(t) => self.text(&t, false),
-            Event::InlineHtml(t) => {
-                let tag = t.trim().to_ascii_lowercase();
-                if matches!(tag.as_str(), "<br>" | "<br/>" | "<br />") {
-                    self.text("\n", false)
-                } else {
-                    self.text(&t, true)
-                }
-            }
+            Event::Html(t) => match self.html.as_mut() {
+                Some(html) => html.push_str(&t),
+                None => self.html(&t),
+            },
+            Event::InlineHtml(t) => self.html(&t),
             Event::SoftBreak => self.text(" ", false),
             Event::HardBreak => self.text("\n", false),
             Event::Rule => {
@@ -345,7 +797,7 @@ pub fn parse(source: &str) -> Vec<Block> {
     for event in pulldown_cmark::TextMergeStream::new(Parser::new_ext(source, OPTIONS)) {
         b.event(event);
     }
-    b.close_loose();
+    b.finish();
     b.root
 }
 
@@ -356,7 +808,7 @@ pub fn parse_lines(source: &str) -> Vec<(Block, (u32, u32))> {
     let mut ranges: Vec<Range<usize>> = Vec::new();
     let (mut depth, mut start) = (0usize, 0usize);
     for (event, range) in Parser::new_ext(source, OPTIONS).into_offset_iter() {
-        if depth == 0 {
+        if depth == 0 && b.frames.is_empty() {
             start = range.start;
         }
         match &event {
@@ -369,7 +821,7 @@ pub fn parse_lines(source: &str) -> Vec<(Block, (u32, u32))> {
         ranges.extend((before..b.root.len()).map(|_| start..range.end));
     }
     let before = b.root.len();
-    b.close_loose();
+    b.finish();
     ranges.extend((before..b.root.len()).map(|_| start..source.len()));
     // Bytes, not text: a block's last byte may sit inside a wide letter (`ə`, `—`).
     let bytes = source.as_bytes();
@@ -456,31 +908,6 @@ fn attribute(tag: &str, name: &str) -> Option<String> {
     None
 }
 
-/// The words of some HTML: its tags and comments left out, the common entities read.
-pub fn html_text(html: &str) -> String {
-    let mut out = String::new();
-    let mut rest = html;
-    while !rest.is_empty() {
-        if let Some(comment) = rest.strip_prefix("<!--") {
-            rest = comment.split_once("-->").map_or("", |(_, r)| r);
-        } else if rest.starts_with('<') {
-            rest = rest.split_once('>').map_or("", |(_, r)| r);
-            out.push(' ');
-        } else {
-            let end = rest.find('<').unwrap_or(rest.len());
-            out.push_str(&rest[..end]);
-            rest = &rest[end..];
-        }
-    }
-    let out = out
-        .replace("&nbsp;", " ")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&");
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 /// The repository path an image link `src` of document `doc` names: relative to the document's
 /// folder, or to the root when it starts with `/`. None for a web address or a path out of the
 /// repository.
@@ -555,8 +982,12 @@ pub fn plain(source: &str) -> String {
         for b in blocks {
             match b {
                 Block::Paragraph(i) | Block::Heading(_, i) => out.push(i.text.clone()),
-                Block::Code { text, .. } | Block::Html(text) => out.push(text.clone()),
-                Block::Quote(blocks) => walk(blocks, out),
+                Block::Code { text, .. } => out.push(text.clone()),
+                Block::Quote(blocks) | Block::Centered(blocks) => walk(blocks, out),
+                Block::Details { summary, body } => {
+                    out.push(summary.text.clone());
+                    walk(body, out)
+                }
                 Block::List { items, .. } => {
                     for item in items {
                         walk(&item.blocks, out)
@@ -770,7 +1201,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn html_images_and_words_are_read() {
+    fn html_images_are_read() {
         let html = "<p align=\"center\">\n  <img src=\"docs/logo.png\" alt='Logo' width=200>\n  <img data-src=\"x.png\" src=diagram.svg>\n</p>\n<!-- a note -->";
         assert_eq!(
             html_images(html),
@@ -779,8 +1210,6 @@ mod tests {
                 ("diagram.svg".to_owned(), String::new())
             ]
         );
-        assert_eq!(html_text(html), "");
-        assert_eq!(html_text("<p>Tom &amp; Jerry<br>go</p>"), "Tom & Jerry go");
         assert!(images("Text <img src=\"a.png\"> and ![b](b.png)\n").contains(&"a.png".to_owned()));
     }
 
@@ -974,5 +1403,226 @@ mod tests {
         let mut e = TextEdit::new("```\n- in code");
         newline(&mut e);
         assert_eq!(e.text(), "```\n- in code\n");
+    }
+
+    // ---- HTML inside Markdown (#231) ----
+
+    /// The words of the first paragraph with its styled runs: `**bold**`, `_italic_`, `~strike~`,
+    /// `` `code` ``, `[text](link)`.
+    fn show(i: &Inline) -> String {
+        let mut out = String::new();
+        let mut at = 0;
+        for s in &i.spans {
+            out.push_str(&i.text[at..s.range.start]);
+            let t = &i.text[s.range.clone()];
+            let t = match (s.style, &s.link) {
+                (st, _) if st.image => format!("img({t}|{})", s.link.clone().unwrap_or_default()),
+                (st, _) if st.bold => format!("**{t}**"),
+                (st, _) if st.italic => format!("_{t}_"),
+                (st, _) if st.strike => format!("~{t}~"),
+                (st, _) if st.code => format!("`{t}`"),
+                (_, Some(l)) => format!("[{t}]({l})"),
+                _ => t.to_owned(),
+            };
+            out.push_str(&t);
+            at = s.range.end;
+        }
+        out.push_str(&i.text[at..]);
+        out
+    }
+
+    fn hp(src: &str) -> String {
+        match parse(src).first() {
+            Some(Block::Paragraph(i)) => show(i),
+            other => panic!("not a paragraph: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn html_inline_styles_and_links() {
+        assert_eq!(
+            hp("a <b>b</b> <strong>s</strong> <i>i</i> <em>e</em> z"),
+            "a **b** **s** _i_ _e_ z"
+        );
+        assert_eq!(
+            hp("<code>c</code> <kbd>K</kbd> <del>d</del> <s>s</s>"),
+            "`c` `K` ~d~ ~s~"
+        );
+        assert_eq!(
+            hp("x<sub>1</sub> y<sup>2</sup> <ins>n</ins> <u>u</u>"),
+            "x1 y2 n u"
+        );
+        assert_eq!(
+            hp("see <a href=\"https://x.io/a\">the page</a> now"),
+            "see [the page](https://x.io/a) now"
+        );
+        assert_eq!(hp("<a href=\"javascript:alert(1)\">no</a>"), "no");
+        assert_eq!(hp("a<br>b<br/>c<br />d"), "a\nb\nc\nd");
+        assert_eq!(
+            hp("<span style=\"x\">kept</span> <font color=red>text</font>"),
+            "kept text"
+        );
+    }
+
+    #[test]
+    fn html_image_is_the_markdown_image() {
+        let md = hp("![alt](a.png)");
+        assert_eq!(
+            hp("<img src=\"a.png\" alt=\"alt\" width=\"20\" height=20>"),
+            md
+        );
+        let Some(Block::Paragraph(i)) = parse("<img src=\"a.png\">\n").first().cloned() else {
+            panic!()
+        };
+        assert!(i.spans[0].style.image);
+        assert!(parse("<img alt=\"none\">").is_empty());
+    }
+
+    #[test]
+    fn html_blocks_become_blocks() {
+        let b = parse("<p>one</p>\n\n<h2>Two <i>x</i></h2>\n\n<hr>\n\n<h6>six</h6>");
+        assert!(matches!(&b[0], Block::Paragraph(i) if i.text == "one"));
+        assert!(matches!(&b[1], Block::Heading(2, i) if show(i) == "Two _x_"));
+        assert_eq!(b[2], Block::Rule);
+        assert!(matches!(&b[3], Block::Heading(6, _)));
+        let b = parse("<blockquote>quoted <b>text</b></blockquote>\n");
+        let Block::Quote(inner) = &b[0] else {
+            panic!("{b:?}")
+        };
+        assert!(matches!(&inner[0], Block::Paragraph(i) if show(i) == "quoted **text**"));
+    }
+
+    #[test]
+    fn html_pre_keeps_its_lines() {
+        let b = parse("<pre>\nfn a() {\n  1 &lt; 2\n}\n</pre>\n");
+        assert!(matches!(&b[0], Block::Code { text, .. } if text == "fn a() {\n  1 < 2\n}"));
+    }
+
+    #[test]
+    fn html_lists_nest() {
+        let b = parse(
+            "<ul>\n<li>one</li>\n<li>two\n<ol start=\"3\"><li>x</li><li>y</li></ol></li>\n</ul>\n",
+        );
+        let Block::List { start: None, items } = &b[0] else {
+            panic!("{b:?}")
+        };
+        assert_eq!(items.len(), 2);
+        let Block::List {
+            start: Some(3),
+            items: inner,
+        } = &items[1].blocks[1]
+        else {
+            panic!("{:?}", items[1])
+        };
+        assert_eq!(inner.len(), 2);
+        // `<li>` left open, no `<ul>` at all.
+        let b = parse("<li>a\n<li>b\n");
+        assert!(matches!(&b[0], Block::List { items, .. } if items.len() == 2));
+    }
+
+    #[test]
+    fn html_table_is_a_table() {
+        let b = parse(
+            "<table>\n<tr><th>A</th><th>B</th></tr>\n<tr><td>1</td><td><b>2</b></td></tr>\n<tr><td>3<td>4\n</table>\n",
+        );
+        let Block::Table { head, rows } = &b[0] else {
+            panic!("{b:?}")
+        };
+        assert_eq!(
+            head.iter().map(|c| c.text.as_str()).collect::<Vec<_>>(),
+            ["A", "B"]
+        );
+        assert_eq!(rows.len(), 2);
+        assert_eq!(show(&rows[0][1]), "**2**");
+        assert_eq!(rows[1].len(), 2);
+    }
+
+    #[test]
+    fn html_details_has_a_summary_and_a_body() {
+        let b = parse(
+            "<details>\n<summary>More <b>info</b></summary>\n\nA **body**.\n\n- item\n\n</details>\n\nafter\n",
+        );
+        let Block::Details { summary, body } = &b[0] else {
+            panic!("{b:?}")
+        };
+        assert_eq!(show(summary), "More **info**");
+        assert!(matches!(&body[0], Block::Paragraph(i) if show(i) == "A **body**."));
+        assert!(matches!(&body[1], Block::List { .. }));
+        assert!(matches!(&b[1], Block::Paragraph(i) if i.text == "after"));
+        // One in a line, without a summary.
+        let b = parse("<details><summary>S</summary>body</details>");
+        let Block::Details { summary, body } = &b[0] else {
+            panic!("{b:?}")
+        };
+        assert_eq!((summary.text.as_str(), body.len()), ("S", 1));
+        let b = parse("<details>\ntext\n</details>");
+        assert!(matches!(&b[0], Block::Details { summary, .. } if summary.text == "Details"));
+    }
+
+    #[test]
+    fn html_centred_blocks() {
+        let b = parse(
+            "<p align=\"center\">\n  <img src=\"logo.png\" alt=\"Logo\">\n</p>\n\n<div align=center>hi</div>\n\n<center>c</center>\n\nplain\n",
+        );
+        assert!(matches!(&b[0], Block::Centered(i) if matches!(&i[0], Block::Paragraph(_))));
+        assert!(matches!(&b[1], Block::Centered(_)));
+        assert!(matches!(&b[2], Block::Centered(_)));
+        assert!(matches!(&b[3], Block::Paragraph(_)));
+    }
+
+    #[test]
+    fn html_comments_and_unknown_tags() {
+        assert!(parse("<!-- a note -->\n").is_empty());
+        assert_eq!(hp("a <!-- hidden --> b"), "a  b");
+        assert!(parse("<!--\nmulti\nline\n-->\n\ntext").len() == 1);
+        assert!(parse("<script>alert(1)</script>\n\n<style>p{}</style>\n").is_empty());
+    }
+
+    #[test]
+    fn malformed_html_never_loses_text() {
+        // Unclosed styles end with their paragraph.
+        let b = parse("<b>bold\n\nnext");
+        assert!(matches!(&b[1], Block::Paragraph(i) if show(i) == "next"));
+        // Unclosed blocks close at the end.
+        let b = parse("<details>\n<summary>S\n\nbody\n");
+        assert!(matches!(&b[0], Block::Details { .. }), "{b:?}");
+        let b = parse("<blockquote>q\n\n<ul><li>a");
+        assert!(matches!(&b[0], Block::Quote(_)), "{b:?}");
+        // Stray closers do nothing.
+        assert_eq!(hp("a </b></a> b"), "a  b");
+        assert_eq!(plain("a </p> b"), "a b");
+        assert!(!parse("</details>\n\ntext").is_empty());
+        // A tag is closed inside Markdown's own list item.
+        let b = parse("- a <details>\n- b\n");
+        assert!(
+            matches!(&b[0], Block::List { items, .. } if items.len() == 2),
+            "{b:?}"
+        );
+        // No `>`: text.
+        assert_eq!(hp("<b is it"), "<b is it");
+    }
+
+    #[test]
+    fn angle_brackets_in_text_stay_text() {
+        assert_eq!(hp("a < b and b > c"), "a < b and b > c");
+        assert_eq!(
+            hp("a Vec<T> and Option<String> here"),
+            "a Vec<T> and Option<String> here"
+        );
+        assert_eq!(hp("x <3 y"), "x <3 y");
+        assert_eq!(hp("<T> alone"), "<T> alone");
+        assert_eq!(hp("`<b>` in code"), "`<b>` in code");
+        let b = parse("```\n<b>raw</b>\n```\n");
+        assert!(matches!(&b[0], Block::Code { text, .. } if text == "<b>raw</b>"));
+    }
+
+    #[test]
+    fn plain_markdown_is_as_before() {
+        let b = parse("# T\n\ntext **b** and `c`\n\n> q\n\n| a | b |\n|---|---|\n| 1 | 2 |\n");
+        assert_eq!(b.len(), 4);
+        assert_eq!(
+            plain("a <b>b</b> <details><summary>S</summary>body</details>"),
+            "a b S body"
+        );
     }
 }
