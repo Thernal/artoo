@@ -1500,7 +1500,7 @@ pub struct Workspace {
     since_on_open: Option<(u64, u64)>,
     /// A request opened anew: once its diff and versions are in, it shows what changed since the version you read,
     /// when a push came after it (#187).
-    since_offer: Option<u64>,
+    since_keep: Option<u64>,
     /// Merge requests agents drafted (#152), with who did: the last one for each branch, until
     /// the reviewer creates it.
     agent_requests: Vec<(String, crate::bus::RequestDraft)>,
@@ -1678,7 +1678,7 @@ impl Workspace {
             thread_at: None,
             held_gen: 0,
             since_on_open: None,
-            since_offer: None,
+            since_keep: None,
             agent_requests: Vec::new(),
             create_waiting: None,
             drafts_unseen: HashSet::new(),
@@ -2222,11 +2222,11 @@ impl Workspace {
                     self.select_file(ix, cx);
                 }
                 self.resolve_spot(false, cx);
-                // What changed since the version you read says so on its files (#187); a request read before a
-                // push opens on it.
+                // What changed since the version you read says so on its files (#187); the version is kept for the
+                // switch.
                 let since = self.since_read(cx);
                 self.rv().set_since(since, cx);
-                self.offer_since(cx);
+                self.keep_since_read(cx);
             }
             ReviewEvent::Failed(err) => self.error = Some(err.clone().into()),
             ReviewEvent::FileBuilt => {

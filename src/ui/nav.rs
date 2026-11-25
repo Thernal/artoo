@@ -379,14 +379,6 @@ impl Nav {
         (0..self.at).rev().take(n).collect()
     }
 
-    /// The moment before the one now forgotten when it was `page`: what is on screen took its place (#187).
-    pub(super) fn forget_before(&mut self, page: &Route) {
-        if self.at > 0 && self.time[self.at - 1].page.as_ref() == Some(page) {
-            self.time.remove(self.at - 1);
-            self.at -= 1;
-        }
-    }
-
     pub(super) fn opened(&self, item: &Route) -> Option<&Opened> {
         self.open.iter().find(|o| &o.item == item)
     }
@@ -470,6 +462,7 @@ impl Nav {
         let route_of = |text: &str| {
             Route::parse(text)
                 .or_else(|| Page::parse_key(text).map(|p| p.route()))
+                .map(reopened)
                 .filter(|route| drawn.has(route))
         };
         let mut pages = HashMap::new();
@@ -506,6 +499,15 @@ impl Nav {
             pages,
             open,
         })
+    }
+}
+
+/// The page a request is opened again on: its Changes are All, always (`Since v2` is chosen each time), so one kept on
+/// two of its versions is the request's own page.
+fn reopened(page: Route) -> Route {
+    match Page::from_route(&page) {
+        Some(Page::RequestVersions(number, ..)) => Page::Request(number).route(),
+        _ => page,
     }
 }
 
@@ -1439,7 +1441,7 @@ impl Workspace {
         {
             return self.open_gathered(iid, cx);
         }
-        let Some(page) = self.nav.opened(item).map(|o| o.page.clone()) else {
+        let Some(page) = self.nav.opened(item).map(|o| reopened(o.page.clone())) else {
             return;
         };
         let Some(space) = self.drawn().space(&page) else {
@@ -2033,6 +2035,17 @@ mod tests {
         let none = Drawn::default();
         let saved = Nav::read(&line, &[jira], &none).unwrap();
         assert!(saved.pages.is_empty());
+    }
+
+    /// All is always the default: a request left on two of its versions comes back on All its changes.
+    #[test]
+    fn a_request_kept_on_its_versions_comes_back_on_all() {
+        let drawn = drawn();
+        let since = Page::RequestVersions(7, 0, 1).route().text();
+        let line = format!("r\t1\t-\t-\t-\t{since}\t{since}");
+        let Saved { pages, open, .. } = Nav::read(&line, &[], &drawn).unwrap();
+        assert_eq!(pages.get(&REQUESTS), Some(&Page::Request(7).route()));
+        assert_eq!(open, [(Page::Request(7).route(), None)]);
     }
 
     #[test]

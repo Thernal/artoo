@@ -367,10 +367,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   so the whole comes back when it fits. The diff's toolbar folds the same way into View ▾ (`artoo_review::toolbar`,
   `Review::toolbar_fold`): Collapse all first, then Split · Unified, then the count beside the range; the range never
   folds. The title bar's status shortens before the search and the gear go (`Fetch failed · Retry`).
-- **Coming back after a push opens on what changed since you read** (#187): a request whose newest mark is at an
-  earlier version (`Seen::Earlier`) opens its Changes on `Since v2` — that version against the latest, the page's
-  `RequestVersions` put in the place of its whole diff, so Back goes where it was opened from (`ui/since.rs`,
-  `offer_since`). The switch `All · Since v2 · Commits` (`Act::Range`, `s` toggles All and Since) sits first in the
+- **Coming back after a push opens on All** (#187, changed by the developer, 2026-11-26): the unchecked files say what
+  is left; `Since v2` — the version read against the latest — is chosen, never opened by itself, and a request reopened
+  (an open row, the next start) is on All too (`nav::reopened`). A request whose newest mark is at an earlier version
+  (`Seen::Earlier`) offers it; that version is kept while it stays open (`ui/since.rs`, `keep_since_read`). The switch `All · Since v2 · Commits` (`Act::Range`, `s` toggles All and Since) sits first in the
   diff's toolbar, the request's compare sides in View ▾; what each range shows and the version you read are the
   branches' (`Branches::range`, `range_pick`, kept while the request stays open, `keep_read`). A file changed since
   carries `↻ v2` on its tree row and card (`Reviewed::since_chip`, the review told by `Review::set_since`), the tree's

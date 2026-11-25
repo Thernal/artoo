@@ -1,5 +1,6 @@
-//! Coming back to a request after a push (#187, Design A1): its Changes open on what changed since the version you
-//! read (`Since v2`), and the switch `All · Since v2 · Commits` takes it there and back; `s` toggles All and Since.
+//! Coming back to a request after a push (#187, Design A1): its Changes open on All, always — the unchecked files say
+//! what is left —, and the switch `All · Since v2 · Commits` takes them to what changed since the version you read and
+//! back; `s` toggles All and Since.
 //! What each range shows is the branches' (`Branches::range_pick`); the tab goes to its page.
 
 use super::Workspace;
@@ -70,15 +71,14 @@ impl Workspace {
         );
     }
 
-    /// A request opened anew on its Changes, once its whole diff and its versions are in: the version you read is
-    /// kept, and when a push came after it, the page is what changed since — in the place of its whole diff, so
-    /// Back goes where it was opened from.
-    pub(super) fn offer_since(&mut self, cx: &mut Context<Self>) {
-        let Some(iid) = self.since_offer else {
+    /// A request opened anew, once its whole diff and its versions are in: the version you read is kept, so `Since`
+    /// stays offered while you mark its files. The page stays on All.
+    pub(super) fn keep_since_read(&mut self, cx: &mut Context<Self>) {
+        let Some(iid) = self.since_keep else {
             return;
         };
         if self.shown_page() != Some(Page::Request(iid)) {
-            self.since_offer = None;
+            self.since_keep = None;
             return;
         }
         let versions_in = (self.requests_api())
@@ -87,21 +87,10 @@ impl Workspace {
         if !versions_in || !self.request_loaded(iid, cx) {
             return;
         }
-        self.since_offer = None;
-        let Some(branches) = self.branches() else {
-            return;
-        };
-        branches.keep_read(cx);
-        if self.page_section(cx) != Some(Section::Changes) {
-            return;
+        self.since_keep = None;
+        if let Some(branches) = self.branches() {
+            branches.keep_read(cx);
+            cx.notify();
         }
-        let Some(pick @ Selection::Versions { .. }) = branches.range_pick(Range::Since, cx) else {
-            return;
-        };
-        let whole = Page::Request(iid).route();
-        self.pick(pick, cx);
-        branches.show_version_files(cx);
-        self.nav.forget_before(&whole);
-        cx.notify();
     }
 }
