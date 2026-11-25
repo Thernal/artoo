@@ -370,12 +370,13 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
 - **Coming back after a push opens on All** (#187, changed by the developer, 2026-11-26): the unchecked files say what
   is left; `Since v2` — the version read against the latest — is chosen, never opened by itself, and a request reopened
   (an open row, the next start) is on All too (`nav::reopened`). A request whose newest mark is at an earlier version
-  (`Seen::Earlier`) offers it; that version is kept while it stays open (`ui/since.rs`, `keep_since_read`). The switch `All · Since v2 · Commits` (`Act::Range`, `s` toggles All and Since) sits first in the
-  diff's toolbar, the request's compare sides in View ▾; what each range shows and the version you read are the
-  branches' (`Branches::range`, `range_pick`, kept while the request stays open, `keep_read`). A file changed since
-  carries `↻ v2` on its tree row and card (`Reviewed::since_chip`, the review told by `Review::set_since`), the tree's
-  foot `5 unchanged`; Versions tags the version `you read`. The request's bar, `a` and ⇧⌘↵ stay on Since
-  (`on_request_changes`).
+  (`Seen::Earlier`) offers it; that version is kept while it stays open (`ui/since.rs`, `keep_since_read`). With no
+  file changed since it, the pane says so, with the unchanged count (`pane::no_changes`). The switch `All · Since v2 ·
+  Commits` (`Act::Range`, `s` toggles All and Since) sits first in the diff's toolbar, the request's compare sides in
+  View ▾; what each range shows and the version you read are the branches' (`Branches::range`, `range_pick`, kept while
+  the request stays open, `keep_read`). A file changed since carries `↻ v2` on its tree row and card
+  (`Reviewed::since_chip`, the review told by `Review::set_since`), the tree's foot `5 unchanged`; Versions tags the
+  version `you read`. The request's bar, `a` and ⇧⌘↵ stay on Since (`on_request_changes`).
 - **A request's Changes is its bar, one toolbar row, then the cards** (#188, Design A3–A7): the bar reads `!398 Refactor
   the login screen state  Description ▾ | Overview Commits Changes | ✗ lint  Submit review  Approve 1/2  Merge · needs 1
   approval ▾` — the title after the id (`PagePath::title`, on Since too), the pipeline the job that failed

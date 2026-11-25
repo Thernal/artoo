@@ -8,8 +8,8 @@ use crate::diff_view::{file_tag, kind_letter};
 use crate::review::{Host, PaneEvent, Review};
 use crate::reviewed::State;
 use crate::toolbar::ToolRoom;
-use artoo_review_api::ToolbarFold;
 use artoo_review_api::viewers::Drawing;
+use artoo_review_api::{SinceRead, ToolbarFold};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::hover::Hover;
@@ -33,6 +33,22 @@ pub struct PaneLook {
     pub over: Vec<AnyElement>,
     /// The file as a page, when it is shown so (`shows_page`).
     pub alone: Option<AnyElement>,
+}
+
+/// What stands in the place of a diff with no file: `No changes`, and in what changed since the version you read
+/// why there is none, with how many files are as they were (the words of its list's foot, which an empty diff has
+/// not).
+fn no_changes(since: Option<SinceRead>) -> (String, Option<String>) {
+    let Some(since) = since else {
+        return ("No changes".to_owned(), None);
+    };
+    (
+        format!("No changes since v{}, the version you read", since.version),
+        since
+            .unchanged
+            .filter(|&n| n > 0)
+            .map(|n| format!("{n} unchanged")),
+    )
 }
 
 impl Review {
@@ -101,14 +117,25 @@ impl Review {
                     )
                     .into_any_element()
             }
-            (None, _) => div()
-                .flex_1()
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_color(theme::muted())
-                .child("No changes")
-                .into_any_element(),
+            (None, _) => {
+                let (said, rest) = no_changes(self.since);
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .justify_center()
+                    .gap(px(4.))
+                    .text_color(theme::muted())
+                    .child(said)
+                    .children(rest.map(|rest| {
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme::faint())
+                            .child(rest)
+                    }))
+                    .into_any_element()
+            }
             (Some(file), _) if let Some(viewer) = self.viewer_of(file) => (viewer.draw)(
                 &Drawing {
                     file,
@@ -489,5 +516,27 @@ impl Review {
                     keys::On::Plain,
                 )),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_changed_since_the_version_read_is_never_empty_without_saying_why() {
+        assert_eq!(no_changes(None), ("No changes".to_owned(), None));
+        let since = |unchanged| {
+            no_changes(Some(SinceRead {
+                version: 2,
+                unchanged,
+            }))
+        };
+        let said = "No changes since v2, the version you read".to_owned();
+        assert_eq!(
+            since(Some(8)),
+            (said.clone(), Some("8 unchanged".to_owned()))
+        );
+        assert_eq!(since(None), (said, None));
     }
 }
