@@ -726,7 +726,12 @@ impl Review {
         let rows = self
             .data
             .as_ref()
-            .map(|data| rows::layout(data, &self.view_options(), &self.expanded))
+            .map(|data| {
+                let shown = (self.current_path())
+                    .map(|path| self.pinned_lines(&path, data, pins))
+                    .unwrap_or_default();
+                rows::layout_showing(data, &self.view_options(), &self.expanded, &shown)
+            })
             .unwrap_or_default();
         self.rows = self.with_pins(rows, pins);
         self.notes = self.line_notes(pins);
@@ -772,8 +777,19 @@ impl Review {
             return false;
         };
         self.expanded.insert(segment);
+        // A run opened around its comments has several gaps: the list is laid out again.
+        let gaps = (self.rows.iter())
+            .filter(|r| matches!(r, Row::Gap { segment: s, .. } if *s == segment))
+            .count();
+        if gaps > 1 {
+            self.relayout(pins);
+            return true;
+        }
+        let shown = (self.current_path())
+            .map(|path| self.pinned_lines(&path, &data, pins))
+            .unwrap_or_default();
         let rows = self.with_pins(
-            rows::layout(&data, &self.view_options(), &self.expanded),
+            rows::layout_showing(&data, &self.view_options(), &self.expanded, &shown),
             pins,
         );
         let inserted = rows.len() + 1 - self.rows.len();

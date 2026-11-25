@@ -134,6 +134,17 @@ impl Review {
         rows::pinned(rows, &pins.rows(data, go))
     }
 
+    /// The lines of file `path` that something is pinned on, as `layout_showing` keeps them out of the folds (#218).
+    pub fn pinned_lines(&self, path: &str, data: &FileData, pins: &Pins) -> Vec<(bool, u32)> {
+        (pins
+            .get(path)
+            .map(|p| p.rows(data, None))
+            .unwrap_or_default())
+        .iter()
+        .map(|p| (p.old, p.line))
+        .collect()
+    }
+
     /// The comment marks of the open file's gutter.
     pub fn line_notes(&self, pins: &Pins) -> Vec<LineNote> {
         self.current_path()

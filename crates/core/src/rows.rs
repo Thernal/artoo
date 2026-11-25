@@ -411,6 +411,17 @@ fn structural_segments(alignment: &Alignment) -> Vec<Segment> {
 
 /// The rows for `options`; `expanded` holds segments whose hidden lines were asked for.
 pub fn layout(data: &FileData, options: &ViewOptions, expanded: &HashSet<usize>) -> Vec<Row> {
+    layout_showing(data, options, expanded, &[])
+}
+
+/// `layout`, with the lines in `shown` (`old` side or not, the line) kept out of the folds: an unchanged run opens
+/// around each of them with its few lines of context, so a comment on a folded line is seen in the diff (#218).
+pub fn layout_showing(
+    data: &FileData,
+    options: &ViewOptions,
+    expanded: &HashSet<usize>,
+    shown: &[(bool, u32)],
+) -> Vec<Row> {
     let mut rows = Vec::new();
     let last = data.segments.len().saturating_sub(1);
     for (ix, segment) in data.segments.iter().enumerate() {
@@ -424,12 +435,34 @@ pub fn layout(data: &FileData, options: &ViewOptions, expanded: &HashSet<usize>)
                 if show_all {
                     rows.extend((0..len).map(same));
                 } else {
-                    rows.extend((0..lead).map(same));
-                    rows.push(Row::Gap {
-                        segment: ix,
-                        count: len - lead - trail,
-                    });
-                    rows.extend((len - trail..len).map(same));
+                    // Where in this run the shown lines are.
+                    let at: Vec<i64> = (shown.iter())
+                        .map(|&(o, l)| i64::from(l) - i64::from(if o { old } else { new }))
+                        .filter(|j| (0..i64::from(len)).contains(j))
+                        .collect();
+                    let visible = |i: u32| {
+                        i < lead
+                            || i >= len - trail
+                            || at
+                                .iter()
+                                .any(|j| (i64::from(i) - j).abs() <= i64::from(CONTEXT))
+                    };
+                    let mut i = 0;
+                    while i < len {
+                        if visible(i) {
+                            rows.push(same(i));
+                            i += 1;
+                        } else {
+                            let from = i;
+                            while i < len && !visible(i) {
+                                i += 1;
+                            }
+                            rows.push(Row::Gap {
+                                segment: ix,
+                                count: i - from,
+                            });
+                        }
+                    }
                 }
             }
             Segment::Change(ref pairs) if !options.unified => {
@@ -820,6 +853,39 @@ mod tests {
             layout(&data, &full, &HashSet::new())
                 .iter()
                 .all(|r| !matches!(r, Row::Gap { .. }))
+        );
+    }
+
+    #[test]
+    fn a_fold_opens_around_a_line_shown_with_its_context() {
+        let data = data(line_segments(&file(), 20));
+        let split = ViewOptions::default();
+        // A comment on line 2: lines 1 to 5 open (it and three after), line 6 stays folded.
+        let rows = layout_showing(&data, &split, &HashSet::new(), &[(false, 2)]);
+        assert_eq!(
+            rows[5],
+            Row::Gap {
+                segment: 0,
+                count: 1
+            }
+        );
+        assert_eq!(rows.len(), 5 + 1 + 3 + 2 + 3 + 1);
+        // Another side of the same number is another line: the old one, 2, is the same row here.
+        assert_eq!(
+            layout_showing(&data, &split, &HashSet::new(), &[(true, 2)]).len(),
+            rows.len()
+        );
+        // On a line of the last run, its whole run opens; none is folded there.
+        let tail = layout_showing(&data, &split, &HashSet::new(), &[(false, 18)]);
+        assert!(
+            !tail
+                .iter()
+                .any(|r| matches!(r, Row::Gap { segment: 2, .. }))
+        );
+        // Nothing shown: as `layout` has it.
+        assert_eq!(
+            layout_showing(&data, &split, &HashSet::new(), &[]),
+            layout(&data, &split, &HashSet::new())
         );
     }
 

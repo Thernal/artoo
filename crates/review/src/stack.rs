@@ -882,7 +882,13 @@ impl Review {
         let Some(stack) = self.stack.as_ref() else {
             return;
         };
-        let rows = rows::layout(&data, &self.view_options(), &stack.blocks[b].expanded);
+        let shown = self.pinned_lines(path, &data, pins);
+        let rows = rows::layout_showing(
+            &data,
+            &self.view_options(),
+            &stack.blocks[b].expanded,
+            &shown,
+        );
         let rows = self.with_pins_in(path, &data, rows, false, pins);
         let notes = self.line_notes_in(path, Some(&data), pins);
         if let Some(block) = self.stack.as_mut().map(|s| &mut s.blocks[b]) {
