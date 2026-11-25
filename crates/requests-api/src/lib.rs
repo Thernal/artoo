@@ -944,9 +944,9 @@ pub trait Requests {
     /// The base and head request `number`'s host compares it from, once read.
     fn host_sides(&self, number: u64, cx: &App) -> Option<HostSides>;
     /// The requests the scope and `filter` let through, in the order the list shows them; the next to review below
-    /// the open one; the group of request `m`.
+    /// the open one, passing those whose every file is reviewed at their head (`done`); the group of request `m`.
     fn shown(&self, filter: &str, cx: &App) -> Vec<Mr>;
-    fn next_request(&self, filter: &str, cx: &App) -> Option<Mr>;
+    fn next_request(&self, filter: &str, done: &dyn Fn(&Mr) -> bool, cx: &App) -> Option<Mr>;
     fn group_of(&self, m: &Mr, cx: &App) -> Group;
     /// The state the list shows (Open ▾); the scope (All · To review · Mine) set; how many of scope `scope` the
     /// list's `filter` leaves, as its chip says it ("12", "20+").

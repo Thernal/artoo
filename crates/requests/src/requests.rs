@@ -1412,8 +1412,8 @@ impl artoo_requests_api::Requests for Handle {
             .unwrap_or_default()
     }
 
-    fn next_request(&self, filter: &str, cx: &App) -> Option<Mr> {
-        self.0.upgrade()?.read(cx).next_request(filter)
+    fn next_request(&self, filter: &str, done: &dyn Fn(&Mr) -> bool, cx: &App) -> Option<Mr> {
+        self.0.upgrade()?.read(cx).next_request(filter, done)
     }
 
     fn group_of(&self, m: &Mr, cx: &App) -> Group {

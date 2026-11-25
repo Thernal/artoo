@@ -337,7 +337,14 @@ impl Workspace {
 
     /// The next request to review below the open one (`Requests::next_request`).
     fn next_request(&self, cx: &App) -> Option<Mr> {
-        self.requests_api()?.next_request(&self.bfilter, cx)
+        let review = self.review_api();
+        let done = |m: &Mr| {
+            let head = git2::Oid::from_str(&m.head).ok();
+            review
+                .as_ref()
+                .is_some_and(|r| r.request_seen(m.iid, head, cx) == artoo_review_api::Seen::Done)
+        };
+        self.requests_api()?.next_request(&self.bfilter, &done, cx)
     }
 
     /// Reads the pushes GitLab kept for request `iid` (`Requests::load_versions`); they become the

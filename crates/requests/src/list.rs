@@ -302,9 +302,10 @@ impl Requests {
     }
 
     /// The next request to review below the open one, going round the list once: the first whose turn is yours or
-    /// someone else's, not one you approved, not yours (#81, #189). Counted from where the open one was when it was
-    /// opened. `filter` the list's.
-    pub fn next_request(&self, filter: &str) -> Option<Mr> {
+    /// someone else's, not one you approved, not yours (#81, #189), and not one whose every file you reviewed at its
+    /// head (`done`) while no reply waits on you. Counted from where the open one was when it was opened. `filter`
+    /// the list's.
+    pub fn next_request(&self, filter: &str, done: &dyn Fn(&Mr) -> bool) -> Option<Mr> {
         let mut shown = self.shown(filter);
         let walk = self
             .walk
@@ -327,7 +328,7 @@ impl Requests {
         let at = shown.iter().position(|m| Some(m.iid) == self.current);
         let open: Vec<bool> = shown
             .iter()
-            .map(|m| self.turn_group(m) != Group::Yours && self.turn_of(m) != Some(Turn::Approved))
+            .map(|m| to_review(&self.turn_group(m), self.turn_of(m).as_ref(), done(m)))
             .collect();
         next_to_review(&open, at).map(|ix| shown[ix].clone())
     }
@@ -1724,6 +1725,13 @@ fn waiting_block(iid: u64, waiting: &[&Thread]) -> Div {
     div().flex().flex_col().child(caption).children(threads)
 }
 
+/// Whether a request of `group`, whose turn is `turn`, is one to review next: not yours, not approved, and — every
+/// file of it `done` at its head — only while replies wait on you.
+fn to_review(group: &Group, turn: Option<&Turn>, done: bool) -> bool {
+    let replies = matches!(turn, Some(Turn::You { waiting }) if *waiting > 0);
+    *group != Group::Yours && turn != Some(&Turn::Approved) && (!done || replies)
+}
+
 /// The row to review after row `at`, going round: the nearest of the lowest tier; a row of no
 /// tier is never one.
 fn next_to_review(open: &[bool], at: Option<usize>) -> Option<usize> {
@@ -1933,6 +1941,19 @@ mod tests {
         // Only the current one is left: nowhere to go.
         assert_eq!(next_to_review(&[false, true, false], Some(1)), None);
         assert_eq!(next_to_review(&[false, false, false], Some(1)), None);
+    }
+
+    #[test]
+    fn a_request_reviewed_whole_is_not_offered_again() {
+        let you = |waiting| Turn::You { waiting };
+        assert!(to_review(&Group::You, Some(&you(0)), false));
+        assert!(to_review(&Group::Others, None, false));
+        // Every file reviewed at its head: ⌥↓ passes it, unless a reply waits on you.
+        assert!(!to_review(&Group::You, Some(&you(0)), true));
+        assert!(!to_review(&Group::Others, None, true));
+        assert!(to_review(&Group::Updated, Some(&you(1)), true));
+        assert!(!to_review(&Group::Yours, Some(&you(1)), false));
+        assert!(!to_review(&Group::Reviewed, Some(&Turn::Approved), false));
     }
 
     #[test]

@@ -10,7 +10,7 @@ use artoo_core::route::{Place, Route};
 use artoo_requests_api::{
     RequestCommitRoute, RequestCommitsRoute, RequestRoute, RequestVersionsRoute,
 };
-use artoo_review_api::Review;
+use artoo_review_api::{Review, Seen};
 use artoo_shell_api::{Frame, Piece, Services, Slot, input_box};
 use artoo_ui_kit::done::{DoneEvent, DoneLook, render_done_card};
 use artoo_ui_kit::{island, theme};
@@ -119,7 +119,9 @@ pub fn done(requests: Entity<Requests>, services: Rc<Services>) -> Piece {
             let acts = services.get::<Acts>()?;
             let cx: &App = cx;
             let rq = requests.read(cx);
-            let next = rq.next_request(&drawing.filter);
+            let next = rq.next_request(&drawing.filter, &|m| {
+                review.request_seen(m.iid, git2::Oid::from_str(&m.head).ok(), cx) == Seen::Done
+            });
             // Submit review while there is something to send: comments pending, or an approval you may give.
             let pending = rq.drafts.len();
             let may_approve = rq.approvals.as_ref().is_some_and(|a| a.can && !a.mine);

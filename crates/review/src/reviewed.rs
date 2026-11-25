@@ -905,7 +905,20 @@ impl Review {
         if !done {
             self.done_card = false;
         }
-        if whole {
+        self.record_head();
+    }
+
+    /// The head of the open branch or request kept as its marks stand: reviewed or not, and how far.
+    fn record_head(&mut self) {
+        let (Some(root), Some(head)) = (self.root.clone(), self.viewed_rev()) else {
+            return;
+        };
+        let root = root.display().to_string();
+        let done = self.all_reviewed();
+        if matches!(
+            self.diff.as_ref().map(|d| &d.header),
+            Some(Header::Compare { .. })
+        ) {
             self.reviewed.borrow_mut().set_head(&root, head, done);
             if let Some((reviewed, total)) = self.review_progress() {
                 let open: Vec<String> = (0..total)
@@ -1028,8 +1041,28 @@ impl Review {
         };
         self.crossed = self.crossings();
         self.done_card = false;
+        self.record_read();
         // Another diff, another range on the toolbar's left: measured anew (#187).
         self.tools.left.set(0.);
+    }
+
+    /// A request that comes already read — pushed since, its files' changes the ones marked, or marked in another
+    /// reading — is recorded as it stands, as a mark would record it: without this its new head stayed unreviewed,
+    /// so ⌥↓ came back to it and its marks in a since view reached nothing. No done card: nothing was just marked.
+    fn record_read(&mut self) {
+        let request = matches!(
+            self.diff.as_ref().map(|d| &d.header),
+            Some(Header::Compare {
+                request: Some(_),
+                ..
+            })
+        );
+        let some = self.review_progress().is_some_and(|(done, _)| done > 0);
+        // A head recorded reviewed is not taken back by a diff that came, only by an unmark.
+        let kept = self.viewed_rev().is_some_and(|h| self.head_reviewed(h)) && !self.all_reviewed();
+        if request && some && !kept {
+            self.record_head();
+        }
     }
 
     /// Marks file `ix` read (`done`) or unmarks it; false when the diff keeps no marks.
@@ -1247,6 +1280,20 @@ mod tests {
         assert!(rv.set_reviewed(0, false));
         assert_eq!(rv.review_state(0), Some(State::Open));
         assert_eq!(rv.review_state(1), Some(State::Done));
+    }
+
+    #[test]
+    fn a_push_that_leaves_every_change_as_read_leaves_the_request_reviewed() {
+        let files = || vec![changed("a.rs", &["fn a() {}"], 1, "1", "2")];
+        let at = |n: u8| Some(git2::Oid::from_bytes(&[n; 20]).unwrap());
+        let mut rv = reviewing("/pushed/same", request(7, 2), files(), None);
+        assert!(rv.set_reviewed(0, true));
+        assert_eq!(rv.request_seen(7, at(2)), Seen::Done);
+        assert_eq!(rv.request_seen(7, at(3)), Seen::Earlier);
+        // A rebase: a new head, the same change.
+        let rv = reviewing("/pushed/same", request(7, 3), files(), None);
+        assert_eq!(rv.request_seen(7, at(3)), Seen::Done);
+        assert!(!rv.done_card);
     }
 
     #[test]
