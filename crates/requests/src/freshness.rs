@@ -14,8 +14,8 @@ use std::time::Instant;
 /// What the head and the list keep between frames.
 #[derive(Default)]
 pub struct Freshness {
-    fade: RefCell<Option<SlotFade>>,
-    hair: Cell<HairlineClock>,
+    pub(crate) fade: RefCell<Option<SlotFade>>,
+    pub(crate) hair: Cell<HairlineClock>,
     /// The first read with nothing to show: when it began, when it answered.
     first: Cell<Option<(Instant, Option<Instant>)>>,
 }

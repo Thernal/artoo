@@ -963,7 +963,12 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         if let Ok(state) = std::env::var("ARTOO_SNAPSHOT_FRESH") {
             ws.update(cx, |this, cx| {
                 if let Some(requests) = this.requests_api() {
-                    requests.force_fresh(&state, cx);
+                    match this.shown_page() {
+                        Some(crate::ui::nav::Page::Request(_)) => {
+                            requests.force_page_fresh(&state, cx)
+                        }
+                        _ => requests.force_fresh(&state, cx),
+                    }
                 }
                 cx.notify();
             });

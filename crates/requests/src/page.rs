@@ -4,15 +4,19 @@
 //! long hover. Commits and Changes have no line of their own over them: the title is in the page bar (#188).
 
 use crate::bar::{pipeline_icon, pipeline_short, pipeline_word};
+use crate::freshness::frames;
+use crate::pagefresh::mark;
 use crate::requests::Requests;
 use crate::waiting::FADED;
 use artoo_hosts_api::{Details, Draft, Mr, MrState, Thread};
 use artoo_ui_kit::format::{self, plural};
+use artoo_ui_kit::fresh;
 use artoo_ui_kit::hover::{self, Hover};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{discussion, icons, island, px, theme, words};
 use gpui::{AnyElement, App, ClickEvent, Div, FontWeight, Rgba, div, prelude::*};
 use std::rc::Rc;
+use std::time::Instant;
 
 /// Details' column beside the cards, and the widest the cards' column grows (round 41, P1: headed cards as on
 /// the Tasks issue page).
@@ -68,8 +72,29 @@ impl Requests {
                 cx,
             )
         };
-        let discussions = self.overview_discussions(look.discussions.clone());
-        let details = self.overview_details(&d);
+        // Until the first read answers, a card's body is tints (round 41), after a moment of nothing.
+        let now = Instant::now();
+        let phase = self.page.fresh.phase(now);
+        let loading = self.page.read_at.is_none() && (self.page.reading || phase.content < 1.);
+        let moving = self.page.fresh.skeleton_moves(now);
+        let side_loading = loading || (!self.page.side_in && self.page.reading);
+        let tinted = |widths: &[f32]| skeleton_lines(widths, phase.skeleton);
+        let description = match loading {
+            true => tinted(&[520., 470., 560., 300.]).into_any_element(),
+            false => description,
+        };
+        let discussions = match loading {
+            true => Some(
+                card("Discussions", None, tinted(&[140., 430., 160., 380.])).into_any_element(),
+            ),
+            false => self.overview_discussions(look.discussions.clone()),
+        };
+        let details = match side_loading {
+            true => Some(
+                card("Details", None, tinted(&[70., 130., 120., 60., 100.])).into_any_element(),
+            ),
+            false => self.overview_details(&d),
+        };
         island()
             .flex_1()
             .min_w_0()
@@ -80,6 +105,8 @@ impl Requests {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
+                    .track_scroll(&self.page.scroll)
+                    .when(moving, |s| s.child(frames()))
                     .child(self.overview_identity(m, look.title, &look.facts))
                     .child(div().h(px(1.)).bg(theme::island_border()))
                     // The page scrolls as a whole: Description and Discussions as headed cards in the main
@@ -371,7 +398,9 @@ impl Requests {
         }
         let me = self.login.as_deref();
         let mut rows = Vec::new();
-        for (ix, t) in open.iter().enumerate() {
+        let (open_shown, new) = card_order(&self.threads, &self.page.new_notes);
+        let mut new_rows = Vec::new();
+        for (ix, t) in open_shown.iter().chain(&new).enumerate() {
             let Some(first) = t.notes.first() else {
                 continue;
             };
@@ -385,16 +414,25 @@ impl Requests {
                 .iter()
                 .any(|d| d.reply_to.as_deref() == Some(t.id.as_str()));
             let replies = t.notes.len() - 1;
-            rows.push(thread_row(
-                ("overview-thread", ix),
-                &first.author,
-                me == Some(first.login.as_str()),
-                (replies > 0).then(|| plural(replies, "reply")),
-                place,
-                waiting,
-                first.body.clone(),
-                window.clone(),
-            ));
+            let into = if ix < open_shown.len() {
+                &mut rows
+            } else {
+                &mut new_rows
+            };
+            into.push(
+                thread_row(
+                    ("overview-thread", ix),
+                    &first.author,
+                    me == Some(first.login.as_str()),
+                    (replies > 0).then(|| plural(replies, "reply")),
+                    place,
+                    waiting,
+                    first.body.clone(),
+                    window.clone(),
+                )
+                .relative()
+                .child(mark(t.id.clone(), &self.page)),
+            );
         }
         for (ix, d) in pending.iter().enumerate() {
             let (place, _, _) = self.draft_where(d);
@@ -409,6 +447,8 @@ impl Requests {
                 window.clone(),
             ));
         }
+        // What came in under the page stands at the card's end, until it is gone to.
+        rows.append(&mut new_rows);
         let mut body = div()
             .flex()
             .flex_col()
@@ -505,6 +545,32 @@ fn state_chip(m: &Mr) -> Div {
 /// The discussions of a request that are still open, in the host's order: what the Discussions card lists and counts.
 pub(crate) fn open_threads(threads: &[Thread]) -> Vec<&Thread> {
     threads.iter().filter(|t| !t.resolved).collect()
+}
+
+/// The open threads in the card's order: those shown, then those that came in whole under the page and were not
+/// gone to yet (their first note is new).
+pub(crate) fn card_order<'a>(
+    threads: &'a [Thread],
+    new_notes: &[u64],
+) -> (Vec<&'a Thread>, Vec<&'a Thread>) {
+    (open_threads(threads).into_iter())
+        .partition(|t| !t.notes.first().is_some_and(|n| new_notes.contains(&n.id)))
+}
+
+/// A card's body while it is read: still tints where the lines will be.
+fn skeleton_lines(widths: &[f32], opacity: f32) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(10.))
+        .opacity(opacity)
+        .children(widths.iter().map(|w| {
+            div()
+                .h(px(18.))
+                .flex()
+                .items_center()
+                .child(fresh::tint(px(*w).into(), 10.).max_w_full())
+        }))
 }
 
 /// A headed card as the Tasks issue page draws its sections: a 40 px header with the title and its count, a

@@ -22,6 +22,9 @@ pub struct KeptPage {
     pipeline: Option<mr::Pipeline>,
     details: Option<mr::Details>,
     merge: Option<mr::MergeState>,
+    read_at: Option<i64>,
+    side_in: bool,
+    scroll: gpui::Point<gpui::Pixels>,
 }
 
 /// What the page's side reads brought, read in parallel.
@@ -83,7 +86,18 @@ impl Requests {
                         Ok(list) => {
                             let at = artoo_ui_kit::format::now();
                             rq.keep_list(at, &list, cx);
+                            let left = rq.current.filter(|iid| {
+                                !list.iter().any(|m| m.iid == *iid)
+                                    && !rq.merged_here.contains(iid)
+                                    && rq.page.merged_by.is_none()
+                                    && rq.list.iter().any(|m| {
+                                        m.iid == *iid && m.state == artoo_core::mr::MrState::Opened
+                                    })
+                            });
                             rq.take_read(list);
+                            if let Some(iid) = left {
+                                rq.look_for_merge(iid, facts_host.clone(), cx);
+                            }
                             rq.listed_at = Some(at);
                             rq.from_disk = false;
                             rq.error = None;
@@ -150,8 +164,16 @@ impl Requests {
         let Some(held) = self.held.take() else {
             return;
         };
+        // The request on screen stays readable when it leaves the list.
+        if let Some(iid) = self.current
+            && !held.list.iter().any(|m| m.iid == iid)
+            && !self.left.iter().any(|m| m.iid == iid)
+            && let Some(m) = self.list.iter().find(|m| m.iid == iid)
+        {
+            self.left.push(m.clone());
+        }
         self.list = held.list;
-        self.merged_here.clear();
+        self.merged_here.retain(|iid| Some(*iid) == self.current);
         self.read_facts(host, cx);
         cx.notify();
     }
@@ -306,7 +328,14 @@ impl Requests {
         let open = self
             .find(iid)
             .is_some_and(|m| m.state == mr::MrState::Opened);
-        self.show_kept(iid, cx);
+        // A page already shown is read again in place; one just opened shows what is kept of it first.
+        if !self.page_shown(iid) {
+            if self.page.of != Some(iid) {
+                self.page_opened(iid);
+            }
+            self.show_kept(iid, cx);
+        }
+        self.page_reads();
         self.reading = true;
         let from = self.waiting.tick();
         let side_host = host.clone();
@@ -327,11 +356,13 @@ impl Requests {
                             drafts: rq.base.drafts.clone(),
                             approvals: rq.base.approvals.clone(),
                         };
+                        let before = rq.base.threads.clone();
                         rq.take_base(from, base);
+                        rq.page_read(&before);
                         true
                     }
                     Err(e) => {
-                        rq.error = Some(format!("{e:#}"));
+                        rq.page_failed(&format!("{e:#}"));
                         false
                     }
                 };
@@ -380,9 +411,11 @@ impl Requests {
                 if read.login.is_some() {
                     rq.login = read.login;
                 }
-                rq.details = read.details;
-                rq.merge = read.merge;
-                rq.pipeline = read.pipeline;
+                // A part that did not answer keeps what shows.
+                rq.details = read.details.or_else(|| rq.details.take());
+                rq.merge = read.merge.or_else(|| rq.merge.take().filter(|_| open));
+                rq.pipeline = read.pipeline.or_else(|| rq.pipeline.take());
+                rq.page.side_in = true;
                 if from >= rq.from {
                     if let Some(drafts) = read.drafts {
                         rq.base.drafts = drafts;
@@ -415,6 +448,11 @@ impl Requests {
             self.pipeline = kept.pipeline;
             self.details = kept.details;
             self.merge = kept.merge;
+            self.page.of = Some(iid);
+            self.page.read_at = kept.read_at;
+            self.page.side_in = kept.side_in;
+            self.page.kept = kept.read_at.is_some();
+            self.page.scroll.set_offset(kept.scroll);
         } else if let Some(f) = self.rows.facts(iid) {
             self.base = Base {
                 threads: f.threads.clone(),
@@ -435,7 +473,7 @@ impl Requests {
             self.merging = None;
         }
         if let Some(iid) = self.current
-            && !self.base.threads.is_empty()
+            && (!self.base.threads.is_empty() || self.page_shown(iid))
         {
             self.pages.retain(|(n, _)| *n != iid);
             self.pages.push((
@@ -446,6 +484,9 @@ impl Requests {
                     pipeline: self.pipeline.take(),
                     details: self.details.take(),
                     merge: self.merge.take(),
+                    read_at: self.page.read_at.filter(|_| self.page.of == Some(iid)),
+                    side_in: self.page.side_in,
+                    scroll: self.page.scroll.offset(),
                 },
             ));
             if self.pages.len() > KEPT_PAGES {
@@ -465,6 +506,10 @@ impl Requests {
         self.details = None;
         self.histories.clear();
         self.awards.clear();
+        self.page.of = None;
+        self.page.read_at = None;
+        self.page.merged_by = None;
+        self.page.new_notes.clear();
     }
 
     /// Reads the discussions, pending comments and approvals of the open request again (after a
@@ -475,6 +520,7 @@ impl Requests {
             return;
         };
         let from = self.waiting.tick();
+        self.page_reads();
         self.reload_task = Some(cx.spawn(async move |this, cx| {
             let read = cx
                 .background_executor()
@@ -488,15 +534,21 @@ impl Requests {
                 if rq.current != Some(iid) {
                     return;
                 }
-                if let Ok((threads, drafts, approvals)) = read {
-                    let base = Base {
-                        threads,
-                        drafts: drafts.unwrap_or_else(|| rq.base.drafts.clone()),
-                        approvals: approvals.or_else(|| rq.base.approvals.clone()),
-                    };
-                    if rq.take_base(from, base) {
-                        cx.emit(Event::Read(iid));
+                match read {
+                    Ok((threads, drafts, approvals)) => {
+                        let base = Base {
+                            threads,
+                            drafts: drafts.unwrap_or_else(|| rq.base.drafts.clone()),
+                            approvals: approvals.or_else(|| rq.base.approvals.clone()),
+                        };
+                        let before = rq.base.threads.clone();
+                        let taken = rq.take_base(from, base);
+                        rq.page_read(&before);
+                        if taken {
+                            cx.emit(Event::Read(iid));
+                        }
                     }
+                    Err(e) => rq.page_failed(&format!("{e:#}")),
                 }
                 cx.notify();
             })

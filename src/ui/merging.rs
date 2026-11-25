@@ -128,8 +128,8 @@ impl Workspace {
         cx.notify();
     }
 
-    /// The host merged it, or set it to merge when the pipeline succeeds: a toast says which, and
-    /// the list is read again — a request merged moves to Merged, as one merged elsewhere does.
+    /// The host merged it, or set it to merge when the pipeline succeeds: a toast says which. A request merged keeps
+    /// its page and its row as they are, only its state changing (round 41); the next read moves it on.
     pub(super) fn merged(&mut self, iid: u64, merge: &Merge, cx: &mut Context<Self>) {
         let Some(requests) = self.requests_api() else {
             return;
@@ -138,9 +138,8 @@ impl Workspace {
             self.toast_info(text.into(), cx);
         }
         if merge.when_pipeline_succeeds {
-            return self.reload_merge(cx);
+            self.reload_merge(cx);
         }
-        self.load_requests(cx);
     }
 
     /// Rebase: GitLab puts the commits on top of the target, and the pipeline runs again.

@@ -105,6 +105,7 @@ impl Requests {
         card.busy = true;
         card.error = None;
         let merge = card.merge.clone();
+        self.page_reads();
         self.merge_task = Some(cx.spawn(async move |this, cx| {
             let sent = merge.clone();
             let result = cx
@@ -118,6 +119,8 @@ impl Requests {
                         cx.emit(Event::Merged { iid, merge });
                     }
                     Err(e) => {
+                        rq.page.reading = false;
+                        rq.page.fresh.end(std::time::Instant::now());
                         if let Some(card) = rq.merging.as_mut() {
                             let e = format!("{e:#}");
                             card.busy = false;

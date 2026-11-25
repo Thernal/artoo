@@ -11,6 +11,10 @@ use artoo_ui_kit::hover::{self, TipOwned};
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Point, SharedString, div, prelude::*};
 
+/// Merge's word while the host merges; its box is the same as the button's and `Merged`'s (round 41).
+pub(crate) const MERGING: &str = "Merging…";
+const MERGE_BOX: f32 = 118.;
+
 impl Requests {
     /// The pipeline on the request's bar (#188): its glyph and the job that failed, `✗ lint`, or its state; when, and
     /// every job that failed, in its long hover; a click opens it.
@@ -152,6 +156,30 @@ impl Requests {
         github: bool,
         acts: Acts,
     ) -> Option<AnyElement> {
+        // Merging and merged stand in the button's own box.
+        let sending =
+            (self.merging.as_ref()).is_some_and(|c| c.busy && Some(c.iid) == self.current);
+        if sending || self.merge_busy == Some(MERGING) {
+            return Some(
+                bar_button("bar-merge", MERGING, "", true)
+                    .min_w(px(MERGE_BOX))
+                    .justify_center()
+                    .cursor_default()
+                    .into_any_element(),
+            );
+        }
+        if self.merged_on_page() {
+            let color = theme::accent();
+            return Some(
+                bar_button("bar-merge", "Merged", "", true)
+                    .min_w(px(MERGE_BOX))
+                    .justify_center()
+                    .cursor_default()
+                    .bg(gpui::Rgba { a: 0.15, ..color })
+                    .text_color(color)
+                    .into_any_element(),
+            );
+        }
         let stand = self.merge_stand()?;
         let m = self.find(self.current?)?;
         let target = m.target.clone();
@@ -268,6 +296,8 @@ impl Requests {
                     _ => "Merge…",
                 };
                 bar_button("bar-merge", label, "", true)
+                    .min_w(px(MERGE_BOX))
+                    .justify_center()
                     .on_click(move |_: &ClickEvent, _, cx| acts(Act::OpenMerge, cx))
                     .into_any_element()
             }

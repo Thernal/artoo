@@ -100,6 +100,8 @@ pub struct Requests {
     pub refused: bool,
     /// The head's slot and hairline, and the first read's skeleton, between frames (round 41).
     pub fresh: crate::freshness::Freshness,
+    /// The open page's slot, new comments, scroll and merge seen (round 41).
+    pub page: crate::pagefresh::PageFresh,
     /// The request of the open branch, when it is one's source branch.
     pub current: Option<u64>,
     /// The open request and the group it was in when it was opened: ⌥↓ goes on from its place
@@ -723,6 +725,46 @@ impl artoo_requests_api::Requests for Handle {
         })
     }
 
+    fn page_slot(&self, cx: &App) -> Option<gpui::AnyElement> {
+        let requests = self.0.upgrade()?;
+        let rq = requests.read(cx);
+        rq.current?;
+        let this = self.0.clone();
+        Some(crate::pagefresh::head_slot(rq, self.acts(), move |cx| {
+            let _ = this.update(cx, |rq, cx| {
+                rq.show_new_notes();
+                cx.notify();
+            });
+        }))
+    }
+
+    fn page_hairline(&self, cx: &App) -> Option<gpui::AnyElement> {
+        let requests = self.0.upgrade()?;
+        let rq = requests.read(cx);
+        rq.current?;
+        Some(crate::pagefresh::head_hairline(rq, cx))
+    }
+
+    fn page_first_reading(&self, cx: &App) -> bool {
+        self.0.upgrade().is_some_and(|r| {
+            let rq = r.read(cx);
+            rq.current.is_some() && rq.page.read_at.is_none() && rq.page.reading
+        })
+    }
+
+    fn merged_on_page(&self, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|r| r.read(cx).merged_on_page())
+    }
+
+    fn force_page_fresh(&self, state: &str, cx: &mut App) {
+        self.update(cx, |rq, cx| {
+            rq.force_page_fresh(state);
+            cx.notify();
+        });
+    }
+
     fn force_fresh(&self, state: &str, cx: &mut App) {
         self.update(cx, |rq, cx| {
             rq.force_fresh(state);
@@ -863,6 +905,10 @@ impl artoo_requests_api::Requests for Handle {
                 if let Some(host) = rq.merge.as_mut().filter(|_| here) {
                     host.auto_set = true;
                 }
+                if here {
+                    rq.page.reading = false;
+                    rq.page.fresh.end(std::time::Instant::now());
+                }
                 return Some(format!("{reference} merges when the pipeline succeeds"));
             }
             let deletes = here && rq.merge.as_ref().is_some_and(|h| h.deletes_itself);
@@ -873,12 +919,7 @@ impl artoo_requests_api::Requests for Handle {
                 };
                 format!("{reference} merged into {}{deleted}", m.target)
             });
-            if here {
-                rq.merge = None;
-            }
-            if !rq.merged_here.contains(&number) {
-                rq.merged_here.push(number);
-            }
+            rq.merged_here_now(number);
             said
         })
         .flatten()

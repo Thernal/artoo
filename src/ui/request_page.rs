@@ -39,10 +39,14 @@ impl Workspace {
             }
             Section::Changes => files,
         };
+        // A request's counts are tints until the first read of its page answers (round 41).
+        let reading = matches!(Page::from_route(&item)?, Page::Request(_))
+            && (self.requests_api()).is_some_and(|r| r.page_first_reading(cx));
         Some(self.item_sections(cx).iter().copied().fold(
             artoo_ui_kit::controls::group(),
             |group, section| {
-                let label = match count(section) {
+                let tinted = reading && section != Section::Overview;
+                let label = match count(section).filter(|_| !tinted) {
                     Some(n) => format!("{} {n}", section.label()),
                     None => section.label().to_owned(),
                 };
@@ -58,6 +62,12 @@ impl Workspace {
                         label,
                         section == at,
                     )
+                    .when(tinted, |s| {
+                        s.flex()
+                            .items_center()
+                            .gap(artoo_ui_kit::px(5.))
+                            .child(artoo_ui_kit::fresh::tint(artoo_ui_kit::px(10.).into(), 10.))
+                    })
                     .tooltip_show_delay(artoo_ui_kit::hover::LONG)
                     .tooltip(move |_, cx| cx.new(|_| artoo_ui_kit::hover::Tip(tip)).into())
                     .on_click(cx.listener(

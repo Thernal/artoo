@@ -161,9 +161,14 @@ impl Workspace {
                 },
                 room: self.bar_room.clone(),
                 public,
-                hairline: (space == REQUESTS && page.is_none() && !lacking)
-                    .then(|| self.requests_api()?.fresh_hairline(cx))
-                    .flatten(),
+                hairline: match &page {
+                    _ if space != REQUESTS || lacking => None,
+                    None => self.requests_api().and_then(|r| r.fresh_hairline(cx)),
+                    Some(Page::Request(_)) if !self.on_request_changes(cx) => {
+                        self.requests_api().and_then(|r| r.page_hairline(cx))
+                    }
+                    Some(_) => None,
+                },
             },
             host,
             cx,
@@ -530,7 +535,14 @@ impl Workspace {
                     .and_then(|iid| self.find_request(iid, cx))
                     .map(|m| m.state)
                     .unwrap_or_default();
-                if state == crate::mr::MrState::Opened
+                // How current the page is, before its actions (round 41); a narrow window has no room for it.
+                if !self.compact()
+                    && let Some(slot) = self.requests_api().and_then(|r| r.page_slot(cx))
+                {
+                    out.insert(0, BarAction::new("fresh", slot));
+                }
+                let merged = self.requests_api().is_some_and(|r| r.merged_on_page(cx));
+                if (state == crate::mr::MrState::Opened || merged)
                     && let Some(requests) = self.requests_api()
                 {
                     // The approval is the request's state: it never folds; short, its key goes to its tooltip.

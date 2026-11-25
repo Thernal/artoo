@@ -135,6 +135,7 @@ pub(crate) mod tests {
             description: String::new(),
             state: MrState::Opened,
             merged_with: None,
+            merged_by: None,
             conflicts: false,
         }
     }

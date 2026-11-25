@@ -757,6 +757,16 @@ pub trait Requests {
     fn first_reading(&self, cx: &App) -> bool;
     /// The open list has been read, or kept from before: its counts are known.
     fn answered(&self, cx: &App) -> bool;
+    /// The open request page's freshness slot, for its head (round 41).
+    fn page_slot(&self, cx: &App) -> Option<AnyElement>;
+    /// The hairline under that head while a read or the merge takes long.
+    fn page_hairline(&self, cx: &App) -> Option<AnyElement>;
+    /// Nothing of the open page is read yet: its tabs' counts are tints.
+    fn page_first_reading(&self, cx: &App) -> bool;
+    /// The open request was merged, here or elsewhere, while its page was open.
+    fn merged_on_page(&self, cx: &App) -> bool;
+    /// A snapshot's state of the open page (`ARTOO_SNAPSHOT_FRESH`).
+    fn force_page_fresh(&self, state: &str, cx: &mut App);
     /// A snapshot's state of the open list (`ARTOO_SNAPSHOT_FRESH`), as if the host had answered so.
     fn force_fresh(&self, state: &str, cx: &mut App);
 

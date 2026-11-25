@@ -23,6 +23,7 @@ mod notices;
 mod numbers;
 mod outdated;
 mod page;
+mod pagefresh;
 mod pieces;
 mod reactions;
 mod reading;

@@ -78,6 +78,8 @@ pub struct Mr {
     /// What it was merged as (the merge or squash commit): its first parent is the target as it
     /// was, so the diff is the request's, not what the target became since.
     pub merged_with: Option<String>,
+    /// Who merged it, by name, where the read says (a request read alone).
+    pub merged_by: Option<String>,
     /// The host says the branch conflicts with its target (GitLab's `has_conflicts`; GitHub's list does not say).
     pub conflicts: bool,
 }

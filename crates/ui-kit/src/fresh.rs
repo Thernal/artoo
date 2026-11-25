@@ -47,6 +47,8 @@ pub enum Slot {
     TokenExpired,
     /// Nothing kept, the read failed: `Can't read the list ↻`.
     CantRead,
+    /// Someone else merged what is on screen: `Merged by Ember Lind`.
+    MergedBy(String),
 }
 
 /// What a click on the slot asks the screen for.
@@ -92,6 +94,7 @@ impl Slot {
             Slot::CantReach(at) => vec![(format!("Can't reach · from {at} ↻"), Ink::Amber)],
             Slot::TokenExpired => vec![("Token expired · Reconnect".into(), Ink::Amber)],
             Slot::CantRead => vec![("Can't read the list ↻".into(), Ink::Amber)],
+            Slot::MergedBy(who) => vec![(format!("Merged by {who}"), Ink::Grey)],
         }
     }
 
@@ -106,7 +109,11 @@ impl Slot {
             Slot::Waiting(..) => Some(SlotAction::ShowHeld),
             Slot::CantReach(_) | Slot::CantRead => Some(SlotAction::Retry),
             Slot::TokenExpired => Some(SlotAction::Reconnect),
-            Slot::Kept(_) | Slot::Reading | Slot::Refreshing | Slot::Updated(_) => None,
+            Slot::Kept(_)
+            | Slot::Reading
+            | Slot::Refreshing
+            | Slot::Updated(_)
+            | Slot::MergedBy(_) => None,
         }
     }
 

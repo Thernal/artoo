@@ -335,6 +335,11 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   read, or an answer with nothing, is a message in the list pane beside `No request selected` (`freshness::stage`:
   never empty before an answer). Held rows land on the slot's count, `⌘R` or leaving the list.
   `ARTOO_SNAPSHOT_FRESH=<state>` forces a state of `requests.html` for a shot.
+- **An open request's page changes in place** (round 41, `crates/requests/src/pagefresh.rs`): a re-read of a page
+  shown never restores or rebuilds it, a part that did not answer keeps what shows, a failure is the head's slot. A
+  new comment goes to the end of the Discussions card with the first thread on screen held; a merge changes the
+  state's chip and stands `Merged` in the button's box without a list read. On a request's page
+  `ARTOO_SNAPSHOT_FRESH` takes a state of `overview.html`.
 - **A bar never clips** (#186): what does not fit the page bar folds into its `⋯`, never cut off at the edge, in its
   order (`BarAction::fold_order`, #188: a request's Merge, then its Description, then its pipeline; the last first
   among the same), the title cut last. Each action is a `bar::BarAction` with its row in `⋯` (`folds`; the approval
