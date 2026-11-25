@@ -867,10 +867,14 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                         .child(head)
                         .children((!words.facts.is_empty()).then(|| facts_row(&words.facts)))
                         .children(body.filter(|_| words.facts.is_empty()).map(|body| {
-                            hover::cut_to(("toast-body", id as usize), body, 2)
-                                .text_size(px(12.))
-                                .line_height(px(17.))
-                                .text_color(theme::muted())
+                            // A path or a key alone is cut in its middle, so its end stays; prose at its end.
+                            match body.split_whitespace().count() {
+                                1 => hover::name(("toast-body", id as usize), body),
+                                _ => hover::cut_to(("toast-body", id as usize), body, 2),
+                            }
+                            .text_size(px(12.))
+                            .line_height(px(17.))
+                            .text_color(theme::muted())
                         }))
                         .when(secondary.is_some() || on_foot.is_some(), |d| {
                             d.child(div().flex().justify_end().gap(px(8.)).mt(px(4.)).children(

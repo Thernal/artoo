@@ -350,6 +350,16 @@ impl MadeNote {
     }
 }
 
+/// What is left of a token that ends on `date` (`2026-11-26`), as the Connected toast says it: `30 days`, `1 day`,
+/// `today`; none when the date is not one (#230).
+pub fn span_left(date: &str, today: i64) -> Option<String> {
+    Some(match day_number(date)? - today {
+        ..=0 => "today".to_owned(),
+        1 => "1 day".to_owned(),
+        n => format!("{n} days"),
+    })
+}
+
 /// `2026-11-26` as days since 1970.
 fn day_number(date: &str) -> Option<i64> {
     let mut parts = date.trim().splitn(3, '-').map(|p| p.parse::<i64>().ok());
@@ -943,6 +953,15 @@ thread_local! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_token_ends_in_days_not_on_a_date() {
+        let today = day_number("2026-11-25").unwrap();
+        assert_eq!(span_left("2026-12-25", today).as_deref(), Some("30 days"));
+        assert_eq!(span_left("2026-11-26", today).as_deref(), Some("1 day"));
+        assert_eq!(span_left("2026-11-25", today).as_deref(), Some("today"));
+        assert_eq!(span_left("soon", today), None);
+    }
 
     fn gitlab() -> WebRemote {
         WebRemote {

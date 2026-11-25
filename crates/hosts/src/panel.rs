@@ -371,9 +371,11 @@ impl Panel {
             main_scope(&way.scopes)
                 .map(|s| format!(" · {s}"))
                 .unwrap_or_default(),
+            // The time left, as the design's toast says it: `30 days` (#230).
             way.expires
-                .as_ref()
-                .map(|d| format!(" · until {d}"))
+                .as_deref()
+                .and_then(|d| connect::span_left(d, connect::today()))
+                .map(|d| format!(" · {d}"))
                 .unwrap_or_default(),
         );
         cx.spawn(async move |this, cx| {
