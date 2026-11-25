@@ -104,6 +104,7 @@ impl Workspace {
     pub(super) fn selecting(&self, this: gpui::WeakEntity<Self>) -> super::markdown::Selecting {
         let link = this.clone();
         let mention = this.clone();
+        let menu = this.clone();
         // The kinds of link the tab's features find in its texts, in their order (#171, D11).
         let mut patterns: Vec<_> = self.parts.iter().flat_map(|p| p.links.clone()).collect();
         // A tracker's keys (#217): links to the tracker's issues, none while no tracker is offered.
@@ -125,6 +126,15 @@ impl Workspace {
                 link.update(cx, |this, cx| this.open_url_here(url, cx))
                     .unwrap_or(false)
             }),
+            // ⌘/Ctrl-click on a key: the tracker's address of it.
+            browser: Some(std::rc::Rc::new(|url, cx| {
+                artoo_shell_api::issues::browser_url(cx, url)
+            })),
+            // A request of the open project, right-clicked in a text: its menu.
+            link_menu: Some(std::rc::Rc::new(move |url, at, cx| {
+                menu.update(cx, |this, cx| this.request_link_menu(url, at, cx))
+                    .unwrap_or(false)
+            })),
             mention: std::rc::Rc::new(move |hit, cx| {
                 mention
                     .update(cx, |this, cx| this.hover_mention(hit, cx))

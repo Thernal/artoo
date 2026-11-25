@@ -1182,6 +1182,7 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
     };
     let compact = look.compact;
     let (context, acts) = (acts.clone(), acts.clone());
+    let web = rq.web.clone();
     div().px(px(6.)).py(px(1.)).child(
         div()
             .id(("mr-row", iid))
@@ -1308,6 +1309,12 @@ fn row(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> impl IntoElement 
             )
             .row_tip_cut(picked, lines)
             .on_click(move |event: &ClickEvent, _, cx| {
+                // ⌘ (Ctrl elsewhere): the request in the browser.
+                if event.modifiers().secondary()
+                    && let Some(web) = &web
+                {
+                    return cx.open_url(&web.request(iid));
+                }
                 // A second click on the picked one opens it, as ↵ does; with no preview beside the
                 // list, the first (#80).
                 if (picked && event.click_count() > 1) || compact {
@@ -1396,6 +1403,7 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
     let pipeline = facts.and_then(|f| f.pipeline.as_ref());
     let preview = rq.rows.preview(iid);
     let author = if mine { "You" } else { m.author.as_str() };
+    let (menu, web) = (acts.clone(), rq.web.clone());
     let mut head = div()
         .flex()
         .items_center()
@@ -1409,7 +1417,27 @@ fn preview(m: &Mr, rq: &Requests, look: &ListLook, acts: &Acts) -> AnyElement {
                 .font_family(theme::code_font())
                 .text_color(theme::accent())
                 .child(words::number(iid))
-                .tip(format!("{} → {}", m.source, m.target)),
+                .tip(format!("{} → {}", m.source, m.target))
+                // ⌘/Ctrl-click: the browser; right-click: the request's menu.
+                .on_click(move |e: &ClickEvent, _, cx| {
+                    if e.modifiers().secondary()
+                        && let Some(web) = &web
+                    {
+                        cx.open_url(&web.request(iid));
+                    }
+                })
+                .on_mouse_down(
+                    gpui::MouseButton::Right,
+                    move |e: &gpui::MouseDownEvent, _, cx| {
+                        menu(
+                            Act::RequestContext {
+                                iid,
+                                at: e.position,
+                            },
+                            cx,
+                        )
+                    },
+                ),
         );
     if let Some(p) = pipeline {
         let (name, color) = crate::bar::pipeline_icon(p);

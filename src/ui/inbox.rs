@@ -341,6 +341,7 @@ impl Workspace {
             InboxEvent::Reply => self.reply_in_inbox(cx),
             InboxEvent::Resolve { iid, id, resolved } => self.inbox_resolve(iid, id, resolved, cx),
             InboxEvent::Menu { iid, at } => self.request_context(iid, at, cx),
+            InboxEvent::OnWeb(iid) => self.open_request_or_browser(iid, true, cx),
         }
     }
 

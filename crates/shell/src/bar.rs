@@ -271,6 +271,7 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
             return None;
         }
         let (link, folder, menu) = (host.clone(), host.clone(), host.clone());
+        let menu_link = host.clone();
         // A crumb too long for the bar is cut, a branch or a path in its middle, never clipped (#184).
         let label = words::say(&crumb.label).into_owned();
         let label = hover::name(SharedString::from(format!("crumb-label-{n}")), label);
@@ -300,6 +301,13 @@ fn page_bar(bar: PageBar, host: Rc<dyn BarHost>) -> AnyElement {
                                 .on_click(move |_: &ClickEvent, window, cx| {
                                     link.up_to(n, window, cx)
                                 })
+                                // A request's crumb: its menu; the host leaves any other.
+                                .on_mouse_down(
+                                    MouseButton::Right,
+                                    move |e: &MouseDownEvent, window, cx| {
+                                        menu_link.folder_menu(n, e.position, window, cx)
+                                    },
+                                )
                         })
                         .when(crumb.folder, |s| {
                             s.cursor_pointer()

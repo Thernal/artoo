@@ -405,6 +405,16 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   them (GitLab's Compare versions takes the version's id: `Push::id`); a toast says what. What the host does not
   have (a branch or a commit only on this Mac, a branch's earlier versions, the working tree) says so instead of
   copying a dead link.
+- **⌘-click (Ctrl elsewhere) opens in the browser** (always `modifiers().secondary()`, never `.platform`): every request
+  reference — a list row, its preview's and the Inbox's number, the request page's title and crumb, the branch bar's
+  and a branch row's and card's `!N`, written `!N` in a text (host links already did) — opens `web.request(iid)`, and
+  every issue key — in a text, the page bar's title, a branch's name, the request's "Issue PAY-123 ↗" — the address its
+  tracker's card gives (`artoo_shell_api::issues::url`, `browser_url`: the one definition; `Selecting::browser`
+  carries it into the kit's markdown). A request's number has the request's menu on a right click wherever it is drawn
+  (`Act::RequestContext`, `InboxEvent::Menu`, `branches_api::Act::RequestMenu`; in a text `Selecting::link_menu`, for
+  a link of the open project's). A plain click is unchanged, except the request's issue key (`requests/why.rs`
+  `issue_click`): it opens in the app when a tracker knows it, else the browser. ⌘K's rows take no ⌘-click: their
+  pick runs once the window has closed, with no event.
 - **Keyboard**: focus zones (branches, commits, files, diff, the open tool window; `ui/zones.rs`) — the one with the keyboard has an
   outlined island. Tab / ⇧Tab or ⌃2…4 move between them (⌃1 is the branch quick switch); ↑ ↓ (j k) act in the zone, ← → (h l) step files (in the file
   tree they close and open folders), ↵ goes one step in, Space / PageUp / PageDown / Home / End move the diff. A new

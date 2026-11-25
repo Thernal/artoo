@@ -62,6 +62,19 @@ impl Workspace {
         });
     }
 
+    /// A request's number clicked: its page here, or with ⌘ (Ctrl elsewhere) its page on the host in the browser.
+    pub(super) fn open_request_or_browser(
+        &mut self,
+        iid: u64,
+        browser: bool,
+        cx: &mut Context<Self>,
+    ) {
+        match self.web.as_ref().filter(|_| browser) {
+            Some(web) => cx.open_url(&web.request(iid)),
+            None => self.open_request(iid, cx),
+        }
+    }
+
     /// A request's right click, wherever its row is: its link, its number, the host.
     pub(super) fn request_context(&mut self, iid: u64, at: Point<Pixels>, cx: &mut Context<Self>) {
         if let Some(groups) = self.request_groups(iid, cx) {

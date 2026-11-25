@@ -61,6 +61,26 @@ impl Workspace {
         true
     }
 
+    /// A link right-clicked in a comment: when it is a request of the open project, its menu at `at`.
+    pub(super) fn request_link_menu(
+        &mut self,
+        url: &str,
+        at: gpui::Point<gpui::Pixels>,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(link) = artoo_hosts_api::get(cx).link(url) else {
+            return false;
+        };
+        if !self.web.as_ref().is_some_and(|w| w.base == link.base) {
+            return false;
+        }
+        let Target::Request { iid, .. } = link.target else {
+            return false;
+        };
+        self.request_context(iid, at, cx);
+        true
+    }
+
     /// Goes to `target` in the open repository.
     pub(super) fn go_to(&mut self, target: Target, cx: &mut Context<Self>) {
         match target {

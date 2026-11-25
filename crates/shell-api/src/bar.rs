@@ -144,7 +144,7 @@ pub trait BarHost {
     fn up_to(&self, n: usize, window: &mut Window, cx: &mut App);
     /// Folder crumb `n` clicked: what is beside it.
     fn folder(&self, n: usize, window: &mut Window, cx: &mut App);
-    /// Folder crumb `n`'s right click, at `at`.
+    /// Crumb `n`'s right click, at `at`: a folder's menu, a request's; any other crumb has none.
     fn folder_menu(&self, n: usize, at: Point<Pixels>, window: &mut Window, cx: &mut App);
     /// `⋯` clicked: what folded into it, then `more`, a rule between, at `at`.
     fn menu(

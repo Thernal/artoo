@@ -218,6 +218,13 @@ pub enum Act {
     DeleteDraft(usize),
     /// A branch's request, by its number.
     ShowRequest(u64),
+    /// A branch's request, by its number, ⌘/Ctrl-clicked: its page on the host, in the browser.
+    ShowRequestOnWeb(u64),
+    /// A right click on a request's number at `at`: the request's menu.
+    RequestMenu {
+        iid: u64,
+        at: gpui::Point<gpui::Pixels>,
+    },
     /// A remote's branches folded or open.
     ToggleRemote(String),
     /// The working tree's halves: what is not staged only, or all of it.

@@ -208,6 +208,8 @@ pub enum InboxEvent {
     },
     /// Request `iid`'s menu, at the pointer.
     Menu { iid: u64, at: Point<Pixels> },
+    /// Request `iid` ⌘/Ctrl-clicked: its page on the host, in the browser.
+    OnWeb(u64),
 }
 
 /// How the tab answers the Inbox's clicks.

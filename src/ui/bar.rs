@@ -126,6 +126,11 @@ impl Workspace {
                     artoo_shell_api::issues::in_name(cx, &name)
                         .into_iter()
                         .next(),
+                    // The request's own page: its number opens in the browser with ⌘, its menu on a right click.
+                    match page {
+                        Some(Page::Request(iid)) => Some((cx.weak_entity(), iid)),
+                        _ => None,
+                    },
                 ),
                 count,
                 lead: Vec::new(),
@@ -440,9 +445,22 @@ impl Workspace {
                                                 .text_color(theme::muted()),
                                         )
                                     })
-                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                        this.open_request(iid, cx)
-                                    })),
+                                    // ⌘/Ctrl-click: the browser; right-click: the request's menu.
+                                    .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+                                        this.open_request_or_browser(
+                                            iid,
+                                            e.modifiers().secondary(),
+                                            cx,
+                                        )
+                                    }))
+                                    .on_mouse_down(
+                                        gpui::MouseButton::Right,
+                                        cx.listener(
+                                            move |this, e: &gpui::MouseDownEvent, _, cx| {
+                                                this.request_context(iid, e.position, cx)
+                                            },
+                                        ),
+                                    ),
                             )
                             .folds(MenuItem::new(
                                 label,
@@ -828,8 +846,20 @@ impl bar::BarHost for BarGlue {
         }
     }
 
-    fn up_to(&self, n: usize, _: &mut Window, cx: &mut App) {
+    fn up_to(&self, n: usize, window: &mut Window, cx: &mut App) {
         if let Some(to) = self.links.get(n).cloned() {
+            // A request's crumb, ⌘/Ctrl-clicked: the request in the browser.
+            if window.modifiers().secondary()
+                && let Some(iid) = to
+                    .as_ref()
+                    .and_then(RequestRoute::from_route)
+                    .map(|r| r.number)
+            {
+                return self
+                    .tab
+                    .update(cx, |this, cx| this.open_request_or_browser(iid, true, cx))
+                    .unwrap_or_default();
+            }
             self.show(to, cx);
         }
     }
@@ -843,6 +873,17 @@ impl bar::BarHost for BarGlue {
     }
 
     fn folder_menu(&self, n: usize, at: Point<Pixels>, _: &mut Window, cx: &mut App) {
+        // A request's crumb: the request's menu.
+        if let Some(Some(iid)) = self.links.get(n).map(|to| {
+            to.as_ref()
+                .and_then(RequestRoute::from_route)
+                .map(|r| r.number)
+        }) {
+            self.tab
+                .update(cx, |this, cx| this.request_context(iid, at, cx))
+                .ok();
+            return;
+        }
         if let Some(Some(folder)) = self.folders.get(n).cloned() {
             self.tab
                 .update(cx, |this, cx| this.crumb_menu(folder, at, cx))
@@ -868,6 +909,7 @@ fn title(
     mono: bool,
     hover: Option<NameHover>,
     key: Option<std::ops::Range<usize>>,
+    request: Option<(WeakEntity<Workspace>, u64)>,
 ) -> AnyElement {
     use super::hover::{CutInTip, Hover};
     let style = |title: gpui::Stateful<gpui::Div>| {
@@ -887,57 +929,92 @@ fn title(
     };
     // An issue key in the name (a branch `feature/PAY-398-…`): its own words with the issue's card on a long hover;
     // the rest of the name keeps the name's hover. With no tracker there is no key and the name stays plain.
-    let name = match key.filter(|k| text.is_char_boundary(k.start) && text.is_char_boundary(k.end))
-    {
-        Some(k) => {
-            let (before, key, after) = (
-                text[..k.start].to_owned(),
-                text[k.clone()].to_owned(),
-                text[k.end..].to_owned(),
-            );
-            let card_of = key.clone();
-            let part = |id: &'static str, words: String| {
-                let one = style(div().id(id).flex_none().whitespace_nowrap().child(words));
-                match &hover {
-                    Some(NameHover::Tip(tip)) => one.tip(tip.clone()).into_any_element(),
-                    Some(NameHover::Card(card)) => {
-                        let card = card.clone();
-                        one.card(move |window, cx| card(window, cx))
-                            .into_any_element()
+    let name_el =
+        match key.filter(|k| text.is_char_boundary(k.start) && text.is_char_boundary(k.end)) {
+            Some(k) => {
+                let (before, key, after) = (
+                    text[..k.start].to_owned(),
+                    text[k.clone()].to_owned(),
+                    text[k.end..].to_owned(),
+                );
+                let card_of = key.clone();
+                let part = |id: &'static str, words: String| {
+                    let one = style(div().id(id).flex_none().whitespace_nowrap().child(words));
+                    match &hover {
+                        Some(NameHover::Tip(tip)) => one.tip(tip.clone()).into_any_element(),
+                        Some(NameHover::Card(card)) => {
+                            let card = card.clone();
+                            one.card(move |window, cx| card(window, cx))
+                                .into_any_element()
+                        }
+                        None => one.into_any_element(),
                     }
-                    None => one.into_any_element(),
-                }
-            };
-            let key_part = style(
+                };
+                let key_part = style(
+                    div()
+                        .id("bar-title-key")
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .underline()
+                        .child(key.clone()),
+                )
+                // ⌘/Ctrl-click: the issue in the browser; a plain click does nothing here.
+                .on_click(move |e: &gpui::ClickEvent, _, cx| {
+                    if e.modifiers().secondary()
+                        && let Some(url) = artoo_shell_api::issues::url(cx, &key)
+                    {
+                        cx.open_url(&url);
+                    }
+                })
+                .card(move |_, cx| {
+                    match artoo_shell_api::issues::card(cx, &card_of) {
+                        Some(card) => cx.new(|_| super::hover::KeyCard::new(card)).into(),
+                        None => cx.new(|_| gpui::Empty).into(),
+                    }
+                });
                 div()
-                    .id("bar-title-key")
-                    .flex_none()
-                    .whitespace_nowrap()
-                    .underline()
-                    .child(key),
-            )
-            .card(
-                move |_, cx| match artoo_shell_api::issues::card(cx, &card_of) {
-                    Some(card) => cx.new(|_| super::hover::KeyCard::new(card)).into(),
-                    None => cx.new(|_| gpui::Empty).into(),
-                },
-            );
+                    .min_w_0()
+                    .flex()
+                    .items_center()
+                    .child(part("bar-title-before", before))
+                    .child(key_part)
+                    .child(style(super::hover::cut("bar-title-after", after)))
+                    .into_any_element()
+            }
+            None => match hover {
+                Some(NameHover::Tip(tip)) => title().tip(tip).into_any_element(),
+                Some(NameHover::Card(card)) => title()
+                    .card(move |window, cx| card(window, cx))
+                    .into_any_element(),
+                None => style(super::hover::cut("bar-title", text.clone())).into_any_element(),
+            },
+        };
+    // A request's number: ⌘/Ctrl-click opens it in the browser, a right click is its menu.
+    let name = |name: AnyElement, id: &'static str, flex_none: bool| match request {
+        Some((tab, iid)) => {
+            let menu = tab.clone();
             div()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .child(part("bar-title-before", before))
-                .child(key_part)
-                .child(style(super::hover::cut("bar-title-after", after)))
+                .id(id)
+                .when(flex_none, |s| s.flex_none())
+                .when(!flex_none, |s| s.min_w_0().flex().items_center())
+                .child(name)
+                .on_click(move |e: &gpui::ClickEvent, _, cx| {
+                    if e.modifiers().secondary() {
+                        tab.update(cx, |this, cx| this.open_request_or_browser(iid, true, cx))
+                            .ok();
+                    }
+                })
+                .on_mouse_down(
+                    gpui::MouseButton::Right,
+                    move |e: &gpui::MouseDownEvent, _, cx| {
+                        menu.update(cx, |this, cx| this.request_context(iid, e.position, cx))
+                            .ok();
+                    },
+                )
                 .into_any_element()
         }
-        None => match hover {
-            Some(NameHover::Tip(tip)) => title().tip(tip).into_any_element(),
-            Some(NameHover::Card(card)) => title()
-                .card(move |window, cx| card(window, cx))
-                .into_any_element(),
-            None => style(super::hover::cut("bar-title", text.clone())).into_any_element(),
-        },
+        None if flex_none => div().flex_none().child(name).into_any_element(),
+        None => name,
     };
     match called {
         Some(called) => div()
@@ -945,13 +1022,13 @@ fn title(
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(div().flex_none().child(name))
+            .child(name(name_el, "bar-title-request", true))
             .child(
                 super::hover::cut("bar-called", words::say(&called).into_owned())
                     .text_color(theme::text()),
             )
             .into_any_element(),
-        None => name,
+        None => name(name_el, "bar-title-request", false),
     }
 }
 

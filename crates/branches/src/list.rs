@@ -392,18 +392,39 @@ fn branch_row(
                     None => {}
                 }
                 if let Some((iid, _)) = beside.request.filter(|_| room.second()) {
-                    let acts = acts.clone();
+                    let (acts, menu) = (acts.clone(), acts.clone());
                     end.push(
                         div()
                             .id(SharedString::from(format!("branch-mr-{ix}")))
+                            .on_mouse_down(
+                                gpui::MouseButton::Right,
+                                move |e: &gpui::MouseDownEvent, _, cx| {
+                                    cx.stop_propagation();
+                                    menu(
+                                        Act::RequestMenu {
+                                            iid,
+                                            at: e.position,
+                                        },
+                                        cx,
+                                    )
+                                },
+                            )
                             .flex_none()
                             .text_color(theme::accent())
                             .cursor_pointer()
                             .hover(|s| s.underline())
                             .child(words::number(iid))
-                            .on_click(move |_: &ClickEvent, _, cx| {
+                            .on_click(move |e: &ClickEvent, _, cx| {
                                 cx.stop_propagation();
-                                acts(Act::ShowRequest(iid), cx)
+                                // ⌘/Ctrl-click: the request in the browser.
+                                acts(
+                                    if e.modifiers().secondary() {
+                                        Act::ShowRequestOnWeb(iid)
+                                    } else {
+                                        Act::ShowRequest(iid)
+                                    },
+                                    cx,
+                                )
                             })
                             .into_any_element(),
                     );
@@ -709,12 +730,34 @@ fn branch_preview(
             .into_any_element(),
     ];
     if let Some((iid, _)) = &request {
-        let (iid, acts) = (*iid, acts.clone());
+        let (iid, acts, menu) = (*iid, acts.clone(), acts.clone());
         actions.push(
             div()
                 .id("branch-request")
                 .child(outline_button(&format!("{} →", words::number(iid))))
-                .on_click(move |_: &ClickEvent, _, cx| acts(Act::ShowRequest(iid), cx))
+                .on_mouse_down(
+                    gpui::MouseButton::Right,
+                    move |e: &gpui::MouseDownEvent, _, cx| {
+                        menu(
+                            Act::RequestMenu {
+                                iid,
+                                at: e.position,
+                            },
+                            cx,
+                        )
+                    },
+                )
+                .on_click(move |e: &ClickEvent, _, cx| {
+                    // ⌘/Ctrl-click: the request in the browser.
+                    acts(
+                        if e.modifiers().secondary() {
+                            Act::ShowRequestOnWeb(iid)
+                        } else {
+                            Act::ShowRequest(iid)
+                        },
+                        cx,
+                    )
+                })
                 .into_any_element(),
         );
     }

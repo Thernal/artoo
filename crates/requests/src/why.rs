@@ -16,6 +16,35 @@ pub struct Issue {
     pub url: Option<String>,
 }
 
+/// What a click on a request's issue does (#217).
+#[derive(Debug, PartialEq)]
+pub enum IssueClick {
+    /// The issue opens in the app, under its tracker's space.
+    App,
+    /// The browser opens this address.
+    Browser(String),
+    Nothing,
+}
+
+/// The choice: a plain click opens the issue in the app when a tracker knows the key (`known`), else the address the
+/// request's text gave (`url`) in the browser; ⌘/Ctrl-click (`browser`) the browser, at `url` else the tracker's
+/// address of the key (`tracker_url`), and the plain choice when it has none.
+pub fn issue_click(
+    known: bool,
+    url: Option<&str>,
+    tracker_url: Option<&str>,
+    browser: bool,
+) -> IssueClick {
+    if browser && let Some(url) = url.or(tracker_url) {
+        return IssueClick::Browser(url.to_owned());
+    }
+    match (known, url) {
+        (true, _) => IssueClick::App,
+        (false, Some(url)) => IssueClick::Browser(url.to_owned()),
+        (false, None) => IssueClick::Nothing,
+    }
+}
+
 /// The issue a request is for, found in what its author wrote: a link to a Jira issue or a host's issue in the
 /// description, a closing reference (`Closes #12`) on the host's own issues, else a key like `PAY-123` in the title,
 /// the branch or the description, named without a page.
@@ -185,6 +214,11 @@ impl Requests {
                     .text_color(theme::faint())
                     .children(issue.map(|issue| {
                         let link = issue.url.clone();
+                        // What a click does (#217): in the app when a tracker knows the key, else the browser; with
+                        // ⌘ (Ctrl elsewhere) the browser.
+                        let known = artoo_shell_api::issues::card(cx, &issue.label).is_some();
+                        let tracker_url = artoo_shell_api::issues::url(cx, &issue.label);
+                        let clickable = link.is_some() || known;
                         div()
                             .flex()
                             .items_center()
@@ -203,11 +237,25 @@ impl Requests {
                                         Some(_) => format!("{} ↗", issue.label),
                                         None => issue.label.clone(),
                                     })
-                                    .when_some(link, |s, url| {
+                                    .when(clickable, |s| {
+                                        let label = issue.label.clone();
+                                        let url = issue.url.clone();
                                         s.cursor_pointer()
                                             .hover(|s| s.text_color(theme::text()))
-                                            .on_click(move |_: &ClickEvent, _, cx| {
-                                                cx.open_url(&url)
+                                            .on_click(move |e: &ClickEvent, _, cx| {
+                                                let click = issue_click(
+                                                    known,
+                                                    url.as_deref(),
+                                                    tracker_url.as_deref(),
+                                                    e.modifiers().secondary(),
+                                                );
+                                                match click {
+                                                    IssueClick::App => {
+                                                        artoo_shell_api::issues::open(cx, &label);
+                                                    }
+                                                    IssueClick::Browser(url) => cx.open_url(&url),
+                                                    IssueClick::Nothing => {}
+                                                }
                                             })
                                     }),
                             )
@@ -334,5 +382,33 @@ mod tests {
             issue("Refactor the reader", "feature/login", "An x-ray of PAY-x"),
             None
         );
+    }
+
+    #[test]
+    fn an_issue_opens_in_the_app_when_known_else_the_browser_and_with_the_modifier_the_browser() {
+        let jira = "https://jira.example/browse/PAY-1";
+        let tracker = Some("https://tracker.example/PAY-1");
+        // Plain: the app when a tracker knows it, else the written address, else nothing.
+        assert_eq!(
+            issue_click(true, Some(jira), tracker, false),
+            IssueClick::App
+        );
+        assert_eq!(issue_click(true, None, None, false), IssueClick::App);
+        assert_eq!(
+            issue_click(false, Some(jira), None, false),
+            IssueClick::Browser(jira.into())
+        );
+        assert_eq!(issue_click(false, None, None, false), IssueClick::Nothing);
+        // With the modifier: the written address, else the tracker's, else the plain choice.
+        assert_eq!(
+            issue_click(true, Some(jira), tracker, true),
+            IssueClick::Browser(jira.into())
+        );
+        assert_eq!(
+            issue_click(true, None, tracker, true),
+            IssueClick::Browser("https://tracker.example/PAY-1".into())
+        );
+        assert_eq!(issue_click(true, None, None, true), IssueClick::App);
+        assert_eq!(issue_click(false, None, None, true), IssueClick::Nothing);
     }
 }

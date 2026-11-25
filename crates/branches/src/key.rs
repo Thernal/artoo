@@ -65,7 +65,16 @@ impl RenderOnce for KeyedName {
                     .flex_none()
                     .whitespace_nowrap()
                     .underline()
-                    .child(key)
+                    .child(key.clone())
+                    // ⌘/Ctrl-click: the issue in the browser; a plain click stays the row's.
+                    .on_click(move |e: &gpui::ClickEvent, _, cx| {
+                        if e.modifiers().secondary()
+                            && let Some(url) = issues::url(cx, &key)
+                        {
+                            cx.stop_propagation();
+                            cx.open_url(&url);
+                        }
+                    })
                     .card(move |_, cx| match issues::card(cx, &card_of) {
                         Some(card) => cx.new(|_| Card(card)).into(),
                         None => cx.new(|_| gpui::Empty).into(),

@@ -830,7 +830,14 @@ pub fn notice_row(
             cx,
         )
     })
-    .on_click(move |_: &ClickEvent, _, cx| pick(InboxEvent::Pick(ix), cx))
+    .on_click(move |e: &ClickEvent, _, cx| {
+        // ⌘ (Ctrl elsewhere): the request in the browser.
+        if e.modifiers().secondary() {
+            pick(InboxEvent::OnWeb(iid), cx)
+        } else {
+            pick(InboxEvent::Pick(ix), cx)
+        }
+    })
 }
 
 /// Notice `n` just done, where it was: its content fades, then the gap closes (round 41). It answers nothing.
@@ -1077,12 +1084,29 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
         .gap_2()
         .text_size(px(12.))
         .text_color(theme::muted())
-        .child(
+        .child({
+            let (iid, web, menu) = (n.iid, on.clone(), on.clone());
             div()
+                .id("inbox-number")
                 .font_family(theme::code_font())
                 .text_color(theme::accent())
-                .child(words::number(n.iid)),
-        )
+                .child(words::number(n.iid))
+                // ⌘/Ctrl-click: the browser; right-click: the request's menu.
+                .on_click(move |e: &ClickEvent, _, cx| {
+                    if e.modifiers().secondary() {
+                        web(InboxEvent::OnWeb(iid), cx)
+                    }
+                })
+                .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, _, cx| {
+                    menu(
+                        InboxEvent::Menu {
+                            iid,
+                            at: e.position,
+                        },
+                        cx,
+                    )
+                })
+        })
         .children(request.map(|m| {
             div()
                 .flex()

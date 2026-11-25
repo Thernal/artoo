@@ -44,6 +44,8 @@ impl Workspace {
                 Act::OpenRow(row) => this.open_branch_row(row, cx),
                 Act::DeleteDraft(ix) => this.discard_request_draft(ix, cx),
                 Act::ShowRequest(iid) => this.open_request(iid, cx),
+                Act::ShowRequestOnWeb(iid) => this.open_request_or_browser(iid, true, cx),
+                Act::RequestMenu { iid, at } => this.request_context(iid, at, cx),
                 Act::ToggleRemote(remote) => this.toggle_remote(remote, cx),
                 Act::OnlyUnstaged(on) => this.set_only_unstaged(on, cx),
                 Act::Compare {

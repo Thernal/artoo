@@ -110,6 +110,25 @@ pub fn card(cx: &App, key: &str) -> Option<IssueCard> {
     all(cx).iter().find_map(|t| t.card(key, cx))
 }
 
+/// The browser address of issue `key`, from the first tracker whose card has one (`IssueCard::url`); none when no
+/// tracker knows the issue or its card has no address.
+pub fn url(cx: &App, key: &str) -> Option<String> {
+    all(cx)
+        .iter()
+        .find_map(|t| t.card(key, cx))
+        .and_then(|card| card.url)
+}
+
+/// What the browser opens for a link's `address` (⌘/Ctrl-click): an issue key's address (`url`), a web address as it is;
+/// none for anything else, or a key no tracker has an address for.
+pub fn browser_url(cx: &App, address: &str) -> Option<String> {
+    match key_of(address) {
+        Some(key) => url(cx, key),
+        None => (address.starts_with("http://") || address.starts_with("https://"))
+            .then(|| address.to_owned()),
+    }
+}
+
 /// Opens issue `key` in the first tracker that has its card; false when none does (nothing happens).
 pub fn open(cx: &mut App, key: &str) -> bool {
     let Some(tracker) = all(cx).into_iter().find(|t| t.card(key, cx).is_some()) else {
@@ -176,7 +195,14 @@ mod tests {
             scan(text)
         }
         fn card(&self, key: &str, _: &App) -> Option<IssueCard> {
-            (key == "PAY-412").then(IssueCard::default)
+            match key {
+                "PAY-412" => Some(IssueCard {
+                    url: Some("https://jira.example/browse/PAY-412".into()),
+                    ..IssueCard::default()
+                }),
+                "PAY-7" => Some(IssueCard::default()),
+                _ => None,
+            }
         }
         fn open(&self, _: &str, _: &mut App) {}
     }
@@ -191,6 +217,27 @@ mod tests {
             assert_eq!(key_of(&found[0].1), Some("PAY-412"));
             assert!(open(cx, "PAY-412"));
             assert!(!open(cx, "PAY-999"));
+        });
+    }
+
+    #[test]
+    fn a_keys_browser_address_is_its_cards_and_a_web_address_is_itself() {
+        gpui::TestAppContext::single().update(|cx| {
+            let key = format!("{SCHEME}PAY-412");
+            assert_eq!(browser_url(cx, &key), None);
+            add(cx, Rc::new(Fixed));
+            let jira = Some("https://jira.example/browse/PAY-412".to_owned());
+            assert_eq!(url(cx, "PAY-412"), jira);
+            assert_eq!(browser_url(cx, &key), jira);
+            // A card without an address, and a key nobody knows.
+            assert_eq!(url(cx, "PAY-7"), None);
+            assert_eq!(browser_url(cx, &format!("{SCHEME}PAY-999")), None);
+            assert_eq!(
+                browser_url(cx, "https://example.com/a"),
+                Some("https://example.com/a".to_owned())
+            );
+            assert_eq!(browser_url(cx, "artoo-cite:x"), None);
+            assert_eq!(browser_url(cx, "/relative"), None);
         });
     }
 }
