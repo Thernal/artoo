@@ -1236,6 +1236,62 @@ impl artoo_review_api::FileView for FileViewImpl {
 mod tests {
     use super::*;
 
+    fn viewing(lines: &[&str]) -> Review {
+        let mut rv = Review::new(artoo_core::storage::Settings::default());
+        let lines: Vec<String> = lines.iter().map(|l| (*l).to_owned()).collect();
+        let text: Vec<_> = lines.iter().map(|l| widen(l, &[], 4)).collect();
+        rv.file_view = Some(FileView {
+            path: "a.rs".to_owned(),
+            at: "working tree".to_owned(),
+            rev: None,
+            plain: Rc::new(std::cell::RefCell::new(lines.clone())),
+            lines,
+            text: Rc::new(text),
+            list: ListState::new(0, ListAlignment::Top, px(400.)),
+            changed: Default::default(),
+            shown: Default::default(),
+            scopes: Default::default(),
+            rendered: true,
+            image: None,
+            binary: None,
+            stamp: None,
+            own_stamp: None,
+        });
+        rv
+    }
+
+    #[test]
+    fn find_in_a_file_counts_and_steps_through_its_hits() {
+        let mut rv = viewing(&["fn one()", "let x = 1;", "fn two()", "fn Three()"]);
+        assert!(rv.file_lines_shown());
+        rv.set_find("fn".to_owned());
+        assert_eq!(rv.file_matches, [0, 2, 3]);
+        assert_eq!(rv.match_at, 0);
+        assert!(rv.step_match(true));
+        assert_eq!(rv.match_at, 1);
+        assert!(rv.step_match(false));
+        assert!(rv.step_match(false));
+        assert_eq!(rv.match_at, 2);
+        // Whole words and the case, as the bar's toggles say.
+        rv.dfind_case = true;
+        rv.set_find("three".to_owned());
+        assert!(rv.file_matches.is_empty());
+        rv.dfind_case = false;
+        rv.dfind_word = true;
+        rv.set_find("Three".to_owned());
+        assert_eq!(rv.file_matches, [3]);
+    }
+
+    #[test]
+    fn find_typed_before_the_file_arrives_counts_it_once_it_does() {
+        let mut rv = Review::new(artoo_core::storage::Settings::default());
+        rv.set_find("two".to_owned());
+        let with = viewing(&["one", "two"]);
+        rv.file_view = with.file_view;
+        rv.recompute_matches();
+        assert_eq!(rv.file_matches, [1]);
+    }
+
     #[test]
     fn tabs_widen_and_the_colours_follow() {
         let span = |r: std::ops::Range<usize>| Span {
