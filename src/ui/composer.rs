@@ -119,6 +119,11 @@ impl Workspace {
         let Some(compose) = self.compose.as_mut() else {
             return;
         };
+        // A reply the Discussions window draws has no Agent to switch to: it would stop drawing it and
+        // the field could not be opened again (#239).
+        if !offers_audience(compose.target, &compose.path) {
+            return;
+        }
         compose.target = match iid {
             Some(iid) => Target::Request(iid),
             None => Target::Agent,
@@ -503,6 +508,10 @@ impl Workspace {
     fn toggle_target(&mut self, cx: &mut Context<Self>) {
         let request = self.compose_request(cx);
         if let Some(compose) = self.compose.as_mut() {
+            // Discussions draws only the reply itself, not a note on it (#239).
+            if !offers_audience(compose.target, &compose.path) {
+                return;
+            }
             compose.target = match (compose.target, request) {
                 // ⇥ in a discussion's reply: a note for the agent instead, and back (#50 G).
                 (Target::Reply(ix), _) => Target::ThreadNote(ix),
@@ -845,7 +854,8 @@ impl Workspace {
             _ => "Your agent".to_owned(),
         };
         let mark = chat.as_ref().map(|c| self.agents.mark(&c.session, cx));
-        let both = self.compose_request(cx).is_some();
+        let both =
+            self.compose_request(cx).is_some() && offers_audience(compose.target, &compose.path);
         let audience = Audience {
             words,
             mark,
@@ -1107,4 +1117,33 @@ fn format_menu(tools: &[Helper], preview: bool) -> Vec<Vec<super::menu::Entry>> 
                 .checked(preview),
         ],
     ]
+}
+
+/// Whether the Everyone / Agent segments are offered for a comment aimed at `target` on `path`. Not for the
+/// Inbox's reply nor a general discussion's reply (no path): the Discussions window draws only those targets,
+/// so switching them to Agent would close the field (#239).
+fn offers_audience(target: Target, path: &str) -> bool {
+    match target {
+        Target::InboxReply => false,
+        Target::Reply(_) => !path.is_empty(),
+        _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discussions_replies_do_not_offer_the_agent_segment() {
+        assert!(!offers_audience(Target::InboxReply, ""));
+        assert!(!offers_audience(Target::Reply(2), ""));
+    }
+
+    #[test]
+    fn line_comments_and_diff_replies_still_offer_both_segments() {
+        assert!(offers_audience(Target::Request(7), "a.rs"));
+        assert!(offers_audience(Target::Agent, "a.rs"));
+        assert!(offers_audience(Target::Reply(0), "a.rs"));
+    }
 }
