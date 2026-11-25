@@ -418,6 +418,12 @@ pub trait Frame {
     /// The first part's piece in `slot` for the route on screen. Asked from a page's own drawing.
     fn piece(&self, slot: Slot, cx: &mut App) -> Option<AnyElement>;
 
+    /// A page of its own stands in the diff's place (a new merge request being written), so what sits over the diff
+    /// should keep small. Cheap: no piece is built.
+    fn instead_shown(&self, _cx: &App) -> bool {
+        false
+    }
+
     /// What the shell puts on the diff's column. Asked from a page's own drawing.
     fn chrome(&self, cx: &mut App) -> Chrome;
 

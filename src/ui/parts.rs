@@ -314,6 +314,12 @@ impl Frame for TabFrame {
         self.0.upgrade()?.read(cx).item_tab(cx)
     }
 
+    fn instead_shown(&self, cx: &App) -> bool {
+        self.0
+            .upgrade()
+            .is_some_and(|tab| tab.read(cx).creating(cx))
+    }
+
     fn chrome(&self, cx: &mut App) -> Chrome {
         self.0
             .update(cx, |this, cx| this.chrome(cx))

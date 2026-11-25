@@ -67,7 +67,9 @@ impl Render for Summary {
         let rich = host.rich(cx);
         // Hide and Undo are the tab's: it says so in a toast.
         let on: OnNote = Rc::new(move |event, cx| host.note(event, cx));
-        view::notes_summary(&shown, rich, selecting, gap(), on, cx)
+        // A new merge request's form stands in the diff's place: the summary folds to a line so the form keeps the top.
+        let folded = self.frame.instead_shown(cx);
+        view::notes_summary(&shown, rich, selecting, gap(), folded, on, cx)
             .unwrap_or_else(|| div().into_any_element())
     }
 }

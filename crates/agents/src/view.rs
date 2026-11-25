@@ -142,12 +142,15 @@ pub fn note_card(
 }
 
 /// Over the diff, the summary of each agent's notes on these changes (`shown`, each with its agent's mark): the
-/// mark, how many notes on how many files, the summary, Hide; `gap` apart and under.
+/// mark, how many notes on how many files, the summary, Hide; `gap` apart and under. `folded`: a page of its own
+/// is in the diff's place (a new merge request being written), so the summary is one line, its first, and the
+/// form keeps the top (report R-86FED0).
 pub fn notes_summary(
     shown: &[(&Notes, (char, Rgba))],
     rich: bool,
     selecting: Selecting,
     gap: f32,
+    folded: bool,
     on: OnNote,
     cx: &App,
 ) -> Option<AnyElement> {
@@ -170,6 +173,14 @@ pub fn notes_summary(
                 plural(notes, "note"),
                 plural(files.len(), "file")
             ),
+        };
+        let count = match folded
+            .then(|| first_line(&n.summary))
+            .filter(|l| !l.is_empty())
+        {
+            Some(line) if count.is_empty() => line,
+            Some(line) => format!("{count} · {line}"),
+            None => count,
         };
         let (dismiss, uid) = (on.clone(), n.uid.clone());
         note_frame(hue)
@@ -209,7 +220,7 @@ pub fn notes_summary(
                     ),
             )
             // A long one scrolls in its card; the diff keeps the room.
-            .children((!n.summary.is_empty()).then(|| {
+            .children((!folded && !n.summary.is_empty()).then(|| {
                 div()
                     .id(gpui::SharedString::from(format!("notes-summary-{}", n.uid)))
                     .max_h(px(160.))
@@ -236,6 +247,16 @@ pub fn notes_summary(
     )
 }
 
+/// The first line of a summary with something on it, its markup marks left as they are.
+fn first_line(summary: &str) -> String {
+    summary
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or_default()
+        .to_owned()
+}
+
 /// A note's frame: a card, its hairline in the agent's colour.
 fn note_frame(hue: Rgba) -> gpui::Div {
     div()
@@ -256,4 +277,18 @@ fn note_frame(hue: Rgba) -> gpui::Div {
         .text_size(px(13.))
         .line_height(px(20.))
         .text_color(theme::text())
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::first_line;
+
+    #[test]
+    fn a_folded_summary_is_its_first_line_with_words() {
+        assert_eq!(
+            first_line("\n  \nFixes the login.\nMore below."),
+            "Fixes the login."
+        );
+        assert_eq!(first_line(""), "");
+    }
 }
