@@ -10,10 +10,7 @@ use artoo_core::rows::{self, FileData, Row};
 use artoo_review_api::viewers::Drawing;
 use artoo_ui_kit::hover::Hover;
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
-use gpui::{
-    App, ClickEvent, Context, FontWeight, ListOffset, MouseButton, Task, WeakEntity, div,
-    prelude::*,
-};
+use gpui::{App, ClickEvent, Context, ListOffset, MouseButton, Task, WeakEntity, div, prelude::*};
 use std::collections::HashSet;
 use std::ops::Range;
 use std::rc::Rc;
@@ -282,14 +279,17 @@ impl Review {
                                 },
                             )),
                     )
-                    .child(artoo_ui_kit::icons::file_icon(file.path(), 16.))
+                    .child(crate::diff_view::kind_letter(
+                        file,
+                        state == Some(State::Done),
+                    ))
                     .map(|s| {
-                        let path = artoo_ui_kit::hover::path(("file-path", ix), path)
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(crate::diff_view::change_color(
-                                file,
-                                state == Some(State::Done),
-                            ));
+                        let path = artoo_ui_kit::hover::path_named(("file-path", ix), path)
+                            .text_color(if state == Some(State::Done) {
+                                theme::muted()
+                            } else {
+                                theme::text()
+                            });
                         // Changed since the version you read: said beside the path (#187).
                         match self.since_chip(ix) {
                             Some(chip) => s
@@ -332,9 +332,9 @@ impl Review {
                     .map(|s| {
                         if active {
                             self.open_in_room.set(open_in.is_some());
-                            s.children(self.change_nav()).children(open_in)
+                            s.children(self.change_nav(host)).children(open_in)
                         } else {
-                            s.children(self.change_nav().map(|nav| nav.invisible()))
+                            s.children(self.change_nav(host).map(|nav| nav.invisible()))
                                 .children(
                                     self.open_in_room
                                         .get()
@@ -347,30 +347,35 @@ impl Review {
                         let ticked = state == State::Done;
                         let mark = mark.clone();
                         let fold = fold_viewed.clone();
-                        crate::reviewed::viewed_box(id("file-header-viewed"), ticked)
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(move |_: &ClickEvent, _, cx| {
-                                cx.stop_propagation();
-                                let marked = mark
-                                    .update(cx, |rv, cx| {
-                                        let marked = rv.set_reviewed(ix, !ticked);
-                                        if marked {
-                                            cx.emit(ReviewEvent::Changed);
-                                        }
-                                        marked
-                                    })
-                                    .unwrap_or(false);
-                                if marked && !ticked && !folded {
-                                    fold.file(FileEvent::Fold(ix), cx);
-                                }
-                            })
+                        crate::reviewed::viewed_box(
+                            id("file-header-viewed"),
+                            "Viewed",
+                            ticked,
+                            false,
+                        )
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_click(move |_: &ClickEvent, _, cx| {
+                            cx.stop_propagation();
+                            let marked = mark
+                                .update(cx, |rv, cx| {
+                                    let marked = rv.set_reviewed(ix, !ticked);
+                                    if marked {
+                                        cx.emit(ReviewEvent::Changed);
+                                    }
+                                    marked
+                                })
+                                .unwrap_or(false);
+                            if marked && !ticked && !folded {
+                                fold.file(FileEvent::Fold(ix), cx);
+                            }
+                        })
                     }))
-                    // A request's and the working tree's files: the same `☐ Viewed` box, its tip the sentence and
-                    // the key (Design round 13, D3). A file changed since the mark keeps its `↻ v2` before the box.
+                    // A request's and the working tree's files: the `☐ Reviewed` box, its key on the current card,
+                    // its tip the sentence and the key (Design round 21, A1). A file changed since the mark keeps its `↻ v2` before the box.
                     .children(state.filter(|_| !viewing).map(|state| {
                         let ticked = state == State::Done;
                         let tip = if ticked {
-                            "Reviewed — click to unmark  ⇧V"
+                            "Reviewed · ⇧V unmarks it"
                         } else {
                             "Mark reviewed  V"
                         };
@@ -387,12 +392,16 @@ impl Review {
                             .items_center()
                             .children(chip)
                             .child(
-                                crate::reviewed::viewed_box(id("file-header-mark"), ticked)
-                                    .tip(tip)
-                                    .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                                        cx.stop_propagation()
-                                    })
-                                    .on_click(move |_: &ClickEvent, _, cx| {
+                                crate::reviewed::viewed_box(
+                                    id("file-header-mark"),
+                                    "Reviewed",
+                                    ticked,
+                                    active && !ticked,
+                                )
+                                .tip(tip)
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_click(
+                                    move |_: &ClickEvent, _, cx| {
                                         cx.stop_propagation();
                                         mark.update(cx, |rv, cx| {
                                             let done = rv.review_state(ix) == Some(State::Done);
@@ -401,7 +410,8 @@ impl Review {
                                             }
                                         })
                                         .ok();
-                                    }),
+                                    },
+                                ),
                             )
                     })),
             )

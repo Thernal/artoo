@@ -5,7 +5,7 @@ use crate::merge::Stand;
 use crate::requests::{Act, Acts, Requests};
 use crate::waiting::FADED;
 use artoo_hosts_api::Pipeline;
-use artoo_ui_kit::controls::bar_button;
+use artoo_ui_kit::controls::{bar_button, glyph_button};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::hover::{self, TipOwned};
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme, words};
@@ -111,9 +111,34 @@ impl Requests {
                     .on_click(move |_: &ClickEvent, _, cx| acts(Act::ToggleApproval, cx))
                     .into_any_element();
             }
-            let (label, color) = if a.mine {
-                ("✓ Approved", theme::added())
-            } else if a.can {
+            // Yours is a tick alone (Design round 21, E2): how many approved and who is the tip's.
+            if a.mine {
+                return div()
+                    .id("approval")
+                    .flex_none()
+                    .size(px(28.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded(px(ROW_RADIUS))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    // Counted at once, faded until the host answers (#139).
+                    .when(waits, |s| s.opacity(FADED))
+                    .child(
+                        icons::icon("check")
+                            .size(px(14.))
+                            .text_color(theme::muted()),
+                    )
+                    .tooltip_show_delay(hover::LONG)
+                    .tooltip(move |_, cx| {
+                        let tip = format!("You approved{count}\n{tip}");
+                        cx.new(|_| TipOwned(tip.into())).into()
+                    })
+                    .on_click(move |_: &ClickEvent, _, cx| acts(Act::ToggleApproval, cx))
+                    .into_any_element();
+            }
+            let (label, color) = if a.can {
                 ("Approve", theme::text())
             } else {
                 ("✓", theme::muted())
@@ -128,14 +153,10 @@ impl Requests {
                 .h(px(22.))
                 .rounded_full()
                 .border_1()
-                .border_color(if a.mine {
-                    theme::added()
-                } else {
-                    theme::island_border()
-                })
+                .border_color(theme::island_border())
                 .text_size(px(12.))
                 .text_color(color)
-                .when(a.mine || a.can, |s| {
+                .when(a.can, |s| {
                     s.cursor_pointer().hover(|s| s.bg(theme::hover()))
                 })
                 // Counted at once, faded until the host answers (#139).
@@ -295,7 +316,7 @@ impl Requests {
                     Stand::Running if !compact => "Merge when the pipeline succeeds…",
                     _ => "Merge…",
                 };
-                bar_button("bar-merge", label, "", true)
+                glyph_button("bar-merge", "merge", label, true)
                     .min_w(px(MERGE_BOX))
                     .justify_center()
                     .on_click(move |_: &ClickEvent, _, cx| acts(Act::OpenMerge, cx))

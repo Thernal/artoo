@@ -510,7 +510,7 @@ impl Requests {
                     div()
                         .id("merge-card")
                         .occlude()
-                        .w(px(600.))
+                        .w(px(560.))
                         .max_h(gpui::relative(0.86))
                         .flex()
                         .flex_col()
@@ -571,11 +571,16 @@ fn check(
                 .child(if on { "✓" } else { "" }),
         )
         .child(div().child(keys::text(&text).into_owned()))
-        // What it is — the project's default, the host's rule — is its tooltip.
+        // What it is — the project's default, the host's rule — is a gear after it, said in the tooltip.
         .when(!sub.is_empty(), |s| {
             let mut tip = sub.clone();
             tip[..1].make_ascii_uppercase();
-            s.tip(tip)
+            s.child(
+                icons::icon("settings")
+                    .size(px(13.))
+                    .text_color(theme::faint()),
+            )
+            .tip(tip)
         })
 }
 

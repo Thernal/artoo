@@ -445,6 +445,14 @@ const ICONS: &[(&str, &str)] = &[
         ),
     ),
     (
+        "arrow-up",
+        lucide!(r#"<path d="m5 12 7-7 7 7"/>"# r#"<path d="M12 19V5"/>"#),
+    ),
+    (
+        "arrow-down",
+        lucide!(r#"<path d="M12 5v14"/>"# r#"<path d="m19 12-7 7-7-7"/>"#),
+    ),
+    (
         "merge",
         lucide!(
             r#"<circle cx="18" cy="18" r="3"/>"#

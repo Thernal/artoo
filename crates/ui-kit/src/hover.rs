@@ -284,7 +284,19 @@ pub fn branches(id: impl Into<ElementId>, source: &str, target: &str) -> gpui::D
 /// `…/presentation/viewmodel/impl/LoginViewModelImpl.kt`; a file name longer than the room alone is cut
 /// in its middle, its extension kept: `LoginStateViewMo…grationTest.kt` (#184).
 pub fn path(id: impl Into<ElementId>, path: impl Into<SharedString>) -> gpui::Stateful<gpui::Div> {
-    let whole: SharedString = path.into();
+    path_parts(id.into(), path.into(), false)
+}
+
+/// `path` with its file name the point: the folder quiet and regular, the name semibold in the colour it is given.
+pub fn path_named(
+    id: impl Into<ElementId>,
+    path: impl Into<SharedString>,
+) -> gpui::Stateful<gpui::Div> {
+    path_parts(id.into(), path.into(), true)
+}
+
+fn path_parts(id: ElementId, path: SharedString, named: bool) -> gpui::Stateful<gpui::Div> {
+    let whole: SharedString = path;
     // A folder (`core/network/`) is all front; a file's name follows its last slash.
     let (folder, file) = match whole.rfind('/') {
         Some(at) => (&whole[..=at], &whole[at + 1..]),
@@ -301,6 +313,10 @@ pub fn path(id: impl Into<ElementId>, path: impl Into<SharedString>) -> gpui::St
                     .flex_shrink(1.)
                     .min_w_0()
                     .overflow_hidden()
+                    .when(named, |d| {
+                        d.text_color(theme::muted())
+                            .font_weight(gpui::FontWeight::NORMAL)
+                    })
                     // Cut at its front, what is left of the room goes before the ellipsis, never
                     // between the folder and the name.
                     .text_right()
@@ -316,6 +332,7 @@ pub fn path(id: impl Into<ElementId>, path: impl Into<SharedString>) -> gpui::St
                     .min_w_0()
                     .overflow_hidden()
                     .text_ellipsis_middle()
+                    .when(named, |d| d.font_weight(gpui::FontWeight::SEMIBOLD))
                     .child(SharedString::from(file.to_owned())),
             )
         });

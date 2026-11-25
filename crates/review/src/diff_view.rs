@@ -549,6 +549,27 @@ pub fn change_color(file: &FileDiff, reviewed: bool) -> gpui::Rgba {
     }
 }
 
+/// A file's kind as its status letter, coloured, before its name (Design round 21, A1): `M`, `A`, `D`, `R`, `C`, `T`.
+pub fn kind_letter(file: &FileDiff, reviewed: bool) -> gpui::Div {
+    let letter = match file.change {
+        ChangeKind::Added => "A",
+        ChangeKind::Deleted => "D",
+        ChangeKind::Modified => "M",
+        ChangeKind::Renamed => "R",
+        ChangeKind::Copied => "C",
+        ChangeKind::TypeChanged => "T",
+    };
+    gpui::div()
+        .flex_none()
+        .w(artoo_ui_kit::px(14.))
+        .flex()
+        .justify_center()
+        .text_size(artoo_ui_kit::px(11.))
+        .font_weight(gpui::FontWeight::BOLD)
+        .text_color(change_color(file, reviewed))
+        .child(letter)
+}
+
 /// What a working-tree file's part is, as the glyph on its card's side (Design round 14, W2) with its sentence as the
 /// tip: staged a ring with a dot, not staged a dashed ring; untracked and partly staged take the nearer one.
 pub fn file_tag(tag: Option<&'static str>) -> Option<gpui::Stateful<gpui::Div>> {

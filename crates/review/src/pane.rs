@@ -4,7 +4,7 @@
 //! an image). What other features put on it comes drawn in a `PaneLook`; a click on it goes to the host
 //! (`PaneEvent`).
 
-use crate::diff_view::{change_color, file_tag};
+use crate::diff_view::{file_tag, kind_letter};
 use crate::review::{Host, PaneEvent, Review};
 use crate::reviewed::State;
 use crate::toolbar::ToolRoom;
@@ -13,7 +13,7 @@ use artoo_review_api::viewers::Drawing;
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::hover::Hover;
-use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, hover, icons, island, keys, px, theme};
+use artoo_ui_kit::{ISLAND_RADIUS, ROW_RADIUS, hover, island, keys, px, theme};
 use gpui::{
     AnyElement, ClickEvent, Context, Div, FontWeight, MouseButton, Rgba, Stateful, canvas, div,
     prelude::*,
@@ -166,10 +166,9 @@ impl Review {
                     .px_4()
                     .border_b_1()
                     .border_color(theme::island_border())
-                    .child(icons::file_icon(f.path(), 16.))
+                    .child(kind_letter(f, false))
                     .map(|s| {
-                        let path =
-                            hover::path("file-path", path).text_color(change_color(f, false));
+                        let path = hover::path_named("file-path", path);
                         // Changed since the version you read: said beside the path (#187).
                         match self.since_chip(self.file) {
                             Some(chip) => s
@@ -222,7 +221,7 @@ impl Review {
                             .flatten()
                             .map(|n| div().text_color(theme::warning()).child(n)),
                     )
-                    .children(self.change_nav())
+                    .children(self.change_nav(&host))
                     // The file in the app it belongs to, at the change (#78); ▾ the others.
                     .children(open_in)
                     .children(mode_note.clone().map(|n| {
@@ -367,35 +366,57 @@ impl Review {
             ))
     }
 
-    /// The file's changes and the way between them: `1 change`, `± 2/3` once stepped (n and p step, no arrows); the words go in a
-    /// diff under 600 px (#80). On the file's line, or on the active card's header (#188).
-    pub(crate) fn change_nav(&self) -> Option<Div> {
+    /// The file's changes and the way between them: `± 1` (`± 2/3` once stepped), ↑ and ↓ (n and p step too); all
+    /// of it goes in a diff under 600 px (#80). On the file's line, or on the active card's header (#188).
+    pub(crate) fn change_nav(&self, host: &Rc<dyn Host>) -> Option<Div> {
         (!self.changes.is_empty()).then(|| {
+            let total = self.changes.len();
             div()
                 .flex_none()
                 .flex()
                 .items_center()
-                .gap_2()
+                .gap(px(2.))
+                // The header's own click folds the card.
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .when(!self.tight, |s| {
                     let (words, tip) = match self.change_at {
                         Some(at) => (
-                            format!("± {}/{}", at + 1, self.changes.len()),
-                            Some(format!(
-                                "Change {} of {} in this file · n the next, p the one before",
-                                at + 1,
-                                self.changes.len()
-                            )),
+                            format!("± {}/{total}", at + 1),
+                            format!("Change {} of {total} in this file", at + 1),
                         ),
-                        None => (plural(self.changes.len(), "change"), None),
+                        None => (
+                            format!("± {total}"),
+                            format!("{} in this file", plural(total, "change")),
+                        ),
+                    };
+                    let step = |id, glyph, tip, forward| {
+                        let host = host.clone();
+                        crate::toolbar::square(id, glyph, tip, move |_, _, cx| {
+                            cx.stop_propagation();
+                            host.pane(PaneEvent::Step { forward }, cx)
+                        })
                     };
                     s.child(
                         div()
                             .id("change-at")
+                            .mr(px(4.))
                             .text_size(px(12.))
                             .text_color(theme::muted())
                             .child(words)
-                            .when_some(tip, |d, tip| d.tip(tip)),
+                            .tip(tip),
                     )
+                    .child(step(
+                        "change-before",
+                        "arrow-up",
+                        "Previous change  p",
+                        false,
+                    ))
+                    .child(step(
+                        "change-after",
+                        "arrow-down",
+                        "Next change  n",
+                        true,
+                    ))
                 })
         })
     }
@@ -435,7 +456,9 @@ impl Review {
         if self.viewing() {
             return Some(crate::reviewed::viewed_box(
                 "review-chip",
+                "Viewed",
                 state == State::Done,
+                false,
             ));
         }
         Some(

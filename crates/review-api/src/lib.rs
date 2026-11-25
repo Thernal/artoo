@@ -722,8 +722,6 @@ pub enum ChangesEvent {
     Fold(String),
     /// The section's header: the section folds or opens.
     Section,
-    /// Tree (`false`) or List (`true`).
-    ListFiles(bool),
     /// A press in the section: the keyboard works in its list.
     Pressed,
 }

@@ -16,7 +16,6 @@ pub enum FileItem {
         path: String,
         name: String,
         depth: usize,
-        count: usize,
         collapsed: bool,
     },
     File {
@@ -31,11 +30,7 @@ struct Node {
     files: Vec<usize>,
 }
 
-impl Node {
-    fn count(&self) -> usize {
-        self.files.len() + self.dirs.values().map(Node::count).sum::<usize>()
-    }
-}
+impl Node {}
 
 /// The tree's rows: folders before files, a chain of folders with nothing else folded into one
 /// (`src/ui`), a collapsed folder hiding what is under it.
@@ -65,7 +60,6 @@ fn flatten(
             path: path.clone(),
             name: shown,
             depth,
-            count: cur.count(),
             collapsed: is_collapsed,
         });
         if !is_collapsed {

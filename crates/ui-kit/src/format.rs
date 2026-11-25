@@ -45,6 +45,29 @@ fn short_at(now: i64, time: i64) -> String {
     }
 }
 
+/// A time in words for a row with room for them: `ago` under an hour, `today`, the weekday within a week, then
+/// `Nov 3` within the year and the year alone.
+pub fn when_word(time: i64) -> String {
+    when_at(now(), time)
+}
+
+fn when_at(now: i64, time: i64) -> String {
+    let day = |t: i64| (t + local_offset(t)).div_euclid(86400);
+    match (now - time).max(0) {
+        secs @ 0..3600 => match secs / 60 {
+            0 => "just now".to_owned(),
+            m => format!("{m} min ago"),
+        },
+        _ if day(time) == day(now) => "today".to_owned(),
+        // 1970-01-01 was a Thursday.
+        _ if day(now) - day(time) < 7 => {
+            const DAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
+            DAYS[day(time).rem_euclid(7) as usize].to_owned()
+        }
+        _ => short_at(now, time),
+    }
+}
+
 const MONTHS: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
@@ -168,6 +191,22 @@ pub fn bytes(n: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rows_time_in_words_goes_from_minutes_to_a_date() {
+        // Noon of a day in local time, so no step below crosses midnight by the zone.
+        let noon = 20_000 * 86400 + 43200;
+        let now = noon - local_offset(noon);
+        assert_eq!(when_at(now, now - 20), "just now");
+        assert_eq!(when_at(now, now - 35 * 60), "35 min ago");
+        assert_eq!(when_at(now, now - 5 * 3600), "today");
+        // Day 20 000 is a Friday.
+        assert_eq!(when_at(now, now - 3 * 86400), "Tue");
+        assert_eq!(
+            when_at(now, now - 9 * 86400),
+            short_at(now, now - 9 * 86400)
+        );
+    }
 
     #[test]
     fn short_times_cross_each_threshold() {

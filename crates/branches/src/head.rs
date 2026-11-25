@@ -14,8 +14,8 @@ use artoo_shell_api::{Piece, Services, Slot};
 use artoo_ui_kit::controls::{chip, group};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, Hover};
-use artoo_ui_kit::markdown;
 use artoo_ui_kit::{ROW_RADIUS, icons, island, px, theme};
+use artoo_ui_kit::{discussion, markdown};
 use gpui::{AnyElement, App, ClickEvent, Entity, FontWeight, IntoElement, Window, div, prelude::*};
 use std::rc::Rc;
 
@@ -112,14 +112,17 @@ pub fn bar_piece(history: Entity<History>, services: Rc<Services>) -> Piece {
                 .is_some_and(|c| c.picked.is_some() && h.selection == Selection::None);
             // A request's own range takes the first place (#187); the count goes last, for want of room.
             if let Some(on) = h.range_on(route, &*review, cx) {
+                let files = || files_count(diff.files.len(), on);
                 let count = (review.toolbar_fold(cx) < ToolbarFold::Count).then(|| match on.on {
                     Range::Commits => match h.selection {
-                        Selection::Commit(ix) if ix < h.commits.len() => {
-                            format!("Commit {} of {}", h.commits.len() - ix, h.commits.len())
-                        }
-                        _ => plural(diff.files.len(), "file"),
+                        Selection::Commit(ix) if ix < h.commits.len() => Count::Words(format!(
+                            "Commit {} of {}",
+                            h.commits.len() - ix,
+                            h.commits.len()
+                        )),
+                        _ => files(),
                     },
-                    _ => plural(diff.files.len(), "file"),
+                    _ => files(),
                 });
                 return Some(range_switch(on, count, &acts));
             }
@@ -158,9 +161,29 @@ fn asks(acts: &Acts, act: Act) -> impl Fn(&ClickEvent, &mut Window, &mut App) + 
     move |_, _, cx| acts(act.clone(), cx)
 }
 
+/// What stands after a request's range: how many files, a glyph and the number, or the commit of how many.
+enum Count {
+    Files(usize, String),
+    Words(String),
+}
+
+/// `n` files of the range `on`, with the sentence that says them.
+fn files_count(n: usize, on: RangeOn) -> Count {
+    let tip = match (on.on, on.read) {
+        (Range::Since, Some(v)) => {
+            format!(
+                "{} changed since v{v}, the version you read",
+                plural(n, "file")
+            )
+        }
+        _ => format!("{} changed", plural(n, "file")),
+    };
+    Count::Files(n, tip)
+}
+
 /// A request's range on its Changes (#187, Design A1): `All · Since v2 · Commits`, Since only when a push came after
 /// the version you read, its tooltip saying so; then `count`, the files shown or the commit of how many.
-fn range_switch(on: RangeOn, count: Option<String>, acts: &Acts) -> AnyElement {
+fn range_switch(on: RangeOn, count: Option<Count>, acts: &Acts) -> AnyElement {
     let range = |id: &'static str, label: String, range: Range, tip: String| {
         chip(id, label, on.on == range)
             .tip(tip)
@@ -195,12 +218,27 @@ fn range_switch(on: RangeOn, count: Option<String>, acts: &Acts) -> AnyElement {
                 )),
         )
         .children(count.map(|count| {
-            div()
+            let words = div()
                 .flex_none()
+                .flex()
+                .items_center()
+                .gap(px(4.))
                 .text_size(px(12.))
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme::muted())
-                .child(count)
+                .text_color(theme::muted());
+            match count {
+                Count::Files(n, tip) => words
+                    .child(
+                        icons::icon("files")
+                            .size(px(13.))
+                            .text_color(theme::muted()),
+                    )
+                    .child(n.to_string())
+                    .id("range-count")
+                    .tip(tip)
+                    .into_any_element(),
+                Count::Words(said) => words.child(said).into_any_element(),
+            }
         }))
         .into_any_element()
 }
@@ -292,6 +330,16 @@ pub fn head(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> AnyE
         .into_any_element()
 }
 
+/// A commit's message under its title, in its own scroll past 220 px.
+fn commit_body(id: git2::Oid, body: &str, text: Selectable) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id("commit-body")
+        .max_h(px(220.))
+        .overflow_y_scroll()
+        .text_color(theme::muted())
+        .child(text(format!("commit-body-{id}"), body))
+}
+
 fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui::Div {
     let (added, removed) = diff
         .files
@@ -338,7 +386,10 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                         format!("{} <{}>", commit.author, commit.email),
                         hover::full_date(commit.time),
                     ];
-                    if let Some(b) = body.as_ref().filter(|_| !look.message_open) {
+                    if let Some(b) = body
+                        .as_ref()
+                        .filter(|_| !look.message_open && !look.of_request)
+                    {
                         tip.push(String::new());
                         tip.extend(b.lines().take(12).map(str::to_owned));
                     }
@@ -352,14 +403,11 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                         ))
                         .tip(tip.join("\n"))
                 })
-                .children(body.clone().filter(|_| look.message_open).map(|b| {
-                    div()
-                        .id("commit-body")
-                        .max_h(px(220.))
-                        .overflow_y_scroll()
-                        .text_color(theme::muted())
-                        .child(text(format!("commit-body-{}", commit.id), &b))
-                }))
+                .children(
+                    (body.clone())
+                        .filter(|_| look.message_open && !look.of_request)
+                        .map(|b| commit_body(commit.id, &b, &text)),
+                )
                 .child(
                     div()
                         .flex()
@@ -413,8 +461,19 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                                         .tip(hover::full_date(commit.time)),
                                 )
                         }))
-                        .child(commit.author.clone())
-                        .children(body.is_some().then(|| {
+                        // A request's commit says who last, with their face (Design round 21, B3).
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .when(look.of_request, |s| {
+                                    s.child(discussion::avatar(&commit.author, false, 16.))
+                                        .text_color(theme::text())
+                                })
+                                .child(commit.author.clone()),
+                        )
+                        .children((body.is_some() && !look.of_request).then(|| {
                             let acts = acts.clone();
                             div()
                                 .id("body-toggle")
@@ -439,8 +498,8 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                                 })
                         }))
                         .children((!look.of_request).then(|| format::date(commit.time)))
-                        .child(stats)
-                        .children(look.web.map(|web| {
+                        .children((!look.of_request).then_some(stats))
+                        .children(look.web.filter(|_| !look.of_request).map(|web| {
                             let url = web.commit(&commit.id.to_string());
                             div()
                                 .id("open-web")
@@ -450,6 +509,11 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                                 .child(format!("Open in {} ↗", web.name()))
                                 .on_click(asks(acts, Act::OpenUrl(url)))
                         })),
+                )
+                // Its message whole, under the facts.
+                .children(
+                    (body.filter(|_| look.of_request))
+                        .map(|b| commit_body(commit.id, &b, &text).mt(px(6.))),
                 )
         }
         Header::WorkingTree {

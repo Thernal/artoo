@@ -3,6 +3,7 @@
 //! and a click a run of them; ↵ or a second click opens one as a level (`Act::Commit`), the run as one diff.
 
 use crate::history::{Act, Acts, History};
+use artoo_core::git::Repo;
 use artoo_core::route::Route;
 use artoo_shell_api::Frame;
 use artoo_ui_kit::format;
@@ -13,6 +14,9 @@ use gpui::{
     SharedString, Window, div, prelude::*,
 };
 use std::rc::{Rc, Weak};
+
+/// Commits whose +/− one read takes; the rest follow in the next.
+const STATS_AT_ONCE: usize = 100;
 
 /// A branch's Commits off the main line (#74), a view the tab puts under the branch's bar: its line over its
 /// commits.
@@ -117,8 +121,50 @@ impl History {
         false
     }
 
+    /// Reads the +/− of the commits not read yet, off the frame, one read at a time.
+    fn want_stats(&mut self, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        if self.stats_task.is_some() {
+            return;
+        }
+        let ids: Vec<git2::Oid> = (self.commits.iter().map(|c| c.id))
+            .filter(|id| !self.stats.contains_key(id))
+            .take(STATS_AT_ONCE)
+            .collect();
+        if ids.is_empty() {
+            return;
+        }
+        self.stats_task = Some(cx.spawn(async move |this, cx| {
+            let read = cx
+                .background_executor()
+                .spawn(async move {
+                    let repo = Repo::open(&root).ok();
+                    ids.into_iter()
+                        .map(|id| {
+                            let stat = repo.as_ref().and_then(|r| r.commit_stat(id).ok());
+                            (id, stat.map(|(_, added, removed)| (added, removed)))
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            this.update(cx, |h, cx| {
+                h.stats.extend(read);
+                h.stats_task = None;
+                cx.notify();
+            })
+            .ok();
+        }));
+    }
+
     /// The commits as a page of their own, with the version each came with when `versions`.
-    pub fn commits_page(&self, versions: bool, acts: &Acts, cx: &mut Context<Self>) -> AnyElement {
+    pub fn commits_page(
+        &mut self,
+        versions: bool,
+        acts: &Acts,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
         let came = if versions {
             let tips: Vec<(usize, git2::Oid)> =
                 self.versions.iter().map(|v| (v.number, v.tip)).collect();
@@ -127,6 +173,7 @@ impl History {
         } else {
             vec![None; self.commits.len()]
         };
+        self.want_stats(cx);
         let picked = self.picked();
         // Shift picks a run of them, to review as one diff.
         let run = self.picked_run();
@@ -150,13 +197,12 @@ impl History {
                     None => picked == Some(ix),
                 };
                 let (menu, open, this) = (acts.clone(), acts.clone(), this.clone());
-                // The why under the subject, its body's first line (#188, Design A5).
-                let why = first_line_of_body(&c.message);
-                // The subject, the why and the author are cut to their room; the tip says them only when they were.
-                let [summary_cut, why_cut, author_cut] = [(); 3].map(|_| hover::WasCut::default());
+                // The subject and the author are cut to their room; the tip says them only when they were.
+                let [summary_cut, author_cut] = [(); 2].map(|_| hover::WasCut::default());
                 let mut tip: Vec<(Option<hover::WasCut>, SharedString)> =
                     vec![(Some(summary_cut.clone()), c.summary.clone().into())];
-                tip.extend(why.clone().map(|line| (Some(why_cut.clone()), line.into())));
+                // The why, its body's first line (#188, Design A5): the row has one line.
+                tip.extend(first_line_of_body(&c.message).map(|line| (None, line.into())));
                 let when = hover::full_date(c.time);
                 if several && room.second() {
                     tip.push((Some(author_cut.clone()), c.author.clone().into()));
@@ -168,8 +214,7 @@ impl History {
                     tip.push((None, format!("came with v{v}").into()));
                 }
                 row(("request-commit", ix), selected)
-                    .when(why.is_none(), |s| s.h(px(36.)))
-                    .when(why.is_some(), |s| s.py(px(6.)))
+                    .h(px(40.))
                     .gap(px(10.))
                     .px(px(10.))
                     .when(room.third(), |s| {
@@ -188,21 +233,9 @@ impl History {
                             .child(format::short(c.id)),
                     )
                     .child(
-                        div()
+                        hover::cut_in_row(c.summary.clone(), c.summary.clone(), &summary_cut)
                             .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .child(hover::cut_in_row(
-                                c.summary.clone(),
-                                c.summary.clone(),
-                                &summary_cut,
-                            ))
-                            .children(why.map(|line| {
-                                hover::cut_in_row(line.clone(), line, &why_cut)
-                                    .text_size(px(12.))
-                                    .text_color(theme::muted())
-                            })),
+                            .min_w_0(),
                     )
                     .children((several && room.second()).then(|| {
                         hover::cut_in_row(c.author.clone(), c.author.clone(), &author_cut)
@@ -222,6 +255,25 @@ impl History {
                             .text_color(theme::accent())
                             .child(format!("v{v}"))
                     }))
+                    .children(
+                        (self.stats.get(&c.id).copied().flatten())
+                            .filter(|_| room.second())
+                            .map(|(added, removed)| {
+                                div()
+                                    .flex_none()
+                                    .flex()
+                                    .gap_1()
+                                    .text_size(px(11.))
+                                    .child(
+                                        div().text_color(theme::added()).child(format!("+{added}")),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(theme::removed())
+                                            .child(format!("−{removed}")),
+                                    )
+                            }),
+                    )
                     .when(room.second(), |s| {
                         // How much of it you viewed (#209).
                         s.children(

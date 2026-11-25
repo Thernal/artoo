@@ -77,6 +77,10 @@ pub struct History {
     pub new_from: Option<usize>,
     /// How much of each commit you viewed, as the review last said it (#209): its row says `1 of 3` or `viewed`.
     pub viewed: std::collections::HashMap<git2::Oid, (usize, usize)>,
+    /// What each commit of the Commits page added and removed, read in the background; `None` where git would not
+    /// say. A commit never changes, so what was read stays.
+    pub stats: HashMap<git2::Oid, Option<(usize, usize)>>,
+    pub stats_task: Option<Task<()>>,
     /// The repository read again after it changed (`reload`).
     pub reload: Option<Task<()>>,
     /// The commit the Commits page has picked (#73), and with shift the other end of a run of them
@@ -203,6 +207,8 @@ impl Default for History {
             pending: None,
             new_from: None,
             viewed: Default::default(),
+            stats: Default::default(),
+            stats_task: None,
             reload: None,
             pick: None,
             pick_to: None,

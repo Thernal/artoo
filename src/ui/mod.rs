@@ -2372,6 +2372,14 @@ impl Workspace {
                 Some("Files"),
                 vec![
                     Entry::new(
+                        "Files as a list",
+                        Act::new(|this, _, cx| {
+                            let list = this.view_options(cx).list_files;
+                            this.set_file_view(!list, cx)
+                        }),
+                    )
+                    .checked(o.list_files),
+                    Entry::new(
                         "One file at a time",
                         Act::new(|this, _, cx| this.toggle(Opt::OneFile, cx)),
                     )
@@ -3338,7 +3346,6 @@ impl artoo_review_api::Host for TabHost {
                 ChangesEvent::Menu { ix, at } => this.file_context(ix, at, cx),
                 ChangesEvent::Fold(path) => this.toggle_dir(&path, cx),
                 ChangesEvent::Section => this.fold_changes(cx),
-                ChangesEvent::ListFiles(list) => this.set_file_view(list, cx),
                 ChangesEvent::Pressed => {
                     if this.files_zone(cx) {
                         this.set_zone(Zone::Files, cx)

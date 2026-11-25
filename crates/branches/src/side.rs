@@ -20,6 +20,8 @@ use gpui::{
 
 /// Rows of a comparison's commits before they scroll.
 const COMPARE_ROWS: usize = 8;
+/// A version's row.
+const VERSION_ROW: f32 = 28.;
 /// A row's height in a comparison's commits.
 const COMPARE_ROW: f32 = 28.;
 
@@ -33,8 +35,6 @@ pub fn version_rows(h: &History, new_from: Option<usize>, read: Option<usize>, a
     };
     // What changed since the version you read: its two ends say what they are, not from and to (Design A1).
     let since = read.is_some() && from == read && to == Some(latest);
-    // Who made a version is only worth a line when more than one person did.
-    let several = h.versions.iter().any(|v| v.author != h.versions[0].author);
     div()
         .flex()
         .flex_col()
@@ -48,16 +48,14 @@ pub fn version_rows(h: &History, new_from: Option<usize>, read: Option<usize>, a
             } else {
                 None
             };
-            let chosen = role.is_some() || (since && (Some(ix) == from || Some(ix) == to));
+            // In a since-view the row picked is the one it ends at; the other says `you read`.
+            let chosen = role.is_some() || (since && Some(ix) == to);
             let kind = match format::reason(&v.reason) {
                 "fetch" => "fetched",
                 "unknown" => "version",
                 k => k,
             };
             let mut detail: Vec<String> = Vec::new();
-            if several {
-                detail.push(v.author.clone());
-            }
             match ix.checked_sub(1).and_then(|p| h.versions.get(p)) {
                 None => detail.push(plural(v.commits, "commit")),
                 Some(prev) => {
@@ -80,118 +78,63 @@ pub fn version_rows(h: &History, new_from: Option<usize>, read: Option<usize>, a
                     });
                 }
             }
-            // When goes out of the line, short, to the row's end (`time_cell`).
-            // The rail: a dot per version and a line to the older one.
-            let rail = div()
-                .flex_none()
-                .relative()
-                .w(px(14.))
-                .h(px(44.))
-                .when(ix > 0, |s| {
-                    s.child(
-                        div()
-                            .absolute()
-                            .left(px(6.5))
-                            .top(px(18.))
-                            .w(px(1.))
-                            .h(px(30.))
-                            .bg(theme::selected()),
-                    )
-                })
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(3.))
-                        .top(px(13.))
-                        .size(px(8.))
-                        .rounded_full()
-                        .bg(if chosen {
-                            theme::accent()
-                        } else {
-                            theme::faint()
-                        }),
-                );
             let acts = acts.clone();
             let item = row(("version", ix), chosen)
-                // A long hover (#53): what the row does not say (#202) — who pushed it when one person pushed them
-                // all, exactly when, and what moved the branch when it says more than the row's word.
+                // A long hover (#53): what the row does not say (#202) — who pushed it, exactly when, its tip,
+                // what moved the branch when it says more than the row's word, and how it differs from the last.
                 .row_tip(chosen, {
-                    let mut tip = Vec::new();
-                    if !several {
-                        tip.push(v.author.clone());
-                    }
-                    tip.push(hover::full_date(v.time));
+                    let mut tip = vec![
+                        v.author.clone(),
+                        hover::full_date(v.time),
+                        format::short(v.tip),
+                    ];
                     if !v.reason.is_empty() && v.reason != kind {
                         tip.push(v.reason.clone());
                     }
+                    tip.extend(detail);
                     tip.join(" · ")
                 })
-                .h(px(44.))
-                .items_start()
+                .h(px(VERSION_ROW))
+                .items_center()
                 .gap_2()
-                .child(rail)
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(30.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::accent())
+                        .child(format!("v{}", v.number)),
+                )
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
                         .flex()
-                        .flex_col()
-                        .justify_center()
-                        .h_full()
+                        .items_center()
+                        .gap(px(4.))
+                        .cut_in_tip()
+                        .child(kind.to_owned())
                         .child(
                             div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .child(
-                                    div()
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .text_color(theme::accent())
-                                        .child(format!("v{}", v.number)),
-                                )
-                                .child(kind.to_owned())
-                                .child(
-                                    div()
-                                        .font_family(theme::code_font())
-                                        .text_size(px(11.))
-                                        .text_color(theme::muted())
-                                        .child(format::short(v.tip)),
-                                )
-                                .child(div().flex_1())
-                                .children(role.map(|r| tag(r, theme::accent())))
-                                .when(ix == latest && role.is_none(), |s| {
-                                    s.child(tag("latest", theme::faint()))
-                                })
-                                .when(Some(ix) == read && role.is_none(), |s| {
-                                    s.child(tag("you read", theme::faint()))
-                                })
-                                .when(new_from.is_some_and(|from| ix >= from), |s| {
-                                    s.child(tag("new", theme::accent()))
-                                }),
-                        )
-                        .child(
-                            div()
-                                .w_full()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .text_size(px(11.))
                                 .text_color(theme::muted())
-                                .child(
-                                    div()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .cut_in_tip()
-                                        .child(detail.join(" · ")),
-                                )
-                                .child(format::time_cell(v.time)),
+                                .child(format!("· {}", format::when_word(v.time))),
                         ),
                 )
+                .children(role.map(|r| tag(r, theme::accent())))
+                .when(ix == latest && role.is_none(), |s| {
+                    s.child(tag("latest", theme::accent()))
+                })
+                .when(Some(ix) == read && role.is_none(), |s| {
+                    s.child(tag("you read", theme::muted()))
+                })
+                .when(new_from.is_some_and(|from| ix >= from), |s| {
+                    s.child(tag("new", theme::accent()))
+                })
                 .on_click(move |event: &ClickEvent, _, cx| {
                     let more = event.modifiers().secondary();
                     acts(Act::Version { ix, more }, cx)
                 });
-            div().px(px(6.)).py(px(1.)).child(item)
+            div().w_full().px(px(6.)).child(item)
         }))
 }
 

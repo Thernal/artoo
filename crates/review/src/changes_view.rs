@@ -1,16 +1,15 @@
 //! The Changes section drawn (A9, A11, #22, #79, #157): its header in the side panel (`changes_section`: how far
-//! the review is, Tree · List, the count), how far the review is with Mark all (X59), the path filter, the files'
-//! total, and the files as a folder tree or a flat list — a file's box, icon, name, words and +/−, a folder's box
+//! the review is, the count), how far the review is with Mark all (X59), the path filter, the files'
+//! total, and the files as a folder tree or a flat list — a file's box, status letter, name, words and +/−, a folder's box
 //! and fold, a group's header (#22). What the tab puts on it comes in a `SectionLook` and a `ChangesLook`; a click
 //! goes to the host (`ChangesEvent`), which also fades a tree's rows in and says the version a mark was made at.
 
 use crate::changes::{FileItem, Group, folder_of};
-use crate::diff_view::{change_color, file_tag};
+use crate::diff_view::{file_tag, kind_letter};
 use crate::review::{ChangesEvent, Host, Review};
 use crate::reviewed::State;
 use artoo_core::git::{ChangeKind, FileDiff};
 use artoo_core::storage;
-use artoo_ui_kit::controls::{self, chip};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, LONG, RowTip, Tip, TipOwned};
 use artoo_ui_kit::panel::{self, Head, count, open_share};
@@ -61,7 +60,7 @@ impl Review {
     }
 
     /// The side panel's Changes section while the diff has files: its header (how far the review is or the one
-    /// file, Tree · List, the count) over the list; one file's does not open. With it whether it is open.
+    /// file, the count) over the list; one file's does not open. With it whether it is open.
     pub fn changes_section(
         &self,
         look: SectionLook,
@@ -79,29 +78,6 @@ impl Review {
                 None => plural(diff.file_count(), "file"),
             }
         };
-        let list = self.options.list_files;
-        let mut end: Vec<AnyElement> = Vec::new();
-        if !folded {
-            let (tree, flat) = (host.clone(), host.clone());
-            end.push(
-                controls::group()
-                    // A chip is not the heading: a click on it does not fold the section.
-                    .child(chip("files-tree", "Tree", !list).on_click(
-                        move |_: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            tree.changes(ChangesEvent::ListFiles(false), cx)
-                        },
-                    ))
-                    .child(chip("files-list", "List", list).on_click(
-                        move |_: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            flat.changes(ChangesEvent::ListFiles(true), cx)
-                        },
-                    ))
-                    .into_any_element(),
-            );
-        }
-        end.push(count(diff.file_count().to_string()));
         let header = Head {
             title: format!(
                 "Changes{}{}",
@@ -109,7 +85,7 @@ impl Review {
                 look.tag
             ),
             summary: Some(summary),
-            end,
+            end: vec![count(diff.file_count().to_string())],
             folded,
             opens: !one,
         };
@@ -308,13 +284,9 @@ impl Review {
                             .pl(px(8. + *depth as f32 * 14.))
                             .when(done, |s| s.text_color(theme::muted()))
                             .children(self.review_box(ix, host, cx))
-                            .child(icons::file_icon(file.path(), 16.))
+                            .child(kind_letter(file, done))
                             .map(|s| {
-                                let name = div()
-                                    .min_w_0()
-                                    .name_in_tip()
-                                    .text_color(change_color(file, done))
-                                    .child(name);
+                                let name = div().min_w_0().name_in_tip().child(name);
                                 // Changed since the version you read: said beside the name (#187).
                                 match self.since_chip(ix) {
                                     Some(chip) => s
@@ -355,7 +327,6 @@ impl Review {
                 path,
                 name,
                 depth,
-                count,
                 collapsed,
             } => {
                 let (target, host) = (path.clone(), host.clone());
@@ -374,15 +345,12 @@ impl Review {
                         .pl(px(8. + *depth as f32 * 14.))
                         .text_color(theme::muted())
                         .children(self.folder_box(folder_of(path), &host))
-                        .child(
-                            icons::icon(if *collapsed {
-                                "chevron-right"
-                            } else {
-                                "chevron"
-                            })
-                            .size(px(16.))
-                            .text_color(theme::muted()),
-                        )
+                        // Open is how a folder stands; only a folded one says so.
+                        .children(collapsed.then(|| {
+                            icons::icon("chevron-right")
+                                .size(px(16.))
+                                .text_color(theme::muted())
+                        }))
                         .child(icons::folder_icon(folder_of(path), 16.))
                         .child(
                             hover::path(
@@ -390,12 +358,6 @@ impl Review {
                                 name.clone(),
                             )
                             .flex_1(),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(count.to_string()),
                         )
                         // A double click folds or opens it once, as one click does.
                         .on_click(move |e: &ClickEvent, _, cx| {
@@ -501,19 +463,14 @@ impl Review {
             .gap_2()
             .when(done, |s| s.text_color(theme::muted()))
             .children(self.review_box(ix, host, cx))
-            .child(icons::file_icon(path, 16.))
+            .child(kind_letter(file, done))
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .child(
-                        div()
-                            .name_in_tip()
-                            .text_color(change_color(file, done))
-                            .child(name),
-                    )
+                    .child(div().name_in_tip().child(name))
                     .children(dir.map(|d| {
                         div()
                             .path_in_tip()

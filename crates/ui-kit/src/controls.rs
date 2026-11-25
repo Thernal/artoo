@@ -47,6 +47,38 @@ pub fn bar_button(
     key: &'static str,
     primary: bool,
 ) -> gpui::Stateful<gpui::Div> {
+    button_frame(id, primary)
+        .child(words::say(label).into_owned())
+        .when(!key.is_empty(), |s| {
+            s.child(keys::caps(
+                key,
+                if primary {
+                    keys::On::Filled
+                } else {
+                    keys::On::Plain
+                },
+            ))
+        })
+}
+
+/// `bar_button` with its glyph before the words, in the button's ink.
+pub fn glyph_button(
+    id: &'static str,
+    glyph: &'static str,
+    label: &str,
+    primary: bool,
+) -> gpui::Stateful<gpui::Div> {
+    let ink = if primary {
+        theme::on_accent()
+    } else {
+        theme::text()
+    };
+    button_frame(id, primary)
+        .child(icons::icon(glyph).size(px(14.)).text_color(ink))
+        .child(words::say(label).into_owned())
+}
+
+fn button_frame(id: &'static str, primary: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .flex_none()
@@ -68,17 +100,6 @@ pub fn bar_button(
             s.border_1()
                 .border_color(theme::island_border())
                 .hover(|s| s.bg(theme::hover()))
-        })
-        .child(words::say(label).into_owned())
-        .when(!key.is_empty(), |s| {
-            s.child(keys::caps(
-                key,
-                if primary {
-                    keys::On::Filled
-                } else {
-                    keys::On::Plain
-                },
-            ))
         })
 }
 

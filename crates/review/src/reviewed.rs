@@ -532,8 +532,13 @@ fn scope_key(root: &str, header: &Header) -> Option<String> {
     Some(format!("{root}|{key}"))
 }
 
-/// A card's `☐ Viewed` box (#209), `ticked` or not.
-pub fn viewed_box(id: impl Into<gpui::ElementId>, ticked: bool) -> gpui::Stateful<gpui::Div> {
+/// A card's `☐ Viewed` (a branch's, #209) or `☐ Reviewed` box, `ticked` or not; `cap` shows its key, `V`.
+pub fn viewed_box(
+    id: impl Into<gpui::ElementId>,
+    word: &'static str,
+    ticked: bool,
+    cap: bool,
+) -> gpui::Stateful<gpui::Div> {
     use artoo_ui_kit::{ROW_RADIUS, px, theme};
     use gpui::{FontWeight, ParentElement, Styled, div, prelude::*};
     div()
@@ -569,7 +574,10 @@ pub fn viewed_box(id: impl Into<gpui::ElementId>, ticked: bool) -> gpui::Statefu
                 .text_color(theme::base())
                 .child(if ticked { "✓" } else { "" }),
         )
-        .child("Viewed")
+        .child(word)
+        .when(cap, |d| {
+            d.child(artoo_ui_kit::keys::caps("V", artoo_ui_kit::keys::On::Plain))
+        })
 }
 
 impl Review {
