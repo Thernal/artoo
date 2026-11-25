@@ -8,6 +8,7 @@ pub mod composer;
 pub mod controls;
 pub mod discussion;
 pub mod done;
+pub mod emoji_picker;
 pub mod excerpt;
 pub mod file_icons;
 pub mod format;

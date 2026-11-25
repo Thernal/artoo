@@ -5,6 +5,7 @@
 
 use crate::complete::Choice;
 use crate::discussion::{self, Kind, Source};
+use crate::emoji_picker::{self, Picker};
 use crate::input::{self, Edit};
 use crate::{hover, icons, markdown, px, theme};
 use artoo_core::markdown::Helper;
@@ -12,6 +13,13 @@ use artoo_core::textedit::TextEdit;
 use gpui::{AnyElement, App, Div, Keystroke, Pixels, Point, Rgba, SharedString, div, prelude::*};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+
+/// ☺'s tooltip: ⌃⌘E on macOS, where it is bound; elsewhere those keys are ⇧⌘E's (code), and it has none.
+const EMOJI_TIP: &str = if artoo_core::platform::MAC {
+    "Emoji  ⌃⌘E"
+} else {
+    "Emoji"
+};
 
 /// Who a comment is for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -76,6 +84,8 @@ pub struct Compose {
     pub answers: Option<String>,
     /// What is attached to it (#214), each a tile under the text.
     pub attachments: Vec<Attachment>,
+    /// The emoji picker, open over its ☺ (#240).
+    pub emoji: Option<Picker>,
 }
 
 /// A file attached to a comment being written (#214): a screenshot pasted, a file dropped on the composer or picked
@@ -360,6 +370,37 @@ impl Compose {
         artoo_core::markdown::apply(&mut self.edit, helper);
     }
 
+    /// ☺ (#240): the emoji picker opens, its search empty.
+    pub fn open_emoji(&mut self) {
+        self.emoji = Some(Picker::default());
+    }
+
+    /// Emoji `name` where the caret is, or over the selection, as one step ⌘Z takes back; one the list lacks
+    /// (typed `:name:`) as written. The picker closes.
+    pub fn put_emoji(&mut self, name: &str) {
+        let glyph = match artoo_core::emoji::get(name) {
+            Some(glyph) => glyph.to_owned(),
+            None => format!(":{name}:"),
+        };
+        let at = self
+            .edit
+            .selection()
+            .unwrap_or_else(|| self.edit.caret()..self.edit.caret());
+        let end = at.start + glyph.len();
+        self.edit.replace(at, &glyph, end..end);
+        self.emoji = None;
+    }
+
+    /// ⌃⌘E, ☺'s key: on macOS alone (`EMOJI_TIP`).
+    pub fn emoji_key(key: &Keystroke) -> bool {
+        let m = key.modifiers;
+        artoo_core::platform::MAC
+            && key.key == "e"
+            && m.control
+            && m.platform
+            && m.number_of_modifiers() == 2
+    }
+
     /// The text shown formatted, or as written.
     pub fn toggle_preview(&mut self) {
         self.preview = !self.preview;
@@ -446,6 +487,14 @@ pub enum ComposeAct {
     Unattach(u64),
     /// `Try again` on attachment `0` (`Compose::retry`).
     Retry(u64),
+    /// ☺ (#240): the emoji picker opens.
+    Emoji,
+    /// The emoji picker picked this name: it goes into the text.
+    PutEmoji(String),
+    /// A press outside the emoji picker.
+    CloseEmoji,
+    /// A change to the emoji picker (a click in its search).
+    EmojiPicker(emoji_picker::Edit),
 }
 
 /// What answers the composer's presses.
@@ -539,6 +588,58 @@ impl Compose {
                 .tooltip(move |_, cx| cx.new(|_| hover::Tip(tip)).into())
                 .on_click(move |_, _, cx| act(ComposeAct::Helper(h), cx))
         };
+        // ☺ after List (#240): the reactions' picker, over its button — at S over T, which holds the key's row.
+        let mut popup = compose.emoji.as_ref().map(|picker| {
+            let (pick, close, change) = (act.clone(), act.clone(), act.clone());
+            let popup = picker.render(emoji_picker::Draw {
+                id: u64::MAX,
+                // Text takes every emoji, on either host.
+                github: false,
+                keys: "↵ puts it in · esc",
+                pick: Rc::new(move |name, cx| pick(ComposeAct::PutEmoji(name), cx)),
+                close: Rc::new(move |cx| close(ComposeAct::CloseEmoji, cx)),
+                change: Rc::new(move |edit, cx| change(ComposeAct::EmojiPicker(edit), cx)),
+            });
+            div().absolute().left_0().top_0().size_0().child(
+                gpui::deferred(
+                    gpui::anchored()
+                        .anchor(gpui::Anchor::BottomLeft)
+                        .offset(gpui::point(px(0.), px(-6.)))
+                        .snap_to_window_with_margin(px(8.))
+                        .child(popup),
+                )
+                .with_priority(1),
+            )
+        });
+        let open = popup.is_some();
+        let smile = |popup: Option<Div>, act: ComposeActs| {
+            let button = div()
+                .id("compose-emoji")
+                .size(px(26.))
+                .flex()
+                .flex_none()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .when(open, |s| s.bg(theme::selected()))
+                .hover(|s| s.bg(theme::hover()))
+                .child(icons::icon("smile").size(px(15.)).text_color(if open {
+                    theme::text()
+                } else {
+                    theme::muted()
+                }))
+                .tooltip_show_delay(hover::LONG)
+                .tooltip(|_, cx| cx.new(|_| hover::Tip(EMOJI_TIP)).into())
+                // On the press: an open picker has just closed itself on it, and stays closed.
+                .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    if !open {
+                        act(ComposeAct::Emoji, cx);
+                    }
+                });
+            div().relative().flex_none().children(popup).child(button)
+        };
         let preview = compose.preview;
         let toggle = act.clone();
         // The clip, last among the tools (#214): a file or an image picked; a paste or a drop does the same.
@@ -598,7 +699,7 @@ impl Compose {
                     .child(icons::icon("type").size(px(15.)).text_color(theme::muted()))
                     .tooltip_show_delay(hover::LONG)
                     .tooltip(|_, cx| {
-                        cx.new(|_| hover::Tip("Format: bold, code, link, list, preview"))
+                        cx.new(|_| hover::Tip("Format: bold, code, link, list, emoji, preview"))
                             .into()
                     })
                     .on_click(move |event, _, cx| {
@@ -606,12 +707,16 @@ impl Compose {
                         open_format(ComposeAct::Format { at, tools }, cx);
                     })
             }))
-            .children(
-                tools
-                    .iter()
-                    .filter(|_| !folded)
-                    .map(|&h| tool(h, act.clone())),
-            )
+            .children((folded && open).then(|| div().relative().flex_none().children(popup.take())))
+            .when(!folded, |mut s| {
+                for &h in &tools {
+                    s = s.child(tool(h, act.clone()));
+                    if h == Helper::Bullet {
+                        s = s.child(smile(popup.take(), act.clone()));
+                    }
+                }
+                s
+            })
             .when(!folded, |s| {
                 s.child(
                     div()

@@ -19,7 +19,7 @@ pub enum Input {
     Palette,
     /// Which app opens a file, asked (`opening.rs`).
     OpenAsk,
-    /// The reactions' grid and its search.
+    /// The emoji picker and its search: a note's reactions, or the composer's ☺.
     Reactions,
     /// A feature's card over the window (`artoo_shell_api::Overlay`): the new version's (#135),
     /// which chat a note goes to (`Agents::pick_chat`).
@@ -123,7 +123,10 @@ impl Keys for Workspace {
         match input {
             Input::Palette => self.palette_open(cx),
             Input::OpenAsk => self.open_ask.is_some(),
-            Input::Reactions => self.requests_api().is_some_and(|r| r.grid_open(cx)),
+            Input::Reactions => {
+                self.requests_api().is_some_and(|r| r.grid_open(cx))
+                    || self.compose.as_ref().is_some_and(|c| c.emoji.is_some())
+            }
             Input::Overlay => self.overlay_open(),
             Input::Beside => self.beside.is_some(),
             Input::Merge => self.requests_api().is_some_and(|r| r.merge_card_open(cx)),

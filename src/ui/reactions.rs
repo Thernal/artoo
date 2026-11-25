@@ -72,6 +72,9 @@ impl Workspace {
 
     /// Keys while ☺+ is open (`Requests::reaction_key`): ↵ reacts with the one picked, esc closes.
     pub(super) fn reaction_key(&mut self, event: &gpui::KeyDownEvent, cx: &mut Context<Self>) {
+        if self.compose.as_ref().is_some_and(|c| c.emoji.is_some()) {
+            return self.compose_emoji_key(event, cx);
+        }
         let github = self.on_github();
         let Some(requests) = self.requests_api() else {
             return;

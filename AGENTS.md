@@ -442,6 +442,12 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   Design round 46) it is marked and a line at the page's foot says `Open in …` and the address: whatever draws a link
   says so with `Marked::link_mark` (its words), `link_row` (a row whose ⌘-click it is) or `link_over`, a request by
   `marked::request(iid)`; the kit's markdown does it for the links in a text (a text without `Selecting` has none).
+- **Emoji in the composer** (#240, Design round 46; `artoo_ui_kit::emoji_picker`): ☺ after List in every composer —
+  at S an `Emoji` row of its T menu — and ⌃⌘E (macOS alone: elsewhere those keys are ⇧⌘E's, code) open the picker
+  reactions use, over the button, with every emoji on either host; ↵ puts the emoji at the caret or over the
+  selection as one step of ⌘Z (`Compose::put_emoji`), and the keys return to the text. `:name` completion stays.
+  The picker is the kit's, its state its owner's (`Compose::emoji`, `reactions::Grid`); both take the keyboard as
+  `Input::Reactions`.
 - **Keyboard**: focus zones (branches, commits, files, diff, the open tool window; `ui/zones.rs`) — the one with the keyboard has an
   outlined island. Tab / ⇧Tab or ⌃2…4 move between them (⌃1 is the branch quick switch); ↑ ↓ (j k) act in the zone, ← → (h l) step files (in the file
   tree they close and open folders), ↵ goes one step in, Space / PageUp / PageDown / Home / End move the diff. A new

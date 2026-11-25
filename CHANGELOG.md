@@ -4,6 +4,11 @@ What is new in each release of Artoo. A release's notes on GitHub are its sectio
 (`.github/release-notes.sh`); a release tag whose version has no section here does not build. Write what changed
 for someone using the app, not for someone reading the code; the commits follow anyway.
 
+## Unreleased
+
+- **Emoji from the composer.** ☺ beside the formatting buttons, or ⌃⌘E, opens the emoji picker; ↵ puts one where
+  you are writing.
+
 ## 2.0.0 — 2026-11-17
 
 - **GitLance is now Artoo.** The app, its window and its menus are Artoo's, and it lives at Thernal/artoo. The first

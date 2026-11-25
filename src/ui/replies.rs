@@ -41,6 +41,7 @@ impl Workspace {
             file: None,
             answers: None,
             attachments: Vec::new(),
+            emoji: None,
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -87,6 +88,7 @@ impl Workspace {
             file: None,
             answers: None,
             attachments: Vec::new(),
+            emoji: None,
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();

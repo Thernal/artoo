@@ -19,6 +19,7 @@ pub(super) use artoo_ui_kit::composer::{
     Audience, Change, Compose, ComposeAct, ComposeActs, FootEvent, FootLook, Look, Room, Short,
     Target, Typed, room_for,
 };
+use artoo_ui_kit::emoji_picker::PickerKey;
 use gpui::{App, Context, KeyDownEvent, WeakEntity, div, prelude::*};
 
 /// The quiet Edit on one's own note: a pencil, alone in a narrow diff (#69).
@@ -171,6 +172,7 @@ impl Workspace {
             file: None,
             answers: None,
             attachments: Vec::new(),
+            emoji: None,
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -214,6 +216,7 @@ impl Workspace {
             file: Some(view.rev),
             answers: None,
             attachments: Vec::new(),
+            emoji: None,
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -257,6 +260,7 @@ impl Workspace {
             file: Some(rev.map(|(_, id)| id)),
             answers: None,
             attachments: Vec::new(),
+            emoji: None,
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -311,6 +315,7 @@ impl Workspace {
             file: None,
             answers: None,
             attachments: Vec::new(),
+            emoji: None,
         });
         self.take_keyboard(Input::Compose, cx);
         self.refresh_rows(cx);
@@ -384,6 +389,7 @@ impl Workspace {
             file: None,
             answers: None,
             attachments: Vec::new(),
+            emoji: None,
         });
         self.take_keyboard(Input::Compose, cx);
         self.reset_field_edit();
@@ -642,6 +648,10 @@ impl Workspace {
         if key.key == "tab" {
             return self.toggle_target(cx);
         }
+        // ⌃⌘E: the emoji picker (#240).
+        if Compose::emoji_key(key) {
+            return self.open_compose_emoji(cx);
+        }
         // ⇧⌘A: a file or an image attached (#214); ⌘V with a screenshot on the clipboard attaches it.
         if key.key == "a" && m.secondary() && m.shift && m.number_of_modifiers() == 2 {
             return self.pick_attachment(cx);
@@ -761,6 +771,52 @@ impl Workspace {
         compose.apply(helper);
         self.diff_list(cx).remeasure();
         cx.notify();
+    }
+
+    /// ☺ and ⌃⌘E (#240): the emoji picker over the composer, its search taking the keyboard; on closing the keys
+    /// return to the text.
+    pub(super) fn open_compose_emoji(&mut self, cx: &mut Context<Self>) {
+        if self.compose.is_none() {
+            return;
+        }
+        self.take_keyboard(Input::Compose, cx);
+        if let Some(compose) = self.compose.as_mut() {
+            compose.open_emoji();
+        }
+        self.diff_list(cx).remeasure();
+        cx.notify();
+    }
+
+    /// The picker closes, an emoji put into the text when `name` is given.
+    pub(super) fn close_compose_emoji(&mut self, name: Option<&str>, cx: &mut Context<Self>) {
+        let Some(compose) = self.compose.as_mut() else {
+            return;
+        };
+        match name {
+            Some(name) => compose.put_emoji(name),
+            None => compose.emoji = None,
+        }
+        self.take_keyboard(Input::Compose, cx);
+        self.diff_list(cx).remeasure();
+        cx.notify();
+    }
+
+    /// Keys while the composer's picker is open (`Picker::key`): ↵ puts it in, esc or ⌃⌘E closes.
+    pub(super) fn compose_emoji_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        if Compose::emoji_key(&event.keystroke) {
+            return self.close_compose_emoji(None, cx);
+        }
+        let Some(picker) = self.compose.as_mut().and_then(|c| c.emoji.as_mut()) else {
+            return;
+        };
+        match picker.key(event, false, cx) {
+            Some(PickerKey::Pick(name)) => self.close_compose_emoji(name.as_deref(), cx),
+            Some(PickerKey::Close) => self.close_compose_emoji(None, cx),
+            None => {
+                self.diff_list(cx).remeasure();
+                cx.notify()
+            }
+        }
     }
 
     pub(super) fn toggle_preview(&mut self, cx: &mut Context<Self>) {
@@ -1090,6 +1146,22 @@ impl Workspace {
                 ComposeAct::Dropped(paths) => this.attach_files(paths, cx),
                 ComposeAct::Unattach(id) => this.unattach(id, cx),
                 ComposeAct::Retry(id) => this.retry_attachment(id, cx),
+                ComposeAct::Emoji => this.open_compose_emoji(cx),
+                ComposeAct::PutEmoji(name) => this.close_compose_emoji(Some(&name), cx),
+                // Pressed elsewhere: the keys go where the press does.
+                ComposeAct::CloseEmoji => {
+                    if let Some(c) = this.compose.as_mut() {
+                        c.emoji = None;
+                        cx.notify();
+                    }
+                }
+                ComposeAct::EmojiPicker(edit) => {
+                    if let Some(p) = this.compose.as_mut().and_then(|c| c.emoji.as_mut()) {
+                        edit(p);
+                        this.diff_list(cx).remeasure();
+                        cx.notify();
+                    }
+                }
             })
             .ok();
         });
@@ -1100,7 +1172,7 @@ impl Workspace {
 /// The folded helpers' menu: `tools`, then Preview, on when `preview`.
 fn format_menu(tools: &[Helper], preview: bool) -> Vec<Vec<super::menu::Entry>> {
     use super::menu::{Act, Entry};
-    let helpers: Vec<Entry> = tools
+    let mut helpers: Vec<Entry> = tools
         .iter()
         .map(|&h| {
             let (_, tip) = markdown::helper_look(h);
@@ -1109,6 +1181,15 @@ fn format_menu(tools: &[Helper], preview: bool) -> Vec<Vec<super::menu::Entry>> 
             Entry::new(name, Act::new(move |this, _, cx| this.apply_helper(h, cx))).key(key)
         })
         .collect();
+    // ☺ after List, as along the box (#240).
+    let at = (tools.iter().position(|&h| h == Helper::Bullet)).map_or(helpers.len(), |at| at + 1);
+    let emoji = Entry::new("Emoji", Act::new(|this, _, cx| this.open_compose_emoji(cx)));
+    let key = if artoo_core::platform::MAC {
+        "⌃⌘E"
+    } else {
+        ""
+    };
+    helpers.insert(at, emoji.key(key));
     vec![
         helpers,
         vec![

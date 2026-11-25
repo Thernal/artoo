@@ -1,49 +1,30 @@
 //! Reactions on a request's notes (Design #9 B, `docs/specs/reactions.md`): the map of them by note id; pills
 //! under a note once it has some (yours outlined, hover names who, a click toggles yours); hovering a note
 //! floats a bar on its corner — your five most used, ☺+ for the rest, 🤖 a note for your agent (#50 G), Reply
-//! with the author already mentioned. ☺+ opens a popup under the bar (#91): a search over every emoji GitLab
-//! has, your five first, then GitLab's groups; arrows and ↵, `:name:` at its foot; `:name:` typed whole reacts
-//! with a name the list lacks (a custom one). On GitHub only its eight, no search. The five are counted on this
-//! Mac (`reactions-used.txt`). What a click asks of the tab goes through `Acts`.
+//! with the author already mentioned. ☺+ opens the emoji picker under the bar (#91,
+//! `artoo_ui_kit::emoji_picker`). The five are counted on this Mac (`reactions-used.txt`). What a click asks of
+//! the tab goes through `Acts`.
 
 use crate::requests::{Act, Acts, Event, Requests};
 use crate::waiting::FADED;
-use artoo_core::textedit::TextEdit;
 use artoo_core::{emoji, storage};
 use artoo_hosts_api::{Award, Host};
+use artoo_ui_kit::emoji_picker::{Draw, Picker, PickerKey, USED, frequent};
 use artoo_ui_kit::hover::{self, Tip, TipOwned};
-use artoo_ui_kit::input::{self, Look};
 use artoo_ui_kit::motion::{self, Marks};
 use artoo_ui_kit::{ROW_RADIUS, px, theme};
-use gpui::{AnyElement, App, Context, Rgba, UniformListScrollHandle, WeakEntity, div, prelude::*};
-use std::borrow::Cow;
-use std::cell::Cell;
+use gpui::{AnyElement, App, Context, Rgba, WeakEntity, div, prelude::*};
 use std::collections::HashMap;
-use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
 /// Keeps the map type named once.
 pub type Awards = HashMap<u64, Vec<Award>>;
 
-const USED: &str = "reactions-used.txt";
-/// ☺+'s cells to a row, and a row's height.
-const COLS: usize = 12;
-const ROW: f32 = 30.;
-/// How many rows show before it scrolls.
-const ROWS_SHOWN: usize = 8;
-/// Until there is a history: the five most people reach for.
-const DEFAULT_FIVE: [&str; 5] = ["thumbsup", "heart", "tada", "eyes", "rocket"];
-
-/// ☺+ open on a note: its search with its caret and sideways offset, the emoji picked, the list's
-/// scroll.
+/// ☺+ open on a note.
 pub struct Grid {
     pub note: u64,
-    query: String,
-    at: usize,
-    scroll: UniformListScrollHandle,
-    edit: TextEdit,
-    offset: Rc<Cell<f32>>,
+    picker: Picker,
 }
 
 pub use artoo_requests_api::GridKey;
@@ -152,11 +133,7 @@ impl Requests {
     pub fn open_reaction_grid(&mut self, note: u64) {
         self.reaction_grid = Some(Grid {
             note,
-            query: String::new(),
-            at: 0,
-            scroll: UniformListScrollHandle::new(),
-            edit: TextEdit::default(),
-            offset: Rc::new(Cell::new(0.)),
+            picker: Picker::default(),
         });
     }
 
@@ -170,8 +147,7 @@ impl Requests {
         self.reaction_grid.as_ref().map(|g| g.note)
     }
 
-    /// Keys while ☺+ is open: typing searches, arrows move (↑ ↓ by row, across the groups); ↵
-    /// asks to react with the one picked, esc to close (`GridKey`).
+    /// Keys while ☺+ is open (`Picker::key`): ↵ asks to react with the one picked, esc to close (`GridKey`).
     pub fn reaction_key(
         &mut self,
         event: &gpui::KeyDownEvent,
@@ -179,39 +155,10 @@ impl Requests {
         cx: &mut App,
     ) -> Option<GridKey> {
         let g = self.reaction_grid.as_mut()?;
-        let key = &event.keystroke;
-        let (names, rows) = grid(&g.query, github);
-        let at = g.at.min(names.len().saturating_sub(1));
-        let moved = match key.key.as_str() {
-            "left" => Some(at.saturating_sub(1)),
-            "right" => Some((at + 1).min(names.len().saturating_sub(1))),
-            "up" => Some(row_step(&rows, at, false)),
-            "down" => Some(row_step(&rows, at, true)),
-            _ => None,
-        };
-        if let Some(to) = moved.filter(|_| key.modifiers.number_of_modifiers() == 0) {
-            g.at = to;
-            if let Some(row) = row_of(&rows, to) {
-                g.scroll.scroll_to_item(row, gpui::ScrollStrategy::Nearest);
-            }
-            return None;
-        }
-        match key.key.as_str() {
-            "escape" => return Some(GridKey::Close),
-            "enter" => return Some(GridKey::React(names.get(at).map(|n| n.to_string()))),
-            _ => {}
-        }
-        if github {
-            return None;
-        }
-        if matches!(
-            input::edit(&mut g.query, &mut g.edit, key, cx),
-            input::Edit::Changed
-        ) {
-            g.at = 0;
-            g.scroll.scroll_to_item(0, gpui::ScrollStrategy::Top);
-        }
-        None
+        Some(match g.picker.key(event, github, cx)? {
+            PickerKey::Pick(name) => GridKey::React(name),
+            PickerKey::Close => GridKey::Close,
+        })
     }
 
     /// Under a note: its reactions as pills, one per emoji, yours outlined.
@@ -323,7 +270,7 @@ impl Requests {
                 .hover(|s| s.bg(theme::hover()))
                 .child(child)
         };
-        let five = five(github);
+        let five = frequent(github);
         let popup = open.then(|| self.reaction_popup(note, github, this, acts.clone()));
         let (grid_acts, reply_acts, agent_acts) = (acts.clone(), acts.clone(), acts.clone());
         Some(
@@ -442,8 +389,7 @@ impl Requests {
         })
     }
 
-    /// ☺+'s popup: the search, the emoji in rows (only those on screen are built), the name of
-    /// the one picked at its foot.
+    /// ☺+'s popup, the kit's picker (`artoo_ui_kit::emoji_picker`).
     fn reaction_popup(
         &self,
         note: u64,
@@ -454,126 +400,24 @@ impl Requests {
         let Some(g) = self.reaction_grid.as_ref() else {
             return div().into_any_element();
         };
-        let (names, rows) = grid(&g.query, github);
-        let at = g.at.min(names.len().saturating_sub(1));
-        let search = (!github).then(|| {
-            div()
-                .mb(px(4.))
-                .px(px(8.))
-                .py(px(4.))
-                .rounded(px(ROW_RADIUS))
-                .border_1()
-                .border_color(theme::focus())
-                .bg(theme::base())
-                .child(search_field(g, this))
-        });
-        let foot = match names.get(at) {
-            Some(name) => hover::cut(
-                "reaction-name",
-                match emoji::get(name) {
-                    Some(_) => format!(":{name}:"),
-                    None => format!(":{name}: — by name, if GitLab has it"),
-                },
-            )
-            .flex_1()
-            .text_color(theme::muted())
-            .into_any_element(),
-            None => div()
-                .flex_1()
-                .child("No emoji by that name")
-                .into_any_element(),
-        };
-        let foot = div()
-            .mt(px(4.))
-            .flex()
-            .gap_3()
-            .text_size(px(11.))
-            .text_color(theme::faint())
-            .child(foot)
-            .child("←↑↓→ · ↵ react · esc");
-        let shown = rows.len().clamp(1, ROWS_SHOWN);
-        let (names, rows) = (Rc::new(names), Rc::new(rows));
-        let close = acts.clone();
-        let list = gpui::uniform_list(
-            ("reaction-rows", note as usize),
-            rows.len(),
-            move |range: Range<usize>, _, _| {
-                range
-                    .map(|r| match &rows[r] {
-                        GridRow::Group(title) => div()
-                            .h(px(ROW))
-                            .px(px(4.))
-                            .flex()
-                            .items_end()
-                            .pb(px(4.))
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child(*title)
-                            .into_any_element(),
-                        GridRow::Cells(cells) => div()
-                            .h(px(ROW))
-                            .flex()
-                            .gap(px(2.))
-                            .children(
-                                cells
-                                    .clone()
-                                    .map(|i| grid_cell(note, i, &names[i], i == at, acts.clone())),
-                            )
-                            .into_any_element(),
-                    })
-                    .collect()
-            },
-        )
-        .track_scroll(&g.scroll)
-        .h(px(shown as f32 * ROW));
-        let popup = div()
-            .id(("reaction-popup", note as usize))
-            .occlude()
-            .p(px(6.))
-            .w(px(COLS as f32 * ROW + 14.))
-            .rounded(px(8.))
-            .border_1()
-            .border_color(theme::island_border())
-            .bg(theme::panel())
-            .shadow_lg()
-            .children(search)
-            .child(list)
-            .child(foot)
-            // A press anywhere else closes it.
-            .on_mouse_down_out(move |_, _, cx| close(Act::CloseGrid(note), cx));
-        // It drops into place as it fades in, as a menu does.
-        motion::appear(
-            popup,
-            ("reaction-popup-coming", note as usize),
-            motion::FAST,
-            |popup, v| popup.opacity(v).mt(px(motion::mix(-4., 0., v))),
-        )
-        .into_any_element()
-    }
-}
-
-/// Your five most used reactions (GitHub: from its eight).
-fn five(github: bool) -> Vec<&'static str> {
-    let mut counts: Vec<(String, usize)> = storage::read(USED)
-        .lines()
-        .filter_map(|l| {
-            let (name, n) = l.split_once(' ')?;
-            Some((name.to_owned(), n.parse().ok()?))
+        let (react, close) = (acts.clone(), acts);
+        g.picker.render(Draw {
+            id: note,
+            github,
+            keys: "←↑↓→ · ↵ react · esc",
+            pick: Rc::new(move |name, cx| react(Act::React { note, name }, cx)),
+            close: Rc::new(move |cx| close(Act::CloseGrid(note), cx)),
+            change: Rc::new(move |change, cx| {
+                this.update(cx, |rq, cx| {
+                    if let Some(g) = rq.reaction_grid.as_mut() {
+                        change(&mut g.picker);
+                        cx.notify();
+                    }
+                })
+                .ok();
+            }),
         })
-        .collect();
-    counts.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-    let mut out: Vec<&'static str> = counts
-        .iter()
-        .filter_map(|(name, _)| emoji::all().iter().find(|e| e.name == name).map(|e| e.name))
-        .filter(|n| !github || emoji::github_name(n).is_some())
-        .collect();
-    for d in DEFAULT_FIVE {
-        if !out.contains(&d) {
-            out.push(d);
-        }
     }
-    out.truncate(5);
-    out
 }
 
 /// Counts reaction `name` used once more, on this Mac.
@@ -594,199 +438,4 @@ fn count_use(name: &str) {
         USED,
         lines.iter().map(|(n, c)| format!("{n} {c}\n")).collect(),
     );
-}
-
-/// What ☺+ offers, and its rows: your five then GitLab's groups, each under its name; searching,
-/// the matches, and `:name:` typed whole that the list lacks as a cell of its own. GitHub: its
-/// eight.
-fn grid(query: &str, github: bool) -> (Vec<Cow<'static, str>>, Vec<GridRow>) {
-    if github {
-        let names: Vec<_> = emoji::GITHUB
-            .iter()
-            .map(|(_, n)| Cow::Borrowed(*n))
-            .collect();
-        let rows = cell_rows(0..names.len());
-        return (names, rows);
-    }
-    let typed = query.trim();
-    if !typed.is_empty() {
-        let mut names: Vec<Cow<'static, str>> = emoji::find(typed, usize::MAX)
-            .into_iter()
-            .map(|(n, _)| Cow::Borrowed(n))
-            .collect();
-        if let Some(name) = typed
-            .strip_prefix(':')
-            .and_then(|t| t.strip_suffix(':'))
-            .filter(|n| emoji::could_be_name(n) && emoji::get(n).is_none())
-        {
-            names.push(Cow::Owned(name.to_owned()));
-        }
-        let rows = cell_rows(0..names.len());
-        return (names, rows);
-    }
-    let mut names: Vec<Cow<'static, str>> = Vec::new();
-    let mut rows = Vec::new();
-    let mut group = |title: &'static str, of: &mut dyn Iterator<Item = &'static str>| {
-        let from = names.len();
-        names.extend(of.map(Cow::Borrowed));
-        rows.push(GridRow::Group(title));
-        rows.extend(cell_rows(from..names.len()));
-    };
-    group("Frequently used", &mut five(github).into_iter());
-    let all = emoji::all();
-    let mut at = 0;
-    while let Some(first) = all[at..].iter().position(|e| !e.group.is_empty()) {
-        let title = all[at + first].group;
-        let end = all[at + first..]
-            .iter()
-            .position(|e| e.group != title && !e.group.is_empty())
-            .map_or(all.len(), |n| at + first + n);
-        group(
-            title,
-            &mut all[at + first..end]
-                .iter()
-                .filter(|e| !e.group.is_empty())
-                .map(|e| e.name),
-        );
-        at = end;
-    }
-    (names, rows)
-}
-
-/// ☺+'s search: its text with the caret, a click placing it, ⇧ or a drag selecting, a double
-/// click taking the word.
-fn search_field(g: &Grid, this: WeakEntity<Requests>) -> gpui::Div {
-    let look = Look::default();
-    input::field(
-        &g.query,
-        true,
-        "Search emoji, or type :name:",
-        &look,
-        || {
-            let shown = g.query.clone();
-            let place: input::Place = Rc::new(move |at, shift, clicks, drag, lower, cx| {
-                this.update(cx, |rq, cx| {
-                    if let Some(g) = rq.reaction_grid.as_mut() {
-                        input::sync(&shown, &mut g.edit);
-                        g.edit.click(at, clicks, shift || drag);
-                        if clicks == 1 && !shift && !drag {
-                            g.edit.set_downstream(lower);
-                        }
-                        cx.notify();
-                    }
-                })
-                .ok();
-            });
-            input::text_body(
-                &g.query,
-                &g.edit,
-                look.clone(),
-                g.offset.clone(),
-                Some(place),
-            )
-        },
-    )
-}
-
-/// One of ☺+'s rows: a group's name, or up to `COLS` emoji by their place in the list.
-#[derive(Clone)]
-enum GridRow {
-    Group(&'static str),
-    Cells(Range<usize>),
-}
-
-fn cell_rows(of: Range<usize>) -> Vec<GridRow> {
-    of.clone()
-        .step_by(COLS)
-        .map(|from| GridRow::Cells(from..(from + COLS).min(of.end)))
-        .collect()
-}
-
-/// The row that holds emoji `at`.
-fn row_of(rows: &[GridRow], at: usize) -> Option<usize> {
-    rows.iter()
-        .position(|r| matches!(r, GridRow::Cells(c) if c.contains(&at)))
-}
-
-/// ↑ or ↓ from emoji `at`: the same column of the row of emoji before or after (over a group's
-/// name), the nearest when that row is shorter; at the first or last row it stays.
-fn row_step(rows: &[GridRow], at: usize, down: bool) -> usize {
-    let Some(row) = row_of(rows, at) else {
-        return at;
-    };
-    let GridRow::Cells(here) = &rows[row] else {
-        return at;
-    };
-    let col = at - here.start;
-    let mut others: Box<dyn Iterator<Item = &GridRow>> = if down {
-        Box::new(rows[row + 1..].iter())
-    } else {
-        Box::new(rows[..row].iter().rev())
-    };
-    match others.find_map(|r| match r {
-        GridRow::Cells(c) => Some(c.clone()),
-        GridRow::Group(_) => None,
-    }) {
-        Some(there) => (there.start + col).min(there.end - 1),
-        None => at,
-    }
-}
-
-/// An emoji of ☺+: a click reacts with it. One the list lacks (typed as `:name:`) shows its name.
-fn grid_cell(note: u64, i: usize, name: &str, picked: bool, acts: Acts) -> AnyElement {
-    let tip: gpui::SharedString = format!(":{name}:").into();
-    let react = name.to_owned();
-    let glyph = emoji::get(name);
-    div()
-        .id(("grid-react", i))
-        .h(px(28.))
-        .min_w(px(28.))
-        .when(glyph.is_none(), |s| s.px(px(6.)).text_size(px(12.)))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded(px(ROW_RADIUS))
-        .when(picked, |s| s.bg(theme::selected()))
-        .cursor_pointer()
-        .hover(|s| s.bg(theme::hover()))
-        .child(match glyph {
-            Some(glyph) => glyph.to_owned(),
-            None => format!(":{name}:"),
-        })
-        .tooltip_show_delay(hover::LONG)
-        .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone())).into())
-        .on_click(move |_, _, cx| {
-            acts(
-                Act::React {
-                    note,
-                    name: react.clone(),
-                },
-                cx,
-            )
-        })
-        .into_any_element()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn up_and_down_keep_the_column_across_groups() {
-        // A group of 5, then one of 14: rows 0..5 · 5..17 · 17..19, names between.
-        let mut rows = vec![GridRow::Group("a")];
-        rows.extend(cell_rows(0..5));
-        rows.push(GridRow::Group("b"));
-        rows.extend(cell_rows(5..19));
-        assert_eq!(row_of(&rows, 16), Some(3));
-        // Down from the short row's fourth: the next group's fourth.
-        assert_eq!(row_step(&rows, 3, true), 8);
-        // Down into a shorter row: its last.
-        assert_eq!(row_step(&rows, 15, true), 18);
-        // Up over a group's name: the short row, as far as it goes.
-        assert_eq!(row_step(&rows, 11, false), 4);
-        // The first and the last row stay.
-        assert_eq!(row_step(&rows, 2, false), 2);
-        assert_eq!(row_step(&rows, 18, true), 18);
-    }
 }

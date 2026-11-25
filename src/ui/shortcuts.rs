@@ -67,6 +67,9 @@ const GROUPS: &[Group] = &[
             ("⇧⌘A", AGENTS_ROW),
             ("⌘B ⌘I ⌘⇧X ⌘⇧E ⌘⇧K", "bold, italic, strike, code, link"),
             ("⌘⇧P in the box", "preview the markdown"),
+            // macOS alone: elsewhere those keys are ⇧⌘E's (code).
+            #[cfg(target_os = "macos")]
+            ("⌃⌘E in the box", "an emoji (☺)"),
         ],
     ),
     (
