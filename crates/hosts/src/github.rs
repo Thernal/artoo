@@ -1397,6 +1397,8 @@ pub fn parse_merge_state(pull: &Value, repo: &Value) -> artoo_hosts_api::MergeSt
         deletes_itself: deletes,
         methods,
         node: s(&pull["node_id"]),
+        rebasing: false,
+        merge_error: String::new(),
     }
 }
 

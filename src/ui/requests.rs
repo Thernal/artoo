@@ -123,6 +123,7 @@ impl Workspace {
             }
             Event::Awards => self.refresh_rows(cx),
             Event::Merged { iid, merge } => self.merged(*iid, merge, cx),
+            Event::Rebased(iid) => self.rebased(*iid, cx),
             Event::Created { iid, source } => self.created(*iid, source, cx),
             Event::Drafts => {
                 if let Some(branches) = self.branches() {
@@ -341,7 +342,7 @@ impl Workspace {
 
     /// Reads the pushes GitLab kept for request `iid` (`Requests::load_versions`); they become the
     /// versions timeline once the request's diff is open.
-    fn load_request_versions(&mut self, iid: u64, cx: &mut Context<Self>) {
+    pub(super) fn load_request_versions(&mut self, iid: u64, cx: &mut Context<Self>) {
         if let Some(requests) = self.requests_api() {
             requests.load_versions(iid, cx);
         }

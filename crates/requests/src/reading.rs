@@ -675,6 +675,64 @@ impl Requests {
         }));
     }
 
+    /// Rebases the open request on GitLab (#244): GitLab answers at once and rebases in the background, so the bar says
+    /// Rebasing… while the request, read again every `REBASE_EVERY`, says it is; then where merging stands is shown and
+    /// `Event::Rebased` has the tab read its commits, or GitLab's reason it failed comes as `Event::Failed`.
+    pub fn run_rebase(&mut self, host: Arc<dyn Host>, cx: &mut Context<Self>) {
+        use crate::merge::{REBASE_EVERY, REBASE_READS, Rebased, rebased};
+        let Some(iid) = self.current else {
+            return;
+        };
+        self.merge_busy = Some(crate::bar::REBASING);
+        self.merge_task = Some(cx.spawn(async move |this, cx| {
+            let calling = host.clone();
+            let mut result = cx
+                .background_executor()
+                .spawn(async move { calling.rebase(iid).map(|_| None) })
+                .await;
+            for _ in 0..REBASE_READS {
+                if !matches!(result, Ok(None) | Ok(Some((_, Rebased::Waiting)))) {
+                    break;
+                }
+                cx.background_executor().timer(REBASE_EVERY).await;
+                let reading = host.clone();
+                result = cx
+                    .background_executor()
+                    .spawn(async move { reading.merge_state(iid) })
+                    .await
+                    .map(|state| {
+                        let now = rebased(&state);
+                        Some((state, now))
+                    });
+            }
+            this.update(cx, |rq, cx| {
+                if rq.current != Some(iid) {
+                    return;
+                }
+                rq.merge_busy = None;
+                match result {
+                    Ok(Some((state, now))) => {
+                        rq.merge = Some(state);
+                        match now {
+                            Rebased::Failed(why) => cx.emit(Event::Failed(why)),
+                            Rebased::Done => cx.emit(Event::Rebased(iid)),
+                            // Still at it after every read: the page says so (`MergeState::rebasing`).
+                            Rebased::Waiting => {}
+                        }
+                    }
+                    Ok(None) => rq.reload_merge(host, cx),
+                    Err(e) => {
+                        cx.emit(Event::Failed(format!("{e:#}")));
+                        rq.reload_merge(host, cx);
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        }));
+        cx.notify();
+    }
+
     /// A call about merging the open request, `busy` said in Merge's place until it answers; then
     /// where it stands is read again. A refusal comes to the tab as `Event::Failed`.
     pub fn merge_call(

@@ -315,7 +315,8 @@ pub trait Merging: Send + Sync {
     /// Request `iid` no longer merges when its pipeline succeeds; `node` is GitHub's id of it.
     fn cancel_auto_merge(&self, iid: u64, node: &str) -> Result<()>;
 
-    /// GitLab puts the request's commits on top of its target; the pipeline runs again.
+    /// GitLab puts the request's commits on top of its target, in the background (`MergeState::rebasing` until it is
+    /// done, #244); the pipeline runs again.
     fn rebase(&self, iid: u64) -> Result<()>;
 }
 

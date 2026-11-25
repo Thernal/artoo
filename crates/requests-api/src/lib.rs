@@ -280,6 +280,8 @@ pub enum Event {
     Awards,
     /// The host merged request `iid`, or set it to merge when the pipeline succeeds (`merge`).
     Merged { iid: u64, merge: Merge },
+    /// GitLab finished rebasing request `iid` (#244): its commits and versions are read again.
+    Rebased(u64),
     /// The host created request `iid` from branch `source`.
     Created { iid: u64, source: String },
     /// The kept drafts of new requests changed (#222): Branches' group reads them again.

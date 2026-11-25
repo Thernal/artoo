@@ -299,6 +299,10 @@ pub struct MergeState {
     pub methods: Vec<Method>,
     /// GitHub's node id of the pull request, for auto-merge's mutations.
     pub node: String,
+    /// GitLab is rebasing it in the background (`rebase_in_progress`, #244).
+    pub rebasing: bool,
+    /// Why GitLab's last merge or rebase of it failed (`merge_error`): a rebase's conflict.
+    pub merge_error: String,
 }
 
 /// Squashing the request's commits into one, as the project allows it (GitLab's `squash_option`).

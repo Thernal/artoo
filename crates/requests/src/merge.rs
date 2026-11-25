@@ -145,6 +145,17 @@ pub fn stand(host: &MergeState, known: &Known) -> Stand {
             (word, _) => word.to_owned(),
         };
         block("Pipeline", what.clone(), Fix::Page(p.url.clone()), what);
+    } else if !host.github && status == "ci_must_pass" && !running(known.pipeline) {
+        // None passed for this head: a rebase without a pipeline (#245), or none ran yet.
+        let fix = known
+            .pipeline
+            .map_or_else(page, |p| Fix::Page(p.url.clone()));
+        block(
+            "Pipeline",
+            "none passed for this head: run one".into(),
+            fix,
+            "no pipeline".into(),
+        );
     }
     if host.conflicts || status == "conflict" || (host.github && status == "dirty") {
         block(
@@ -206,6 +217,32 @@ pub fn stand(host: &MergeState, known: &Known) -> Stand {
         return Stand::Running;
     }
     Stand::Ready
+}
+
+/// Where a rebase GitLab took stands, by the request read again (#244).
+#[derive(Debug, PartialEq)]
+pub enum Rebased {
+    /// GitLab still rebases in the background.
+    Waiting,
+    Done,
+    /// It failed, and GitLab's reason: a conflict.
+    Failed(String),
+}
+
+/// How often a rebase is looked at while GitLab is on it, and for how long at most (#244).
+pub const REBASE_EVERY: std::time::Duration = std::time::Duration::from_millis(1500);
+pub const REBASE_READS: u32 = 80;
+
+/// What request `state` says of the rebase asked for it. GitLab clears `merge_error` as it starts one, so one there
+/// once it is done is this rebase's.
+pub fn rebased(state: &MergeState) -> Rebased {
+    if state.rebasing {
+        return Rebased::Waiting;
+    }
+    match state.merge_error.trim() {
+        "" => Rebased::Done,
+        why => Rebased::Failed(format!("GitLab could not rebase: {why}")),
+    }
 }
 
 /// The host refused because the branch moved on since the head that was sent.
@@ -388,5 +425,48 @@ mod tests {
             refusal("Branch cannot be merged"),
             "Branch cannot be merged"
         );
+    }
+
+    #[test]
+    fn a_rebase_waits_while_gitlab_is_on_it_and_ends_done_or_with_its_reason() {
+        let on = MergeState {
+            rebasing: true,
+            ..gitlab("checking")
+        };
+        assert_eq!(rebased(&on), Rebased::Waiting);
+        assert_eq!(rebased(&gitlab("mergeable")), Rebased::Done);
+        let failed = MergeState {
+            merge_error: "Rebase failed: resolve the conflicts locally".into(),
+            ..gitlab("need_rebase")
+        };
+        assert_eq!(
+            rebased(&failed),
+            Rebased::Failed(
+                "GitLab could not rebase: Rebase failed: resolve the conflicts locally".into()
+            )
+        );
+    }
+
+    #[test]
+    fn a_head_no_pipeline_passed_for_is_in_the_way_when_the_project_wants_one() {
+        // After a rebase without a pipeline (#245): GitLab says ci_must_pass, and nothing ran for the new head.
+        let must = MergeState {
+            pipeline_must_pass: true,
+            ..gitlab("ci_must_pass")
+        };
+        let Stand::InTheWay(blocks) = stand(&must, &known(None, None)) else {
+            panic!("the pipeline is in the way");
+        };
+        assert_eq!(
+            (blocks[0].what, blocks[0].short.as_str()),
+            ("Pipeline", "no pipeline")
+        );
+        // A failed one says its job, once.
+        let failed = pipeline("failed");
+        let Stand::InTheWay(blocks) = stand(&must, &known(None, Some(&failed))) else {
+            panic!("the failed pipeline is in the way");
+        };
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].detail, "lint failed");
     }
 }

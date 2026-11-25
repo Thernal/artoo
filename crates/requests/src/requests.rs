@@ -966,9 +966,7 @@ impl artoo_requests_api::Requests for Handle {
     }
 
     fn rebase(&self, cx: &mut App) {
-        self.with_host(cx, |rq, host, cx| {
-            rq.merge_call("Rebasing…", host, |host, iid, _| host.rebase(iid), cx)
-        });
+        self.with_host(cx, |rq, host, cx| rq.run_rebase(host, cx));
     }
 
     fn cancel_auto_merge(&self, cx: &mut App) {

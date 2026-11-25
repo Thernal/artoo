@@ -931,13 +931,22 @@ fn send_with(
     let body = answer.text();
     let body = body.as_str();
     match answer.status {
-        200 | 201 => {
-            let value: Value = serde_json::from_str(body)?;
-            // The people in it, for their pictures.
-            crate::avatars::harvest(&value);
-            Ok(value)
+        // Every 2xx is done or taken: 202 is a rebase GitLab goes on with in the background (#244). Some answer
+        // with nothing, or with what is not JSON.
+        _ if answer.ok() => {
+            if body.trim().is_empty() {
+                return Ok(Value::Null);
+            }
+            match serde_json::from_str::<Value>(body) {
+                Ok(value) => {
+                    // The people in it, for their pictures.
+                    crate::avatars::harvest(&value);
+                    Ok(value)
+                }
+                Err(_) if !matches!(answer.status, 200 | 201) => Ok(Value::Null),
+                Err(e) => Err(e.into()),
+            }
         }
-        204 => Ok(Value::Null),
         401 | 403 => bail!(REFUSED),
         404 => bail!("GitLab does not know this project (or the token cannot see it)"),
         400 | 422 => bail!("GitLab would not take that: {}", message(body)),
@@ -1466,7 +1475,9 @@ pub fn merge_state(remote: &WebRemote, iid: u64) -> Result<MergeState> {
             (
                 get(
                     remote,
-                    &format!("merge_requests/{iid}?include_diverged_commits_count=true"),
+                    &format!(
+                        "merge_requests/{iid}?include_diverged_commits_count=true&include_rebase_in_progress=true"
+                    ),
                 )?,
                 get(remote, &format!("/projects/{project}"))?,
             )
@@ -1518,6 +1529,8 @@ pub fn parse_merge_state(m: &Value, project: &Value) -> MergeState {
         deletes_itself: false,
         methods: Vec::new(),
         node: String::new(),
+        rebasing: flag(m, "rebase_in_progress"),
+        merge_error: text(m, "merge_error"),
     }
 }
 
@@ -1569,7 +1582,8 @@ pub fn cancel_auto_merge(remote: &WebRemote, iid: u64) -> Result<()> {
     Ok(())
 }
 
-/// GitLab puts the request's commits on top of its target; the pipeline runs again.
+/// GitLab puts the request's commits on top of its target, in the background: it answers 202 and the request says
+/// `rebase_in_progress` until it is done (#244). The pipeline runs again.
 pub fn rebase(remote: &WebRemote, iid: u64) -> Result<()> {
     if record(format!("rebase {iid}"))? {
         return Ok(());
@@ -1633,7 +1647,7 @@ pub fn upload_file(
     let body = answer.text();
     let body = body.as_str();
     match answer.status {
-        200 | 201 => {
+        _ if answer.ok() => {
             let value: Value = serde_json::from_str(body)?;
             let markdown = text(&value, "markdown");
             if markdown.is_empty() {

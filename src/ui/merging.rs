@@ -149,6 +149,15 @@ impl Workspace {
         }
     }
 
+    /// GitLab finished rebasing request `iid` (#244): the page is read again in place, and its versions, whose new
+    /// head is fetched and compared (`follow_host_sides`).
+    pub(super) fn rebased(&mut self, iid: u64, cx: &mut Context<Self>) {
+        if let Some(requests) = self.requests_api() {
+            requests.read_open(iid, cx);
+        }
+        self.load_request_versions(iid, cx);
+    }
+
     /// Cancel: it no longer merges when the pipeline succeeds.
     pub(super) fn cancel_auto_merge(&mut self, cx: &mut Context<Self>) {
         if let Some(requests) = self.requests_api() {

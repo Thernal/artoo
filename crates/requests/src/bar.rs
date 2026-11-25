@@ -13,6 +13,8 @@ use gpui::{AnyElement, ClickEvent, Point, SharedString, div, prelude::*};
 
 /// Merge's word while the host merges; its box is the same as the button's and `Merged`'s (round 41).
 pub(crate) const MERGING: &str = "Merging…";
+/// What the bar says while GitLab rebases the request (#244), asked here or elsewhere.
+pub(crate) const REBASING: &str = "Rebasing…";
 const MERGE_BOX: f32 = 118.;
 
 impl Requests {
@@ -212,7 +214,8 @@ impl Requests {
                 .text_color(color)
                 .child(text)
         };
-        if let Some(busy) = self.merge_busy {
+        let rebasing = (self.merge.as_ref()).is_some_and(|m| m.rebasing);
+        if let Some(busy) = self.merge_busy.or(rebasing.then_some(REBASING)) {
             return Some(
                 word(busy.to_owned(), theme::muted())
                     .opacity(FADED)
