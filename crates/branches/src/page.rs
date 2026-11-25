@@ -12,8 +12,8 @@ use crate::list::{self, Beside, Card, ListLook};
 use crate::overview::CommitOverview;
 use crate::panel::Panel;
 use artoo_branches_api::{
-    BranchCommitRoute, BranchCommitsRoute, BranchRoute, Branches, CompareRoute, VersionsRoute,
-    WorkingTreeRoute,
+    BranchCommitRoute, BranchCommitsRoute, BranchRoute, BranchRow, Branches, CompareRoute,
+    VersionsRoute, WorkingTreeRoute,
 };
 use artoo_core::route::{Place, Route};
 use artoo_requests_api::Requests;
@@ -24,8 +24,12 @@ use artoo_shell_api::{
 use artoo_ui_kit::format::plural;
 use artoo_ui_kit::room::Widths;
 use artoo_ui_kit::{px, theme};
-use gpui::{AnyElement, App, Context, Entity, Render, Window, div, prelude::*};
+use gpui::{
+    AnyElement, App, Context, Entity, ListAlignment, ListState, Render, Window, div, list,
+    prelude::*,
+};
 use serde::{Deserialize, Serialize};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// Branches' own page in one tab.
@@ -34,6 +38,11 @@ pub struct RootPage {
     frame: Rc<dyn Frame>,
     /// The list's width as last drawn: the room its rows have (#79).
     widths: Widths,
+    /// The list's lines as last given to its virtual list, and what it scrolls (report 8).
+    shown: RefCell<Vec<list::Item>>,
+    scroll: ListState,
+    /// The row last scrolled into view.
+    revealed: Cell<Option<BranchRow>>,
 }
 
 /// Branches' pages in a tab: their own page, the list; a branch's, a comparison's, the working tree's, `panel`
@@ -52,6 +61,9 @@ pub fn pages(
             history,
             frame,
             widths: Widths::default(),
+            shown: RefCell::default(),
+            scroll: ListState::new(0, ListAlignment::Top, px(400.)),
+            revealed: Cell::new(None),
         }
     });
     Pages {
@@ -156,31 +168,74 @@ impl RootPage {
         let services = self.frame.services();
         let filter = self.frame.filter(cx);
         let acts = services.get::<Acts>().unwrap_or_else(|| Rc::new(|_, _| {}));
-        let (rows, preview) = {
-            let h = self.history.read(cx);
-            let rows = h.rows(&filter);
-            let picked = h
-                .roots
-                .picked
-                .filter(|r| rows.contains(r))
-                .or_else(|| h.first_row().filter(|r| rows.contains(r)))
-                .or(rows.first().copied());
+        let h = self.history.read(cx);
+        let rows = h.rows(&filter);
+        let picked = h
+            .roots
+            .picked
+            .filter(|r| rows.contains(r))
+            .or_else(|| h.first_row().filter(|r| rows.contains(r)))
+            .or(rows.first().copied());
+        let room = self.widths.room("branches");
+        let editor = services
+            .get::<artoo_branches_api::EditorName>()
+            .and_then(|name| name.0.get())
+            .map(str::to_owned);
+        let preview = {
             let beside = |ix: usize| beside(h, ix, &services, cx);
             let look = ListLook {
-                room: self.widths.room("branches"),
+                room,
                 changes: h.wt.count,
                 filter: filter.trim(),
                 picked,
-                editor: services
-                    .get::<artoo_branches_api::EditorName>()
-                    .and_then(|name| name.0.get()),
+                editor: editor.as_deref(),
                 beside: &beside,
             };
-            (
-                list::rows(h, &rows, &look, &acts),
-                list::preview(h, &look, &acts),
-            )
+            list::preview(h, &look, &acts)
         };
+        // The lines are built from the data each frame, but only the ones on screen are drawn: the virtual list
+        // keeps its scroll and measures through the lines that changed alone (report 8).
+        let items = list::items(h, &rows, filter.trim());
+        {
+            let mut shown = self.shown.borrow_mut();
+            if *shown != items {
+                let (old, new) = list::changed(&shown, &items);
+                self.scroll.splice(old, new);
+                *shown = items.clone();
+            }
+        }
+        // The row picked scrolls into view once, as it is picked (keys move it).
+        if self.revealed.get() != picked {
+            self.revealed.set(picked);
+            let at = picked.and_then(|p| {
+                items
+                    .iter()
+                    .position(|i| matches!(i, list::Item::Row { row, .. } if *row == p))
+            });
+            if let Some(at) = at {
+                self.scroll.scroll_to_reveal_item(at);
+            }
+        }
+        let (history, changes, filter) =
+            (self.history.clone(), h.wt.count, filter.trim().to_owned());
+        let (draw_acts, draw_services) = (acts.clone(), services.clone());
+        let rows = list(self.scroll.clone(), move |ix, _, cx| {
+            let Some(item) = items.get(ix) else {
+                return div().into_any_element();
+            };
+            let h = history.read(cx);
+            let beside = |ix: usize| beside(h, ix, &draw_services, cx);
+            let look = ListLook {
+                room,
+                changes,
+                filter: &filter,
+                picked,
+                editor: editor.as_deref(),
+                beside: &beside,
+            };
+            list::draw(h, item, &look, &draw_acts)
+        })
+        .size_full();
         let list = div()
             .relative()
             .flex_1()
@@ -188,15 +243,7 @@ impl RootPage {
             .flex()
             .flex_col()
             .child(self.widths.measure("branches"))
-            .child(
-                div()
-                    .id("branches")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .pb(px(6.))
-                    .children(rows),
-            )
+            .child(div().id("branches").flex_1().min_h_0().child(rows))
             .into_any_element();
         let preview = div()
             .id("branch-preview")

@@ -45,54 +45,118 @@ pub struct ListLook<'a> {
     pub beside: &'a dyn Fn(usize) -> Beside,
 }
 
-/// The list's rows, `rows` in the order it shows them: under a filter the matching branches, else the working tree,
-/// the local branches and each remote under its name.
-pub fn rows(h: &History, rows: &[BranchRow], look: &ListLook, acts: &Acts) -> Vec<AnyElement> {
-    let mut list: Vec<AnyElement> = Vec::new();
-    let row = |row: BranchRow, flat: bool| {
-        branch_row(h, look, row, look.picked == Some(row), flat, acts).into_any_element()
-    };
-    if !look.filter.is_empty() {
+/// One line of the list, as the virtual list holds it: what is drawn is only the lines on screen (report 8).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Item {
+    Heading(String),
+    Row {
+        row: BranchRow,
+        flat: bool,
+    },
+    /// A remote's name over its branches: its chevron turns as they fold.
+    Remote {
+        remote: String,
+        count: usize,
+        open: bool,
+    },
+    /// A remote's branches while they fold in or out (#110): one line, drawn as the fold moves.
+    Fold {
+        remote: String,
+        open: bool,
+    },
+    NoMatch(String),
+    /// The room under the last row.
+    Tail,
+}
+
+/// The list's lines, `rows` in the order it shows them: under a filter the matching branches, else the working
+/// tree, the local branches and each remote under its name. Built from the data, not drawn: a remote's branches
+/// are lines of their own while it is open and still.
+pub fn items(h: &History, rows: &[BranchRow], filter: &str) -> Vec<Item> {
+    let row = |row: BranchRow, flat: bool| Item::Row { row, flat };
+    let mut list: Vec<Item> = Vec::new();
+    if !filter.is_empty() {
         list.extend(rows.iter().map(|r| row(*r, true)));
         if rows.is_empty() {
-            list.push(
-                div()
-                    .px(px(16.))
-                    .py(px(10.))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .child(format!("No branch matches “{}”.", look.filter))
-                    .into_any_element(),
-            );
+            list.push(Item::NoMatch(filter.to_owned()));
         }
+        list.push(Item::Tail);
         return list;
     }
-    list.push(heading("Working tree".to_owned()).into_any_element());
+    list.push(Item::Heading("Working tree".to_owned()));
     list.push(row(BranchRow::WorkingTree, false));
     // The new requests kept as drafts: a group of their own between the working tree and the branches (#222).
     if !h.roots.drafts.is_empty() {
-        list.push(heading(format!("Request drafts {}", h.roots.drafts.len())).into_any_element());
+        list.push(Item::Heading(format!(
+            "Request drafts {}",
+            h.roots.drafts.len()
+        )));
         list.extend((0..h.roots.drafts.len()).map(|ix| row(BranchRow::Draft(ix), false)));
     }
-    let local: Vec<usize> = h
-        .branches
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| b.kind == RefKind::Local)
-        .map(|(ix, _)| ix)
-        .collect();
-    list.push(heading(format!("Local {}", local.len())).into_any_element());
+    let local = h.branches.iter().filter(|b| b.kind == RefKind::Local);
+    list.push(Item::Heading(format!("Local {}", local.clone().count())));
     list.extend(
-        local
-            .into_iter()
-            .map(|ix| row(BranchRow::Branch(ix), false)),
+        h.branches
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.kind == RefKind::Local)
+            .map(|(ix, _)| row(BranchRow::Branch(ix), false)),
     );
     for (remote, ixs) in h.remote_branches() {
         let open = h.roots.open_remotes.contains(&remote);
-        let key = remote_key(&remote);
-        let moving = h.roots.remote_motion.recent(&key);
-        let (name, acts) = (remote.clone(), acts.clone());
-        list.push(
+        let moving = h.roots.remote_motion.recent(&remote_key(&remote));
+        list.push(Item::Remote {
+            remote: remote.clone(),
+            count: ixs.len(),
+            open,
+        });
+        // Its branches fold under it as one, in size and alpha (#110); shut and still, none is drawn.
+        if moving {
+            list.push(Item::Fold { remote, open });
+        } else if open {
+            list.extend(ixs.into_iter().map(|ix| row(BranchRow::Branch(ix), false)));
+        }
+    }
+    list.push(Item::Tail);
+    list
+}
+
+/// What of the old lines the new keep: the new ones' range to splice in over the old's, the lines before and after
+/// it staying as they are.
+pub fn changed(old: &[Item], new: &[Item]) -> (std::ops::Range<usize>, usize) {
+    let head = old.iter().zip(new).take_while(|(a, b)| a == b).count();
+    let tail = old[head..]
+        .iter()
+        .rev()
+        .zip(new[head..].iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    (head..old.len() - tail, new.len() - tail - head)
+}
+
+/// Line `item` of the list, drawn.
+pub fn draw(h: &History, item: &Item, look: &ListLook, acts: &Acts) -> AnyElement {
+    let row = |row: BranchRow, flat: bool| {
+        branch_row(h, look, row, look.picked == Some(row), flat, acts).into_any_element()
+    };
+    match item {
+        Item::Heading(text) => heading(text.clone()).into_any_element(),
+        Item::Row { row: r, flat } => row(*r, *flat),
+        Item::NoMatch(filter) => div()
+            .px(px(16.))
+            .py(px(10.))
+            .text_size(px(12.))
+            .text_color(theme::muted())
+            .child(format!("No branch matches “{filter}”."))
+            .into_any_element(),
+        Item::Tail => div().h(px(6.)).into_any_element(),
+        Item::Remote {
+            remote,
+            count,
+            open,
+        } => {
+            let (key, open) = (remote_key(remote), *open);
+            let (name, acts) = (remote.clone(), acts.clone());
             div()
                 .id(SharedString::from(key.clone()))
                 .flex()
@@ -120,31 +184,32 @@ pub fn rows(h: &History, rows: &[BranchRow], look: &ListLook, acts: &Acts) -> Ve
                         )))
                     },
                 ))
-                .child(format!("{remote} {}", ixs.len()))
+                .child(format!("{remote} {count}"))
                 .on_click(move |e: &ClickEvent, _, cx| {
                     if e.click_count() < 2 {
                         acts(Act::ToggleRemote(name.clone()), cx)
                     }
                 })
-                .into_any_element(),
-        );
-        // Its branches fold under it as one, in size and alpha (#110); shut and still, none is drawn.
-        if open || moving {
+                .into_any_element()
+        }
+        Item::Fold { remote, open } => {
+            let ixs = h.remote_branches().remove(remote).unwrap_or_default();
+            let key = remote_key(remote);
             let rows = div()
                 .flex()
                 .flex_col()
                 .children(ixs.into_iter().map(|ix| row(BranchRow::Branch(ix), false)));
-            list.extend(motion::folding(
+            motion::folding(
                 &h.roots.remote_folds,
                 &h.roots.remote_heights,
-                moving,
+                true,
                 key,
-                open,
+                *open,
                 rows,
-            ));
+            )
+            .unwrap_or_else(|| div().into_any_element())
         }
     }
-    list
 }
 
 /// Beside the list: the row picked previewed, or, with one local branch and nothing to commit, that state alone
@@ -916,5 +981,59 @@ fn change_letter(change: ChangeKind) -> (&'static str, Rgba) {
         ChangeKind::Renamed => ("R", theme::renamed()),
         ChangeKind::Copied => ("C", theme::renamed()),
         ChangeKind::TypeChanged => ("T", theme::warning()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use artoo_core::git::BranchRef;
+    use git2::Oid;
+
+    fn history(local: usize, remote: usize) -> History {
+        let branch = |name: String, kind| BranchRef {
+            refname: format!("refs/{name}"),
+            name,
+            kind,
+            tip: Oid::ZERO_SHA1,
+            is_head: false,
+        };
+        History {
+            branches: std::sync::Arc::new(
+                (0..local)
+                    .map(|i| branch(format!("local-{i}"), RefKind::Local))
+                    .chain(
+                        (0..remote).map(|i| branch(format!("origin/remote-{i}"), RefKind::Remote)),
+                    )
+                    .collect(),
+            ),
+            ..History::default()
+        }
+    }
+
+    #[test]
+    fn two_thousand_branches_are_lines_made_once_and_none_of_them_is_drawn_here() {
+        let mut h = history(200, 1800);
+        h.roots.open_remotes.insert("origin".to_owned());
+        let items = items(&h, &h.rows(""), "");
+        // Working tree (heading, row), Local (heading, 200), origin (header, 1800), the tail.
+        assert_eq!(items.len(), 2 + 1 + 200 + 1 + 1800 + 1);
+        assert_eq!(items.last(), Some(&Item::Tail));
+        // Shut, a remote is its header alone.
+        h.roots.open_remotes.clear();
+        assert_eq!(super::items(&h, &h.rows(""), "").len(), 2 + 1 + 200 + 1 + 1);
+    }
+
+    #[test]
+    fn a_change_splices_only_the_lines_that_differ() {
+        let mut h = history(10, 10);
+        let shut = items(&h, &h.rows(""), "");
+        h.roots.open_remotes.insert("origin".to_owned());
+        let open = items(&h, &h.rows(""), "");
+        let (old, new) = changed(&shut, &open);
+        // The remote's header changes (its chevron), its ten branches come in; the rest stays.
+        assert_eq!(old, shut.len() - 2..shut.len() - 1);
+        assert_eq!(new, 11);
+        assert_eq!(changed(&open, &open), (open.len()..open.len(), 0));
     }
 }
