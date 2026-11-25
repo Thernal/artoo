@@ -102,7 +102,9 @@ impl Workspace {
             )
             .key("or double-click")
         };
-        groups.insert(0, vec![rename]);
+        // Move to group ▸ beside it (#246).
+        let first = vec![rename, self.move_to_group_entry(item, at)];
+        groups.insert(0, first);
         groups.push(self.close_entries(item, cx));
         self.open_menu(at, groups, cx);
     }

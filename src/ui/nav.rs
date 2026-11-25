@@ -10,6 +10,7 @@
 //! differ from it, and the places that open something (a list's row, ⌘K, a notification, a link)
 //! say where they went through `arrive`.
 
+use super::groups::Groups;
 use super::spaces::{BRANCHES, CODE, INBOX, KEPT, REQUESTS, Space};
 use super::{Selection, Workspace, recents, zones};
 use artoo_branches_api::Shows;
@@ -229,6 +230,7 @@ struct Saved {
     pages: HashMap<Space, Route>,
     /// Each with its page when the item alone cannot say it: a comparison's.
     open: Vec<(Route, Option<Route>)>,
+    groups: Groups,
 }
 
 /// A page seen, or a place in it a jump left (a file, a line, a find, #194): ⌘[ ⌘] come back to it.
@@ -275,6 +277,8 @@ pub struct Nav {
     /// The space a link came from, while its page is on screen (‹ Inbox).
     pub from: Option<Space>,
     pub open: Vec<Opened>,
+    /// The groups of them (#246).
+    pub groups: Groups,
     /// The spaces whose open items the menu folds away (Branches at first).
     pub folded: HashSet<Space>,
     /// A space and page to show once the request list is in (a project reopened on one).
@@ -296,6 +300,7 @@ impl Default for Nav {
             at: 0,
             from: None,
             open: Vec::new(),
+            groups: Groups::default(),
             folded: HashSet::from([BRANCHES]),
             pending_show: None,
             picked: Vec::new(),
@@ -440,7 +445,12 @@ impl Nav {
             .map(|(space, page)| (space.name(), page.text()))
             .collect();
         others.sort();
-        let others: String = others.into_iter().map(|(_, p)| format!("\t{p}")).collect();
+        let mut others: String = others.into_iter().map(|(_, p)| format!("\t{p}")).collect();
+        // Their groups last, where a line written before them ends.
+        if let Some(groups) = self.groups.line() {
+            others.push('\t');
+            others.push_str(&groups);
+        }
         format!(
             "{repo}\t{space}\t{}\t{}{others}",
             pages.join("\t"),
@@ -487,9 +497,15 @@ impl Nav {
                 }
                 None => Some((item_key(key).filter(|r| drawn.has(r))?, None)),
             })
-            .collect();
-        for page in cols.filter_map(route_of) {
-            if let Some(space) = drawn.space(&page).filter(|s| !KEPT.contains(s)) {
+            .collect::<Vec<_>>();
+        let items: Vec<Route> = open.iter().map(|(item, _)| item.clone()).collect();
+        let mut groups = Groups::default();
+        for column in cols {
+            if let Some(read) = Groups::read(column, &items) {
+                groups = read;
+            } else if let Some(page) = route_of(column)
+                && let Some(space) = drawn.space(&page).filter(|s| !KEPT.contains(s))
+            {
                 pages.insert(space, page);
             }
         }
@@ -498,6 +514,7 @@ impl Nav {
             space,
             pages,
             open,
+            groups,
         })
     }
 }
@@ -549,12 +566,14 @@ impl Workspace {
         self.label_name = own
             .or_else(|| self.row_title(&item, cx))
             .unwrap_or_default();
+        self.renaming_group = None;
         self.renaming = Some(item);
         self.start_field(super::lists::Field::Rename, cx);
     }
 
     /// ↵: the name kept; empty, the page is called by its own words again.
     pub(super) fn save_rename(&mut self, cx: &mut Context<Self>) {
+        self.save_group_name();
         if let Some(item) = self.renaming.clone()
             && let Some(key) = self.page_name_key(&item)
         {
@@ -572,6 +591,7 @@ impl Workspace {
     /// Esc or a click elsewhere: the row as it was.
     pub(super) fn cancel_rename(&mut self, cx: &mut Context<Self>) {
         self.renaming = None;
+        self.renaming_group = None;
         self.label_name.clear();
         if self.field == Some(super::lists::Field::Rename) {
             self.field = None;
@@ -1484,7 +1504,10 @@ impl Workspace {
     pub(super) fn close_open(&mut self, item: &Route, cx: &mut Context<Self>) {
         let drawn = self.drawn();
         let space = self.item_space(item);
+        let before = self.grouping_before(item);
         self.nav.open.retain(|o| &o.item != item);
+        self.nav.groups.leave(item);
+        self.groups_left(before, cx);
         self.nav.picked.retain(|o| o != item);
         let shown = space
             .and_then(|space| self.page_of(space))
@@ -1572,7 +1595,11 @@ impl Workspace {
             branches.stop_waiting(cx);
         }
         let Some(Saved {
-            space, pages, open, ..
+            space,
+            pages,
+            open,
+            groups,
+            ..
         }) = saved
         else {
             if let Some(ix) = head {
@@ -1603,6 +1630,15 @@ impl Workspace {
                 seen: 0,
             });
         }
+        self.nav.groups = groups;
+        // A page that did not come back is in no group.
+        for item in self.nav.groups.list.clone().iter().flat_map(|g| &g.items) {
+            if self.nav.opened(item).is_none() {
+                self.nav.groups.leave(item);
+            }
+        }
+        self.nav.groups.ended();
+        self.gather_open();
         let page = self.nav.pages.get(&space).cloned();
         // Underneath a page that loads nothing of its own, the checked-out branch, as before:
         // ⌘K's commits and the files' revision come from it.
@@ -1978,6 +2014,7 @@ mod tests {
             space,
             pages,
             open,
+            ..
         } = Nav::read(&nav.line("_Users_me_repo", &drawn), &[], &drawn).unwrap();
         assert_eq!(repo, "_Users_me_repo");
         assert_eq!(space, REQUESTS);

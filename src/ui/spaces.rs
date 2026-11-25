@@ -5,12 +5,15 @@
 //! (D2); Settings is the title bar's gear. Until the spaces get pages of their own (#72, #75), Code opens search
 //! everywhere on Files, Branches and Merge requests the picker beside the menu.
 
+use super::groups::Unit;
 use super::nav::Page;
 use super::requests::Scope;
 use super::{Workspace, icons, px, theme};
 use artoo_core::route::Route;
 use artoo_shell_api::ItemRow;
-use artoo_shell_api::spaces::{self, Open, SpaceRow, SpacesHost, SpacesMenu, ordered};
+use artoo_shell_api::spaces::{
+    self, DropAt, Head, Open, SpaceRow, SpacesHost, SpacesMenu, ordered,
+};
 pub use artoo_shell_api::spaces::{Places, Space};
 
 /// The spaces the tab coordinates, by their owners' ids: what each lacks and what waits in it are still the tab's;
@@ -30,7 +33,7 @@ pub(super) fn label(space: Space, cx: &App) -> &'static str {
         .find(|s| s.space == space)
         .map_or(space.name(), |s| s.label)
 }
-use gpui::{App, Context, Pixels, Point, WeakEntity, Window, div, prelude::*};
+use gpui::{App, Context, Pixels, Point, SharedString, WeakEntity, Window, div, prelude::*};
 use std::rc::Rc;
 
 /// What a project lacks for a space.
@@ -74,6 +77,20 @@ struct OpenRow {
     agent: Option<(char, gpui::Rgba, usize)>,
     /// What an agent put there for the reviewer, not opened since (#160).
     call: Option<String>,
+    /// A group's head rather than a page (#246).
+    head: Option<(u64, Head)>,
+    /// A page in a group.
+    within: bool,
+}
+
+impl OpenRow {
+    /// What it is to a click.
+    fn kind(&self) -> Kind {
+        match (&self.head, &self.item) {
+            (Some((id, _)), _) => Kind::Group(*id),
+            (None, item) => Kind::Page(item.clone()),
+        }
+    }
 }
 
 impl Workspace {
@@ -129,6 +146,8 @@ impl Workspace {
                 news: row.news,
                 agent: None,
                 call: None,
+                head: None,
+                within: false,
             });
         }
         let loaded = self.page_of(space).and_then(|p| self.item_of(p));
@@ -194,9 +213,64 @@ impl Workspace {
                 news: row.news,
                 agent,
                 call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
+                head: None,
+                within: false,
             }
         }));
-        rows
+        self.grouped(rows)
+    }
+
+    /// `rows` with each group's head before its pages, a folded group's pages left out; its head is marked when
+    /// the page on screen is among them.
+    fn grouped(&self, rows: Vec<OpenRow>) -> Vec<OpenRow> {
+        let mut out: Vec<OpenRow> = Vec::with_capacity(rows.len());
+        let mut seen = Vec::new();
+        let group_of = |row: &OpenRow| row.item.as_ref().and_then(|i| self.nav.groups.of(i));
+        let counts: Vec<u64> = rows
+            .iter()
+            .filter_map(|r| group_of(r).map(|g| g.id))
+            .collect();
+        let shown: Vec<u64> = rows
+            .iter()
+            .filter(|r| r.on)
+            .filter_map(|r| group_of(r).map(|g| g.id))
+            .collect();
+        for mut row in rows {
+            let Some(group) = group_of(&row) else {
+                out.push(row);
+                continue;
+            };
+            if !seen.contains(&group.id) {
+                seen.push(group.id);
+                let count = counts.iter().filter(|&&id| id == group.id).count();
+                out.push(OpenRow {
+                    item: None,
+                    icon: div().into_any_element(),
+                    label: group.name.clone(),
+                    mono: false,
+                    tip: format!("{}  double-click renames", group.name),
+                    on: group.shut && shown.contains(&group.id),
+                    drafts: false,
+                    preview: false,
+                    news: false,
+                    agent: None,
+                    call: None,
+                    head: Some((
+                        group.id,
+                        Head {
+                            count,
+                            shut: group.shut,
+                        },
+                    )),
+                    within: false,
+                });
+            }
+            if !group.shut {
+                row.within = true;
+                out.push(row);
+            }
+        }
+        out
     }
 
     /// The title of open item `item`'s row, without its number: what Rename… starts from.
@@ -221,7 +295,23 @@ impl Workspace {
             .find(|o| o.item.as_ref() == Some(item))?
             .label;
         let number = super::nav::split_number(&label).0.to_owned();
-        let field = div()
+        let field = self.name_field(cx);
+        Some(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .children((!number.is_empty()).then(|| div().flex_none().child(number)))
+                .child(field)
+                .into_any_element(),
+        )
+    }
+
+    /// The field a page's or a group's name is typed in, in its row.
+    fn name_field(&self, cx: &Context<Self>) -> gpui::AnyElement {
+        div()
             .id("rename-field")
             .flex_1()
             .min_w_0()
@@ -243,21 +333,11 @@ impl Workspace {
                 cx.entity().downgrade(),
             ))
             .on_mouse_down_out(cx.listener(|this, _: &gpui::MouseDownEvent, _, cx| {
-                if this.renaming.is_some() {
+                if this.renaming.is_some() || this.renaming_group.is_some() {
                     this.save_rename(cx);
                 }
-            }));
-        Some(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .children((!number.is_empty()).then(|| div().flex_none().child(number)))
-                .child(field)
-                .into_any_element(),
-        )
+            }))
+            .into_any_element()
     }
 
     /// An open item's words for ⌘E (#194): its row's label, the review's part as a glyph with its sentence
@@ -386,7 +466,7 @@ impl Workspace {
                 .unwrap_or_default();
             let missing = self.missing(space, cx);
             let opens = self.open_rows(space, cx);
-            items.push((space, opens.iter().map(|o| o.item.clone()).collect()));
+            items.push((space, opens.iter().map(OpenRow::kind).collect()));
             let opens = opens
                 .into_iter()
                 .map(|open| Open {
@@ -402,7 +482,19 @@ impl Workspace {
                             .text_size(px(8.));
                         (badge.into_any_element(), waiting)
                     }),
-                    editing: open.item.as_ref().and_then(|i| self.rename_row(i, &*cx)),
+                    editing: match open.head {
+                        Some((id, _)) => (self.renaming_group == Some(id)
+                            && self.field == Some(super::lists::Field::Rename))
+                        .then(|| self.name_field(cx)),
+                        None => open.item.as_ref().and_then(|i| self.rename_row(i, &*cx)),
+                    },
+                    key: match (&open.head, &open.item) {
+                        (Some((id, _)), _) => Unit::Group(*id).key().into(),
+                        (None, Some(item)) => Unit::Page(item.clone()).key().into(),
+                        (None, None) => Default::default(),
+                    },
+                    head: open.head.map(|(_, head)| head),
+                    within: open.within,
                     label: open.label,
                     mono: open.mono,
                     tip: open.tip,
@@ -478,16 +570,25 @@ impl Workspace {
     }
 }
 
+/// What a row under a space is.
+#[derive(Clone)]
+enum Kind {
+    /// Its request or branch; none for Code's file.
+    Page(Option<Route>),
+    /// A group's head (#246).
+    Group(u64),
+}
+
 /// What a click on the menu does, answered by the tab.
 struct Glue {
     tab: WeakEntity<Workspace>,
-    /// What each row under a space is: its request or branch; None for Code's file.
-    items: Vec<(Space, Vec<Option<Route>>)>,
+    /// What each row under a space is.
+    items: Vec<(Space, Vec<Kind>)>,
 }
 
 impl Glue {
     /// Row `n` under `space`, when it is there.
-    fn item(&self, space: Space, n: usize) -> Option<Option<Route>> {
+    fn item(&self, space: Space, n: usize) -> Option<Kind> {
         let (_, items) = self.items.iter().find(|(s, _)| *s == space)?;
         items.get(n).cloned()
     }
@@ -518,12 +619,13 @@ impl SpacesHost for Glue {
         };
         self.tab
             .update(cx, |this, cx| match item {
-                Some(item) if shift => this.pick_open(item, cx),
-                Some(item) => {
+                Kind::Page(Some(item)) if shift => this.pick_open(item, cx),
+                Kind::Page(Some(item)) => {
                     this.nav.picked.clear();
                     this.show_open(&item, cx)
                 }
-                None => this.go_space(space, cx),
+                Kind::Page(None) => this.go_space(space, cx),
+                Kind::Group(id) => this.fold_group(id, cx),
             })
             .ok();
     }
@@ -534,22 +636,47 @@ impl SpacesHost for Glue {
         };
         self.tab
             .update(cx, |this, cx| match &item {
-                Some(item) => this.close_open(item, cx),
-                None => this.close_shown(cx),
+                Kind::Page(Some(item)) => this.close_open(item, cx),
+                Kind::Page(None) => this.close_shown(cx),
+                // A head has no ×.
+                Kind::Group(_) => {}
             })
             .ok();
     }
 
     fn rename(&self, space: Space, n: usize, _: &mut Window, cx: &mut App) {
-        if let Some(Some(item)) = self.item(space, n) {
-            self.tab
-                .update(cx, |this, cx| this.start_rename(item, cx))
-                .ok();
-        }
+        let Some(item) = self.item(space, n) else {
+            return;
+        };
+        self.tab
+            .update(cx, |this, cx| match item {
+                Kind::Page(Some(item)) => this.start_rename(item, cx),
+                Kind::Page(None) => {}
+                // The first of the two clicks folded it: back, and its name typed.
+                Kind::Group(id) => {
+                    this.fold_group(id, cx);
+                    this.start_group_rename(id, cx)
+                }
+            })
+            .ok();
+    }
+
+    fn dropped(
+        &self,
+        space: Space,
+        from: SharedString,
+        to: SharedString,
+        at: DropAt,
+        _: &mut Window,
+        cx: &mut App,
+    ) {
+        self.tab
+            .update(cx, |this, cx| this.drop_row(space, &from, &to, at, cx))
+            .ok();
     }
 
     fn row_menu(&self, space: Space, n: usize, at: Point<Pixels>, _: &mut Window, cx: &mut App) {
-        if let Some(Some(item)) = self.item(space, n) {
+        if let Some(Kind::Page(Some(item))) = self.item(space, n) {
             self.tab
                 .update(cx, |this, cx| this.item_context(&item, at, cx))
                 .ok();

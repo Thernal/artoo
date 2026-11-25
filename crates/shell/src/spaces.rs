@@ -4,15 +4,17 @@
 //! What is open, what waits and what a click does are the tab's (the contract `artoo_shell_api::spaces`).
 
 use crate::rail::project_hue;
-use artoo_shell_api::spaces::{Places, Space, SpaceRow, SpacesHost, SpacesMenu, SpacesRenderer};
+use artoo_shell_api::spaces::{
+    DropAt, Head, Open, Places, Space, SpaceRow, SpacesHost, SpacesMenu, SpacesRenderer,
+};
 use artoo_ui_kit::controls::DragLabel;
 use artoo_ui_kit::hover::{self, CutInTip, Hover, Tip, TipOwned};
 use artoo_ui_kit::monogram::{initials, monogram};
 use artoo_ui_kit::motion::{self};
 use artoo_ui_kit::{ROW_RADIUS, icons, px, theme, words};
 use gpui::{
-    AnyElement, ClickEvent, FontWeight, MouseButton, MouseDownEvent, SharedString, canvas, div,
-    point, prelude::*,
+    AnyElement, ClickEvent, Context, FontWeight, MouseButton, MouseDownEvent, Render, SharedString,
+    Window, canvas, div, point, prelude::*,
 };
 use std::rc::Rc;
 
@@ -29,6 +31,225 @@ const NESTED: f32 = 28.;
 /// A space being dragged in the menu.
 #[derive(Clone, Copy)]
 pub struct DragSpace(pub Space);
+
+/// What follows the pointer while a row is dragged: its words, under the pointer, so the row it is over shows what
+/// a drop would do.
+struct Ghost(SharedString);
+
+impl Render for Ghost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().pt(px(30.)).pl(px(24.)).child(
+            div()
+                .w(px(196.))
+                .px(px(10.))
+                .py(px(4.))
+                .rounded(px(ROW_RADIUS))
+                .bg(theme::selected())
+                .border_1()
+                .border_color(theme::island_border())
+                .text_size(px(12.))
+                .text_color(theme::text())
+                .child(hover::cut("drag-ghost", self.0.clone())),
+        )
+    }
+}
+
+/// A page's or a group's row being dragged in the menu (#246).
+#[derive(Clone)]
+struct DragRow {
+    space: Space,
+    key: SharedString,
+    label: SharedString,
+    /// It is a group: moved among the others, dropped onto none.
+    group: bool,
+}
+
+/// The row a drop would take in: the accent, faint, over its words.
+fn tint() -> gpui::Rgba {
+    gpui::Rgba {
+        a: 0.14,
+        ..theme::accent()
+    }
+}
+
+/// Row `n`'s places to drop on, over it: before it and after it at its edges, onto it between them — for a page in
+/// no group, where it says `Make a group`.
+fn zones(
+    host: &Rc<dyn SpacesHost>,
+    space: Space,
+    id: &SharedString,
+    n: usize,
+    key: SharedString,
+    within: bool,
+) -> [AnyElement; 3] {
+    let zone = |at: DropAt| {
+        let (host, to) = (host.clone(), key.clone());
+        let mine = key.clone();
+        let name: SharedString = format!("{id}-drop-{n}-{}", at as u8).into();
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .group(name.clone())
+            .can_drop(move |dragged, _, _| {
+                dragged.downcast_ref::<DragRow>().is_some_and(|d| {
+                    d.space == space && d.key != mine && !(d.group && at == DropAt::Onto)
+                })
+            })
+            .on_drop(move |dragged: &DragRow, window, cx| {
+                host.dropped(space, dragged.key.clone(), to.clone(), at, window, cx)
+            })
+    };
+    let line = |s: gpui::StyleRefinement| s.border_color(theme::accent());
+    let before = zone(DropAt::Before)
+        .top_0()
+        .h(px(7.))
+        .drag_over::<DragRow>(move |s, _, _, _| line(s).border_t_2())
+        .into_any_element();
+    let after = zone(DropAt::After)
+        .bottom_0()
+        .h(px(7.))
+        .drag_over::<DragRow>(move |s, _, _, _| line(s).border_b_2())
+        .into_any_element();
+    let name: SharedString = format!("{id}-drop-{n}-{}", DropAt::Onto as u8).into();
+    let hint = (!within).then(|| {
+        div()
+            // A cursor gives it the hitbox its style under a drag is read by.
+            .cursor_pointer()
+            .invisible()
+            .group_drag_over::<DragRow>(name, |s| s.visible())
+            .px(px(8.))
+            .rounded(px(4.))
+            .bg(theme::accent())
+            .text_color(theme::base())
+            .text_size(px(11.))
+            .font_weight(FontWeight::SEMIBOLD)
+            .child("Make a group")
+    });
+    let onto = zone(DropAt::Onto)
+        .top(px(7.))
+        .bottom(px(7.))
+        .flex()
+        .items_center()
+        .justify_end()
+        .pr(px(6.))
+        .rounded(px(ROW_RADIUS))
+        .drag_over::<DragRow>(move |s, _, _, _| line(s).border_1().bg(tint()))
+        .children(hint)
+        .into_any_element();
+    [before, onto, after]
+}
+
+/// A group's head (#246): its chevron, its name — or the field it is typed in — and how many pages it holds; a
+/// click folds it, a double click renames it, a page dropped on it joins.
+fn group_head(
+    host: &Rc<dyn SpacesHost>,
+    space: Space,
+    id: &SharedString,
+    n: usize,
+    nested: bool,
+    head: Head,
+    open: Open,
+) -> AnyElement {
+    let (click, drop, over) = (host.clone(), host.clone(), host.clone());
+    let key = open.key.clone();
+    let drag = DragRow {
+        space,
+        key: key.clone(),
+        label: open.label.clone().into(),
+        group: true,
+    };
+    // Before it at its top edge; onto it elsewhere (a group dropped there goes before it).
+    let zone = |at: DropAt, host: Rc<dyn SpacesHost>| {
+        let (to, mine) = (key.clone(), key.clone());
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .can_drop(move |dragged, _, _| {
+                (dragged.downcast_ref::<DragRow>())
+                    .is_some_and(|d| d.space == space && d.key != mine)
+            })
+            .on_drop(move |dragged: &DragRow, window, cx| {
+                let at = if dragged.group { DropAt::Before } else { at };
+                host.dropped(space, dragged.key.clone(), to.clone(), at, window, cx)
+            })
+    };
+    div()
+        .id(SharedString::from(format!("{id}-open-{n}")))
+        .relative()
+        .flex_none()
+        .h(px(28.))
+        .ml(px(if nested { 35. } else { 17. }))
+        .pl(px(8.))
+        .pr(px(8.))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .rounded(px(ROW_RADIUS))
+        .text_size(px(12.))
+        .text_color(theme::muted())
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
+        .when(open.on, |s| {
+            s.bg(theme::selected()).text_color(theme::text())
+        })
+        .child(
+            icons::icon(if head.shut {
+                "chevron-right"
+            } else {
+                "chevron-down"
+            })
+            .size(px(13.))
+            .flex_none()
+            .text_color(theme::faint()),
+        )
+        .child(match open.editing {
+            Some(field) => field,
+            None => div()
+                .flex_1()
+                .min_w_0()
+                .cut_in_tip()
+                .child(open.label)
+                .into_any_element(),
+        })
+        .child(
+            div()
+                .flex_none()
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(head.count.to_string()),
+        )
+        .tooltip_show_delay(hover::LONG)
+        .tooltip({
+            let tip: SharedString = open.tip.into();
+            move |_, cx| cx.new(|_| TipOwned(tip.clone())).into()
+        })
+        .on_click(move |e: &ClickEvent, window, cx| match e.click_count() {
+            1 => click.open(space, n, false, window, cx),
+            2 => click.rename(space, n, window, cx),
+            _ => {}
+        })
+        .on_drag(drag, |drag: &DragRow, _, _, cx| {
+            cx.new(|_| Ghost(drag.label.clone()))
+        })
+        .child(
+            zone(DropAt::Before, over)
+                .top_0()
+                .h(px(7.))
+                .drag_over::<DragRow>(|s, _, _, _| s.border_color(theme::accent()).border_t_2()),
+        )
+        .child(
+            zone(DropAt::Onto, drop)
+                .top(px(7.))
+                .bottom_0()
+                .rounded(px(ROW_RADIUS))
+                .drag_over::<DragRow>(|s, _, _, _| {
+                    s.border_color(theme::accent()).border_1().bg(tint())
+                }),
+        )
+        .into_any_element()
+}
 
 /// The row on screen, `key`, in the menu: when it is not the one last brought into view, the
 /// next frame scrolls the menu the least that shows it whole (#146). Drawn inside the row.
@@ -305,7 +526,19 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
             .into_iter()
             .enumerate()
             .map(|(n, open)| {
+                if let Some(head) = open.head {
+                    return group_head(&host, space, &id, n, nested, head, open);
+                }
                 let group: gpui::SharedString = format!("{id}-open-{n}").into();
+                let key = open.key.clone();
+                let within = open.within;
+                let drag = DragRow {
+                    space,
+                    key: key.clone(),
+                    label: open.label.clone().into(),
+                    group: false,
+                };
+                let drops = (!key.is_empty()).then(|| zones(&host, space, &id, n, key, within));
                 let (on, picked) = (open.on, open.picked);
                 let (pick, close, menu_row, rename) =
                     (host.clone(), host.clone(), host.clone(), host.clone());
@@ -325,16 +558,16 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                     .flex_none()
                     .min_h(px(28.))
                     .ml(px(if nested { 35. } else { 17. }))
-                    .pl(px(12.))
+                    .pl(px(if within { 28. } else { 12. }))
                     .pr(px(6.))
+                    .relative()
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .text_size(px(12.))
                     .cursor_pointer()
                     .when(on, |s| {
-                        s.relative()
-                            .border_l_2()
+                        s.border_l_2()
                             .border_color(theme::accent())
                             .rounded_r(px(ROW_RADIUS))
                             .bg(theme::selected())
@@ -428,6 +661,13 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                         }
                         pick.open(space, n, e.modifiers().shift, window, cx)
                     })
+                    // Dragged among the pages and groups of its space (#246).
+                    .when(drops.is_some(), |s| {
+                        s.on_drag(drag, |drag: &DragRow, _, _, cx| {
+                            cx.new(|_| Ghost(drag.label.clone()))
+                        })
+                    })
+                    .children(drops.into_iter().flatten())
                     .into_any_element()
             })
             .collect::<Vec<_>>();

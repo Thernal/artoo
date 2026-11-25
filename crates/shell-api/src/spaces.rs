@@ -183,6 +183,29 @@ pub struct Open {
     pub call: Option<String>,
     /// While the page is renamed in its row (`SpacesHost::rename`): the row's words, replaced by the field.
     pub editing: Option<AnyElement>,
+    /// A group's head rather than a page (#246): `label` its name, folded or not, how many pages it holds.
+    pub head: Option<Head>,
+    /// A page in a group: drawn in from its head.
+    pub within: bool,
+    /// What a drag of the row carries and a drop on it names (`SpacesHost::dropped`); empty on a row that is not
+    /// moved (Code's file).
+    pub key: SharedString,
+}
+
+/// A group's head in the menu.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Head {
+    pub count: usize,
+    pub shut: bool,
+}
+
+/// Where a dragged row is dropped on another.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DropAt {
+    Before,
+    After,
+    /// On it: a group of both, or into the group.
+    Onto,
 }
 
 /// A space's row, with what is open under it.
@@ -248,6 +271,18 @@ pub trait SpacesHost {
     fn rename(&self, space: Space, n: usize, window: &mut Window, cx: &mut App);
     /// Row `n`'s ×.
     fn close(&self, space: Space, n: usize, window: &mut Window, cx: &mut App);
+    /// The row of key `from` dropped on that of `to`, both under `space` (#246).
+    fn dropped(
+        &self,
+        space: Space,
+        from: SharedString,
+        to: SharedString,
+        at: DropAt,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let _ = (space, from, to, at, window, cx);
+    }
     /// Row `n`'s right click, at `at`: its link, and a request's number (#162).
     fn row_menu(
         &self,

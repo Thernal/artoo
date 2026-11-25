@@ -32,6 +32,8 @@ mod fonts;
 mod frame;
 mod goline;
 mod goto;
+mod grouping;
+mod groups;
 mod held;
 mod inbox;
 mod input;
@@ -443,6 +445,61 @@ async fn snapshot_click(window: gpui::AnyWindowHandle, at: &str, cx: &mut gpui::
         wait(100).await;
     }
     wait(500).await;
+}
+
+/// A snapshot drags from one point to another, `drag:200,310>200,360`, and lets go; `…:hold` keeps it held, to
+/// see what the drop would do.
+#[cfg(feature = "snapshot")]
+async fn snapshot_drag(window: gpui::AnyWindowHandle, step: &str, cx: &mut gpui::AsyncApp) {
+    let (step, hold) = match step.strip_suffix(":hold") {
+        Some(step) => (step, true),
+        None => (step, false),
+    };
+    let Some(((from, ..), (to, ..))) = step
+        .split_once('>')
+        .and_then(|(a, b)| Some((click_at(a)?, click_at(b)?)))
+    else {
+        return;
+    };
+    let moved = |position, pressed_button| {
+        gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+            position,
+            pressed_button,
+            modifiers: Default::default(),
+        })
+    };
+    let left = Some(gpui::MouseButton::Left);
+    let mut events = vec![
+        moved(from, None),
+        gpui::PlatformInput::MouseDown(gpui::MouseDownEvent {
+            button: gpui::MouseButton::Left,
+            position: from,
+            modifiers: Default::default(),
+            click_count: 1,
+            first_mouse: false,
+        }),
+        moved(from + gpui::point(gpui::px(8.), gpui::px(8.)), left),
+        moved(to, left),
+        moved(to, left),
+    ];
+    if !hold {
+        events.push(gpui::PlatformInput::MouseUp(gpui::MouseUpEvent {
+            button: gpui::MouseButton::Left,
+            position: to,
+            modifiers: Default::default(),
+            click_count: 1,
+        }));
+    }
+    let executor = cx.background_executor().clone();
+    for event in events {
+        cx.update_window(window, |_, window, cx| {
+            window.draw(cx).clear(cx);
+            window.dispatch_event(event, cx);
+            window.draw(cx).clear(cx);
+        })
+        .ok();
+        executor.timer(std::time::Duration::from_millis(100)).await;
+    }
 }
 
 /// A snapshot's keystrokes, `right right cmd-t`, each drawn after it; `wait` waits a second.
@@ -1287,7 +1344,9 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         // clicks a field, types in it and sends it, what keys before clicks could not.
         if let Ok(steps) = std::env::var("ARTOO_SNAPSHOT_STEPS") {
             for step in steps.split(';').map(str::trim).filter(|s| !s.is_empty()) {
-                if click_at(step).is_some() {
+                if let Some(drag) = step.strip_prefix("drag:") {
+                    snapshot_drag(window.into(), drag, cx).await;
+                } else if click_at(step).is_some() {
                     snapshot_click(window.into(), step, cx).await;
                 } else {
                     snapshot_keys(window.into(), step, cx).await;
@@ -1568,6 +1627,8 @@ pub struct Workspace {
     /// name typed in `label_name` (`Field::Rename`).
     page_names: std::collections::BTreeMap<String, String>,
     renaming: Option<artoo_core::route::Route>,
+    /// The group of open pages being renamed in its head (#246), its name typed in `label_name` too.
+    renaming_group: Option<u64>,
     /// What features draw in this tab (#165): title-bar items, cards over it, Settings rows.
     parts: Vec<artoo_shell_api::Parts>,
     /// The tab's frame, as its parts see it, held for them — ⌘K's window holds it weakly (its handle is in the
@@ -1717,6 +1778,7 @@ impl Workspace {
             label_name: String::new(),
             page_names: storage::load_names(),
             renaming: None,
+            renaming_group: None,
             parts: Vec::new(),
             frame: frame.clone(),
             editor_name: Default::default(),

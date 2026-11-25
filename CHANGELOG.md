@@ -10,6 +10,8 @@ for someone using the app, not for someone reading the code; the commits follow 
   you are writing.
 - **Comments on a request's Overview.** Its discussions stand after the description as cards, with a comment box
   under them; + beside a paragraph of the description writes a note for your agent on it.
+- **Groups of open pages.** Drag one open page onto another, or use Move to group in its menu; groups fold, and
+  pages and groups drag into the order you want, kept per project.
 
 ## 2.0.0 — 2026-11-17
 
