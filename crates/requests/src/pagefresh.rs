@@ -38,6 +38,8 @@ pub struct PageFresh {
     pub(crate) new_notes: Vec<u64>,
     /// Who merged it elsewhere while its page was open.
     pub(crate) merged_by: Option<String>,
+    /// Overview's cards folded by their chevrons, by discussion or pending comment (#241).
+    pub(crate) folded: std::collections::HashSet<String>,
     /// Where the page is scrolled to, kept with it.
     pub(crate) scroll: ScrollHandle,
     pub(crate) anchor: Rc<RefCell<Anchor>>,

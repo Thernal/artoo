@@ -125,9 +125,10 @@ impl Workspace {
         if !offers_audience(compose.target, &compose.path) {
             return;
         }
-        compose.target = match iid {
-            Some(iid) => Target::Request(iid),
-            None => Target::Agent,
+        compose.target = match (iid, compose.overview()) {
+            (Some(iid), _) => Target::Request(iid),
+            (None, Some(iid)) => Target::Overview(iid, 0),
+            (None, None) => Target::Agent,
         };
         compose.error = None;
         self.take_keyboard(Input::Compose, cx);
@@ -505,20 +506,37 @@ impl Workspace {
     }
 
     /// The request the open composer can post to: none for a note on a file or folder in Code,
-    /// which is the agent's only, whatever request's diff is loaded behind it (#130).
+    /// which is the agent's only, whatever request's diff is loaded behind it (#130); Overview's is its own
+    /// request's, no diff needed (#241).
     fn compose_request(&self, cx: &App) -> Option<u64> {
-        self.request_target(cx)
-            .filter(|_| self.compose.as_ref().is_some_and(|c| c.file.is_none()))
+        self.request_of(self.compose.as_ref()?, cx)
+    }
+
+    /// `compose_request` for `compose`, open or drawn before it is (Overview's, empty).
+    fn request_of(&self, compose: &Compose, cx: &App) -> Option<u64> {
+        if let Some(iid) = compose.overview() {
+            return (self.host.as_ref())
+                .is_some_and(|h| h.available())
+                .then_some(iid);
+        }
+        self.request_target(cx).filter(|_| compose.file.is_none())
     }
 
     fn toggle_target(&mut self, cx: &mut Context<Self>) {
         let request = self.compose_request(cx);
         if let Some(compose) = self.compose.as_mut() {
+            // At Overview's end the note for the agent is on the request, and ⇥ goes back (#241).
+            let overview = compose.overview();
             // Discussions draws only the reply itself, not a note on it (#239).
             if !offers_audience(compose.target, &compose.path) {
                 return;
             }
             compose.target = match (compose.target, request) {
+                (Target::Request(_), _) if overview.is_some() => {
+                    Target::Overview(overview.unwrap_or_default(), 0)
+                }
+                (Target::Overview(iid, 0), _) => Target::Request(iid),
+                (Target::Overview(iid, k), _) => Target::Overview(iid, k),
                 // ⇥ in a discussion's reply: a note for the agent instead, and back (#50 G).
                 (Target::Reply(ix), _) => Target::ThreadNote(ix),
                 (Target::ThreadNote(ix), _) => Target::Reply(ix),
@@ -549,6 +567,10 @@ impl Workspace {
         }
         match self.compose.as_ref().map(|c| c.target) {
             Some(Target::Request(iid)) => return self.post_comment(iid, false, cx),
+            Some(Target::Overview(iid, k)) => {
+                self.add_overview_note(iid, k, cx);
+                return;
+            }
             Some(Target::Reply(ix)) => return self.post_reply(ix, cx),
             Some(Target::Edit(change)) => return self.save_edit(change, cx),
             Some(Target::Answer(id)) => return self.save_answer_note(id, cx),
@@ -892,8 +914,26 @@ impl Workspace {
     /// its outline in their colour (#200).
     pub(super) fn compose_box(&self, this: WeakEntity<Self>, cx: &gpui::App) -> Option<gpui::Div> {
         let compose = self.compose.as_ref()?;
+        let on = this.clone();
+        let on: artoo_ui_kit::composer::OnFoot = std::rc::Rc::new(move |event, cx| {
+            on.update(cx, |this, cx| this.foot_event(event, cx)).ok();
+        });
+        let act = self.compose_acts(this.clone());
+        let input = self.new_comment_box(compose, on, act, cx);
+        let boxed = typing::input_box_of(input, Input::Compose, this);
+        Some(compose.with_lines(boxed))
+    }
+
+    /// `compose` as a new comment is drawn, its presses answered by `on` and `act`.
+    pub(super) fn new_comment_box(
+        &self,
+        compose: &Compose,
+        on: artoo_ui_kit::composer::OnFoot,
+        act: ComposeActs,
+        cx: &gpui::App,
+    ) -> gpui::Div {
         let chat = match compose.target {
-            Target::Agent => self.compose_chat_of(cx),
+            Target::Agent | Target::Overview(..) => self.compose_chat_of(cx),
             _ => None,
         };
         let words = match compose.target {
@@ -904,44 +944,59 @@ impl Workspace {
                 None => "Everyone on the request".to_owned(),
             },
             // The chat it will go to: the one picked, else its page's branch's (#77).
-            Target::Agent => chat
+            Target::Agent | Target::Overview(..) => chat
                 .as_ref()
                 .map_or_else(|| "Your agent".to_owned(), Self::chat_words),
             _ => "Your agent".to_owned(),
         };
         let mark = chat.as_ref().map(|c| self.agents.mark(&c.session, cx));
-        let both =
-            self.compose_request(cx).is_some() && offers_audience(compose.target, &compose.path);
+        let both = self.request_of(compose, cx).is_some()
+            && offers_audience(compose.target, &compose.path);
+        // A note on a paragraph of the description names its place under who reads it (#241).
+        let place = match compose.target {
+            Target::Overview(iid, k) if k > 0 => Some(self.paragraph_chip(iid, k)),
+            _ => None,
+        };
         let audience = Audience {
             words,
             mark,
             both,
             switch: both,
         };
-        let on = this.clone();
-        let on: artoo_ui_kit::composer::OnFoot = std::rc::Rc::new(move |event, cx| {
-            on.update(cx, |this, cx| this.foot_event(event, cx)).ok();
-        });
         let head = compose.audience_chip(&audience, on.clone());
+        let head = match place {
+            Some(place) => div()
+                .flex()
+                .flex_col()
+                .items_start()
+                .gap(px(6.))
+                .child(head)
+                .child(place)
+                .into_any_element(),
+            None => head,
+        };
         let look = FootLook {
             audience,
             room: self.compose_room(cx),
+            // GitHub keeps no pending comment on a request as a whole (#241).
+            review: compose.overview().is_none() || !self.on_github(),
         };
         let tail = compose.foot(look, on);
         let placeholder: gpui::SharedString = match (compose.target, &chat) {
-            (Target::Agent, Some(c)) => format!(
+            (Target::Agent | Target::Overview(..), Some(c)) => format!(
                 "Note for {}",
                 c.agent.split_whitespace().next().unwrap_or("your agent")
             )
             .into(),
-            (Target::Agent, None) => "Note for your agent".into(),
+            (Target::Agent | Target::Overview(..), None) => "Note for your agent".into(),
+            (Target::Request(_), _) if compose.overview().is_some() => self.first_words(cx),
             (Target::Request(_), _) if compose.first.is_some() => "Comment on these lines".into(),
             (Target::Request(_), _) => "Comment on this line".into(),
             _ => "Comment".into(),
         };
         // The outline takes the audience's colour: the chat's hue, or the request's (#200).
         let tone = mark.map_or(compose.source().color(), |(_, hue)| hue);
-        let input = self.open_input(
+        self.input_of(
             compose,
             tone,
             placeholder,
@@ -949,14 +1004,13 @@ impl Workspace {
             None,
             &[Helper::Bold, Helper::Code, Helper::Link, Helper::Bullet],
             tail,
-            this,
+            act,
             cx,
-        );
-        Some(compose.with_lines(input))
+        )
     }
 
     /// A click on a new comment's foot (`Compose::foot`).
-    fn foot_event(&mut self, event: FootEvent, cx: &mut Context<Self>) {
+    pub(super) fn foot_event(&mut self, event: FootEvent, cx: &mut Context<Self>) {
         use super::menu::{Act, Entry};
         match event {
             FootEvent::Cancel => self.cancel_comment(cx),
@@ -990,7 +1044,7 @@ impl Workspace {
             // At S, what folded: into the primary's own ▾.
             FootEvent::Folded(at) => {
                 let more = match self.compose.as_ref().map(|c| c.target) {
-                    Some(Target::Agent) => vec![
+                    Some(Target::Agent | Target::Overview(..)) => vec![
                         vec![Entry::new(
                             "Choose the chat…",
                             Act::new(|this, _, cx| this.add_and_pick_chat(cx)),
@@ -1087,8 +1141,7 @@ impl Workspace {
         ))
     }
 
-    /// The one input component, open (`Compose::render_input`), its presses answered here: the keyboard taken, the
-    /// caret placed, the folded helpers' menu.
+    /// The one input component, open and in the box that gives it the keyboard, its presses answered here.
     #[allow(clippy::too_many_arguments)]
     fn open_input(
         &self,
@@ -1100,6 +1153,25 @@ impl Workspace {
         tools: &[Helper],
         tail: Vec<gpui::AnyElement>,
         this: WeakEntity<Self>,
+        cx: &gpui::App,
+    ) -> gpui::Div {
+        let act = self.compose_acts(this.clone());
+        let input = self.input_of(compose, tone, placeholder, head, lead, tools, tail, act, cx);
+        typing::input_box_of(input, Input::Compose, this)
+    }
+
+    /// The one input component (`Compose::render_input`), drawn as the tab has it.
+    #[allow(clippy::too_many_arguments)]
+    fn input_of(
+        &self,
+        compose: &Compose,
+        tone: gpui::Rgba,
+        placeholder: gpui::SharedString,
+        head: Option<gpui::AnyElement>,
+        lead: Option<gpui::AnyElement>,
+        tools: &[Helper],
+        tail: Vec<gpui::AnyElement>,
+        act: ComposeActs,
         cx: &gpui::App,
     ) -> gpui::Div {
         let live = self
@@ -1114,9 +1186,9 @@ impl Workspace {
             tools: tools.to_vec(),
             tail,
             folded: self.compose_room(cx) == Room::S,
-            // Without the keyboard it shows no caret (#168).
-            focused: self.has_keyboard(Input::Compose, cx),
-            lines: Some(self.field_lines.clone()),
+            // Without the keyboard it shows no caret (#168), nor does one not open yet (#241).
+            focused: live && self.has_keyboard(Input::Compose, cx),
+            lines: live.then(|| self.field_lines.clone()),
             completion: self
                 .compose_completion(cx)
                 .filter(|_| live)
@@ -1126,7 +1198,11 @@ impl Workspace {
             link_base: self.link_base().map(str::to_owned),
             clip: self.compose_clip(compose),
         };
-        let keys = this.clone();
+        compose.render_input(look, act, cx)
+    }
+
+    /// What the composer's presses do: the keyboard taken, the caret placed, the folded helpers' menu.
+    fn compose_acts(&self, this: WeakEntity<Self>) -> ComposeActs {
         let act: ComposeActs = std::rc::Rc::new(move |act, cx| {
             this.update(cx, |this, cx| match act {
                 ComposeAct::Helper(h) => this.apply_helper(h, cx),
@@ -1165,7 +1241,7 @@ impl Workspace {
             })
             .ok();
         });
-        typing::input_box_of(compose.render_input(look, act, cx), Input::Compose, keys)
+        act
     }
 }
 
@@ -1207,6 +1283,7 @@ fn offers_audience(target: Target, path: &str) -> bool {
     match target {
         Target::InboxReply => false,
         Target::Reply(_) => !path.is_empty(),
+        Target::Overview(_, k) => k == 0,
         _ => true,
     }
 }

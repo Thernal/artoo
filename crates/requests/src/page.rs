@@ -1,20 +1,20 @@
 //! A merge request's page, the requests' side of it (#73): Overview — the title with its author and branches on one
 //! line, the facts in a row, what is in the way of merging without a click (#190, Design L4), the description beside
-//! headed cards: the description and the discussions, with who reviews and the labels (milestone among them) beside — and the request's identity in words for a
+//! headed cards: the description and the discussions (`cards`), with who reviews and the labels (milestone among them) beside — and the request's identity in words for a
 //! long hover. Commits and Changes have no line of their own over them: the title is in the page bar (#188).
 
 use crate::bar::{pipeline_icon, pipeline_short, pipeline_word};
 use crate::freshness::frames;
-use crate::pagefresh::mark;
-use crate::requests::{Act, Requests};
+use crate::requests::{Act, Acts, Requests};
 use crate::waiting::FADED;
-use artoo_hosts_api::{Details, Draft, Mr, MrState, Thread};
+use artoo_hosts_api::{Details, Mr, MrState, Thread};
+use artoo_requests_api::OverviewComposer;
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::fresh;
 use artoo_ui_kit::hover::{self, Hover};
 use artoo_ui_kit::markdown::{self, Selecting};
 use artoo_ui_kit::{discussion, icons, island, px, theme, words};
-use gpui::{AnyElement, App, ClickEvent, Div, FontWeight, Rgba, div, prelude::*};
+use gpui::{AnyElement, App, ClickEvent, Div, FontWeight, Rgba, SharedString, div, prelude::*};
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -25,11 +25,10 @@ const MAIN_MAX: f32 = 760.;
 /// A card's header, as the Tasks page draws its sections.
 const CARD_HEAD: f32 = 40.;
 
-/// What a click on a card's row does.
-type Opener = Rc<dyn Fn(&mut App)>;
-
 /// What Overview is drawn with that the tab knows.
 pub struct OverviewLook {
+    /// The composers on it, the tab's (#241).
+    pub composer: OverviewComposer,
     /// The title, selectable as the tab makes it.
     pub title: AnyElement,
     /// The project's web address, which relative links in the description are relative to.
@@ -55,27 +54,30 @@ pub struct Facts {
 impl Requests {
     /// Overview: the identity and its facts, then the description beside the facts column.
     pub fn render_overview(&self, m: &Mr, look: OverviewLook, cx: &App) -> AnyElement {
+        let OverviewComposer { end, paragraph } = look.composer;
         let d = self.details.clone().unwrap_or_default();
-        // The list's own copy until the request's details are in.
-        let text = if d.description.trim().is_empty() {
-            &m.description
-        } else {
-            &d.description
-        };
+        let text = self.description_of(m);
         let description = if text.trim().is_empty() {
             div()
                 .text_color(theme::muted())
                 .child("No description.")
                 .into_any_element()
         } else {
-            markdown::body(
+            // Each paragraph with + on its edge for a note to the agent, the note written under it (#241).
+            let mut under = paragraph;
+            let show = look.show.clone();
+            markdown::paragraphs(
                 text,
-                true,
                 format!("overview-{}", m.iid),
                 look.base.as_deref(),
                 look.selecting,
                 cx,
+                |k, drawn| {
+                    let note = under.take_if(|(at, _)| *at == k).map(|(_, e)| e);
+                    paragraph_row(k, drawn, note, show.clone())
+                },
             )
+            .into_any_element()
         };
         // Until the first read answers, a card's body is tints (round 41), after a moment of nothing.
         let now = Instant::now();
@@ -89,10 +91,14 @@ impl Requests {
             false => description,
         };
         let discussions = match loading {
-            true => Some(
-                card("Discussions", None, tinted(&[140., 430., 160., 380.])).into_any_element(),
+            true => card("Discussions", None, tinted(&[140., 430., 160., 380.])).into_any_element(),
+            false => self.overview_discussions(
+                look.discussions.clone(),
+                look.show.clone(),
+                end,
+                look.base.as_deref(),
+                cx,
             ),
-            false => self.overview_discussions(look.discussions.clone(), look.show.clone()),
         };
         let details = match side_loading {
             true => Some(
@@ -136,7 +142,7 @@ impl Requests {
                                             None,
                                             div().text_size(px(13.)).child(description),
                                         ))
-                                        .children(discussions),
+                                        .child(discussions),
                                 ),
                             )
                             .children(details.map(|d| div().flex_none().w(px(SIDE)).child(d))),
@@ -387,131 +393,6 @@ impl Requests {
         )
     }
 
-    /// The discussions still open as a headed card with their count, each thread in whole; one's own pending
-    /// comments among them, marked; the resolved ones as a line that opens the window. Nothing to show leaves the
-    /// card out.
-    fn overview_discussions(
-        &self,
-        window: Rc<dyn Fn(&mut App)>,
-        show: crate::requests::Acts,
-    ) -> Option<AnyElement> {
-        let open = open_threads(&self.threads);
-        let resolved = self.threads.iter().filter(|t| t.resolved).count();
-        let pending: Vec<&Draft> = self
-            .drafts
-            .iter()
-            .filter(|d| d.reply_to.is_none())
-            .collect();
-        if open.is_empty() && pending.is_empty() && resolved == 0 {
-            return None;
-        }
-        let me = self.login.as_deref();
-        let mut rows = Vec::new();
-        let (open_shown, new) = card_order(&self.threads, &self.page.new_notes);
-        let mut new_rows = Vec::new();
-        for (ix, t) in open_shown.iter().chain(&new).enumerate() {
-            let Some(first) = t.notes.first() else {
-                continue;
-            };
-            let place = t.path.as_ref().map(|p| {
-                let line = t.new_line.or(t.old_line);
-                let name = p.rsplit('/').next().unwrap_or(p);
-                line.map_or_else(|| name.to_owned(), |n| format!("{name}:{n}"))
-            });
-            let waiting = self
-                .drafts
-                .iter()
-                .any(|d| d.reply_to.as_deref() == Some(t.id.as_str()));
-            let replies = t.notes.len() - 1;
-            // A discussion on a line opens the diff at it; a general one opens the window (#242).
-            let jump = t.path.is_some().then(|| {
-                let (show, at) = (show.clone(), self.threads.iter().position(|x| x.id == t.id));
-                Rc::new(move |cx: &mut App| {
-                    if let Some(at) = at {
-                        show(Act::ShowThread(at), cx)
-                    }
-                }) as Opener
-            });
-            let into = if ix < open_shown.len() {
-                &mut rows
-            } else {
-                &mut new_rows
-            };
-            into.push(
-                thread_row(
-                    ("overview-thread", ix),
-                    &first.author,
-                    me == Some(first.login.as_str()),
-                    (replies > 0).then(|| plural(replies, "reply")),
-                    place,
-                    waiting,
-                    first.body.clone(),
-                    window.clone(),
-                    jump,
-                )
-                .relative()
-                .child(mark(t.id.clone(), &self.page)),
-            );
-        }
-        for (ix, d) in pending.iter().enumerate() {
-            let (place, target, old) = self.draft_where(d);
-            let jump = target.map(|(path, line)| {
-                let show = show.clone();
-                Rc::new(move |cx: &mut App| {
-                    show(
-                        Act::JumpToLine {
-                            path: path.clone(),
-                            line,
-                            old,
-                        },
-                        cx,
-                    )
-                }) as Opener
-            });
-            rows.push(thread_row(
-                ("overview-pending", ix),
-                "You",
-                true,
-                None,
-                (place != "General").then_some(place),
-                true,
-                d.body.clone(),
-                window.clone(),
-                jump,
-            ));
-        }
-        // What came in under the page stands at the card's end, until it is gone to.
-        rows.append(&mut new_rows);
-        let mut body = div()
-            .flex()
-            .flex_col()
-            .children(rows.into_iter().enumerate().map(|(i, r)| {
-                // A hairline between the threads, none over the first.
-                r.when(i > 0, |s| {
-                    s.border_t_1().border_color(theme::island_border())
-                })
-            }));
-        if resolved > 0 {
-            let window = window.clone();
-            body = body.child(
-                div()
-                    .id("overview-resolved")
-                    .flex()
-                    .items_center()
-                    .py(px(10.))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .cursor_pointer()
-                    .hover(|s| s.text_color(theme::accent()))
-                    .child(format!("{resolved} resolved"))
-                    .child(div().flex_1())
-                    .child("→")
-                    .on_click(move |_: &ClickEvent, _, cx| window(cx)),
-            );
-        }
-        Some(card("Discussions", Some(open.len()), body).into_any_element())
-    }
-
     /// A request's identity in words, for a long hover: its number and title, whose it is and
     /// where it merges, its state, when it was opened and updated, who reviews it.
     pub fn request_tip(&self, iid: u64) -> Option<String> {
@@ -647,6 +528,51 @@ fn card(title: &str, count: Option<usize>, body: impl IntoElement) -> Div {
         )
 }
 
+/// A paragraph of the description (#241): + on its edge, shown under the pointer, for a note to the agent;
+/// while `note` is written under it, the paragraph is marked.
+fn paragraph_row(k: u32, drawn: AnyElement, note: Option<AnyElement>, show: Acts) -> AnyElement {
+    let group: SharedString = format!("overview-para-{k}").into();
+    let on = note.is_some();
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .child(
+            div()
+                .group(group.clone())
+                .relative()
+                .ml(px(-22.))
+                .pl(px(22.))
+                .rounded(px(4.))
+                .when(on, |s| s.bg(theme::selected()))
+                .child(drawn)
+                .child(
+                    div()
+                        .id(("overview-para-add", k as usize))
+                        .absolute()
+                        .left(px(1.))
+                        .top(px(1.))
+                        .size(px(18.))
+                        .rounded(px(4.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .bg(theme::agent())
+                        .cursor_pointer()
+                        .when(!on, |s| s.invisible().group_hover(group, |s| s.visible()))
+                        .child(
+                            icons::icon("plus")
+                                .size(px(12.))
+                                .text_color(theme::on_accent()),
+                        )
+                        .tip("Note for an agent on this paragraph")
+                        .on_click(move |_: &ClickEvent, _, cx| show(Act::ParagraphNote(k), cx)),
+                ),
+        )
+        .children(note)
+        .into_any_element()
+}
+
 /// A block of Details: its heading over its rows.
 fn block(title: &str, rows: impl IntoIterator<Item = AnyElement>) -> Div {
     div()
@@ -688,82 +614,6 @@ fn reviewer_row(
         .child(div().flex_1())
         .child(icons::icon(icon).size(px(14.)).text_color(color))
         .tip(format!("{who} · {said}"))
-}
-
-/// A discussion in its card: the face and the name, the place at the right (and the mark of a pending comment),
-/// the whole text under them; a click opens the diff at it when it is on a line, else the Discussions window.
-#[allow(clippy::too_many_arguments)]
-fn thread_row(
-    id: (&'static str, usize),
-    author: &str,
-    me: bool,
-    replies: Option<String>,
-    place: Option<String>,
-    pending: bool,
-    body: String,
-    window: Rc<dyn Fn(&mut App)>,
-    jump: Option<Opener>,
-) -> gpui::Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .gap(px(10.))
-        .py(px(10.))
-        .cursor_pointer()
-        .child(
-            div()
-                .flex_none()
-                .pt(px(1.))
-                .child(discussion::avatar(author, me, 18.)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .text_size(px(12.))
-                        .child(div().font_weight(FontWeight::SEMIBOLD).child(if me {
-                            "You".to_owned()
-                        } else {
-                            author.to_owned()
-                        }))
-                        .children(replies.map(|r| div().text_color(theme::faint()).child(r)))
-                        .child(div().flex_1())
-                        .children(place.map(|p| {
-                            div()
-                                .flex_none()
-                                .font_family(theme::code_font())
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child(p)
-                        }))
-                        .when(pending, |s| {
-                            s.child(
-                                div()
-                                    .id(("overview-pending-mark", id.1))
-                                    .flex_none()
-                                    .child(
-                                        icons::icon("circle-dashed")
-                                            .size(px(14.))
-                                            .text_color(theme::muted()),
-                                    )
-                                    .tip("Pending: only you see it until the review is submitted"),
-                            )
-                        }),
-                )
-                .child(div().text_size(px(13.)).child(body)),
-        )
-        .on_click(move |_: &ClickEvent, _, cx| match &jump {
-            Some(jump) => jump(cx),
-            None => window(cx),
-        })
 }
 
 #[cfg(test)]

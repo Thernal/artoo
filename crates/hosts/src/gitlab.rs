@@ -1810,6 +1810,25 @@ pub fn reply_draft(remote: &WebRemote, iid: u64, discussion: &str, body: &str) -
     Ok(())
 }
 
+/// A pending comment on the request as a whole, sent with the review (#241); in the fixture, kept in its
+/// `drafts-<iid>.json` as GitLab would list it.
+pub fn comment_draft(remote: &WebRemote, iid: u64, body: &str) -> Result<()> {
+    if let Some(dir) = fixture() {
+        record(format!("comment-draft {iid} {body}"))?;
+        return fixture_drafts(&dir, iid, |drafts| {
+            let id = next_draft(drafts);
+            drafts.push(serde_json::json!({ "id": id, "note": body }));
+        });
+    }
+    call(
+        remote,
+        &format!("merge_requests/{iid}/draft_notes"),
+        "POST",
+        &[("note", body.to_owned())],
+    )?;
+    Ok(())
+}
+
 /// Pending comment `id` written again (#200).
 pub fn edit_draft(remote: &WebRemote, iid: u64, id: u64, body: &str) -> Result<()> {
     if let Some(dir) = fixture() {

@@ -18,7 +18,11 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(150);
 fn local(target: Target) -> bool {
     matches!(
         target,
-        Target::Agent | Target::ThreadNote(_) | Target::Answer(_) | Target::Edit(Change::Agent(_))
+        Target::Agent
+            | Target::Overview(..)
+            | Target::ThreadNote(_)
+            | Target::Answer(_)
+            | Target::Edit(Change::Agent(_))
     )
 }
 

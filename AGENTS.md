@@ -448,6 +448,15 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   selection as one step of ⌘Z (`Compose::put_emoji`), and the keys return to the text. `:name` completion stays.
   The picker is the kit's, its state its owner's (`Compose::emoji`, `reactions::Grid`); both take the keyboard as
   `Input::Reactions`.
+- **Overview's discussions** (#241, Design round 46; `crates/requests/src/cards.rs`, `src/ui/overview.rs`): a
+  section after the description — a card per open discussion and pending comment (who and when, its chevron folding
+  it to two lines, the first and the last note with `N more`, the place with `Changed`/`Line gone` and whose turn),
+  `N resolved`, then the line's composer, kept with `No discussions yet.` too. That composer is a `Compose` on
+  `Target::Request` with no path (`Compose::overview`) — drawn idle until a press on it —, posted as a comment on
+  the request, or pending (`Change::CommentDraft`, GitLab's alone: GitHub offers no Add to review there); ⇥ makes
+  it a note on the request (`Target::Overview(iid, 0)`). + on a description paragraph writes a note to the agent
+  under it (`Target::Overview(iid, k)`), kept as a draft on the place `requests.description`
+  (`!398 · description · ¶1`, its digest the paragraph; `crates/requests/src/description.rs`). No activity events.
 - **Keyboard**: focus zones (branches, commits, files, diff, the open tool window; `ui/zones.rs`) — the one with the keyboard has an
   outlined island. Tab / ⇧Tab or ⌃2…4 move between them (⌃1 is the branch quick switch); ↑ ↓ (j k) act in the zone, ← → (h l) step files (in the file
   tree they close and open folders), ↵ goes one step in, Space / PageUp / PageDown / Home / End move the diff. A new

@@ -318,6 +318,16 @@ pub(crate) fn handle(
 pub(crate) fn acts(requests: &Entity<Requests>, tab: artoo_requests_api::TabActs) -> Acts {
     let (tab, requests) = (tab.0, requests.downgrade());
     Rc::new(move |act, cx| match act {
+        Act::FoldCard(id) => {
+            if let Some(requests) = requests.upgrade() {
+                requests.update(cx, |rq, cx| {
+                    if !rq.page.folded.remove(&id) {
+                        rq.page.folded.insert(id);
+                    }
+                    cx.notify();
+                });
+            }
+        }
         Act::RetryPast => {
             if let Some(requests) = requests.upgrade()
                 && let Some(host) = requests.read(cx).host(cx)
@@ -1048,6 +1058,10 @@ impl artoo_requests_api::Requests for Handle {
                 .map(gpui::IntoElement::into_any_element)
         })
         .flatten()
+    }
+
+    fn description_place(&self, number: u64, k: u32, cx: &App) -> Option<String> {
+        self.0.upgrade()?.read(cx).description_place(number, k)
     }
 
     fn open_grid(&self, note: u64, cx: &mut App) {

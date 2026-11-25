@@ -165,6 +165,36 @@ pub fn body(
     drawn(text, rich, key.into(), base, sel, None, cx)
 }
 
+/// `text` formatted, each of its top-level blocks — its paragraphs, counted from 1 — drawn as `wrap` has it (#241:
+/// a request's description, + on each for a note to the agent). One selection runs across them as in `body`.
+pub fn paragraphs(
+    text: &str,
+    key: impl Into<SharedString>,
+    base: Option<&str>,
+    sel: Option<Selecting>,
+    cx: &App,
+    mut wrap: impl FnMut(u32, AnyElement) -> AnyElement,
+) -> Div {
+    let mut ctx = Ctx {
+        app: cx,
+        key: key.into(),
+        next: 0,
+        base: base.map(str::to_owned),
+        sel,
+        blocks: 0,
+        texts: Rc::default(),
+        doc: None,
+        pictures: crate::pictures::get(cx),
+        cites: None,
+    };
+    let blocks = markdown::parse(text);
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .children((1..).zip(&blocks).map(|(n, b)| wrap(n, block(b, &mut ctx))))
+}
+
 /// An agent's words, formatted, with its cites (links of [`CITE_SCHEME`]) drawn in the text.
 pub fn body_cited(text: &str, key: impl Into<SharedString>, cites: Cites, cx: &App) -> AnyElement {
     drawn(text, true, key.into(), None, None, Some(cites), cx)

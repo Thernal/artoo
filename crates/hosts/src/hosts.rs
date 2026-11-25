@@ -268,6 +268,10 @@ impl Discussions for GitLab {
         gitlab::delete_draft(&self.remote, iid, id)
     }
 
+    fn comment_draft(&self, iid: u64, body: &str) -> Result<()> {
+        gitlab::comment_draft(&self.remote, iid, body)
+    }
+
     fn reply_draft(&self, iid: u64, discussion: &str, body: &str) -> Result<()> {
         gitlab::reply_draft(&self.remote, iid, discussion, body)
     }

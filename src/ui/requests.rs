@@ -1318,6 +1318,8 @@ impl artoo_requests_api::DiscussionsHost for DiscussionsHost {
     }
 }
 
+pub(super) use super::overview::overview_composers;
+
 pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
     Rc::new(move |act, cx| {
         this.update(cx, |this, cx| match act {
@@ -1346,6 +1348,9 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::PendingMenu { id, at } => this.pending_menu(id, at, cx),
             Act::ReplyMentioning { thread, login } => this.reply_mentioning(thread, &login, cx),
             Act::ShowThread(ix) => this.show_thread(ix, cx),
+            Act::ParagraphNote(k) => this.start_paragraph_note(k, cx),
+            // The requests' own: answered before the tab is asked.
+            Act::FoldCard(_) => {}
             Act::CompareSince(ix) => this.compare_since(ix, cx),
             Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),
             Act::StepThread { down } => this.step_thread(down, cx),

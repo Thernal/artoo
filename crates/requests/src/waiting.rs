@@ -383,6 +383,17 @@ impl Requests {
                 }],
                 Box::new(move |host: Arc<dyn Host>| host.comment(iid, &body)),
             ),
+            Change::CommentDraft { body } => (
+                vec![Op::Draft(Draft {
+                    id: w.temp(),
+                    body: body.clone(),
+                    path: None,
+                    new_line: None,
+                    old_line: None,
+                    reply_to: None,
+                })],
+                Box::new(move |host: Arc<dyn Host>| host.comment_draft(iid, &body)),
+            ),
             Change::OnLine {
                 head,
                 path,

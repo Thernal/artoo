@@ -5,8 +5,10 @@
 
 mod bar;
 mod card;
+mod cards;
 mod complete;
 mod create;
+mod description;
 mod discussions;
 mod disk;
 mod freshness;
@@ -111,6 +113,7 @@ pub fn install(cx: &mut App) {
             .order(150)
             .key("cmd-shift-d", when::NOT_TYPING),
     );
+    description::declare(cx);
     artoo_shell_api::add_parts(cx, parts);
     artoo_shell_api::add_parts(cx, inbox_parts);
 }

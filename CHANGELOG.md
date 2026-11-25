@@ -8,6 +8,8 @@ for someone using the app, not for someone reading the code; the commits follow 
 
 - **Emoji from the composer.** ☺ beside the formatting buttons, or ⌃⌘E, opens the emoji picker; ↵ puts one where
   you are writing.
+- **Comments on a request's Overview.** Its discussions stand after the description as cards, with a comment box
+  under them; + beside a paragraph of the description writes a note for your agent on it.
 
 ## 2.0.0 — 2026-11-17
 

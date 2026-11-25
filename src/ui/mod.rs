@@ -51,6 +51,7 @@ mod notifications;
 mod open_in;
 mod opening;
 mod outdated;
+mod overview;
 mod pages;
 mod palette;
 mod palette_lists;
@@ -1733,6 +1734,7 @@ impl Workspace {
         services.set(artoo_branches_api::TabActs(this.history_acts(cx)));
         services.set(this.editor_name.clone());
         // Its answers to what the requests' views ask: the requests' parts make their state in a tab that has them.
+        services.set(requests::overview_composers(cx.weak_entity()));
         services.set(artoo_requests_api::TabActs(requests::acts_of(
             cx.weak_entity(),
         )));

@@ -28,6 +28,9 @@ pub enum Target {
     Agent,
     /// Posted to a merge request on GitLab, where everyone on it sees it.
     Request(u64),
+    /// A note on request `0`'s page for the agent, kept on this Mac (#241): on its description's paragraph `1`,
+    /// counted from 1, or with 0 on the request.
+    Overview(u64, u32),
     /// A reply to discussion number `0` of the open merge request.
     Reply(usize),
     /// A new text for one's own comment.
@@ -300,6 +303,19 @@ impl Compose {
     /// An upload still going or failed: `Comment` waits for it, so no comment goes out without its image.
     pub fn waiting(&self) -> bool {
         (self.attachments.iter()).any(|a| !matches!(a.state, Upload::Done(_)))
+    }
+
+    /// The request at the end of whose Overview it is written, for everyone on it or for the agent (#241).
+    pub fn overview(&self) -> Option<u64> {
+        match self.target {
+            Target::Overview(iid, 0) => Some(iid),
+            Target::Request(iid)
+                if self.path.is_empty() && self.page.is_none() && self.file.is_none() =>
+            {
+                Some(iid)
+            }
+            _ => None,
+        }
     }
 
     /// The discussion of the open request a reply, an edit or a note for the agent is in.
@@ -1066,6 +1082,8 @@ pub struct FootLook {
     pub audience: Audience,
     /// The box's room (#129).
     pub room: Room,
+    /// The comment can wait for the review (Add to review): not one on a whole request on GitHub.
+    pub review: bool,
 }
 
 /// A click on a comment's foot.
@@ -1113,6 +1131,7 @@ impl Compose {
     pub fn source(&self) -> Source {
         match self.target {
             Target::Agent
+            | Target::Overview(..)
             | Target::Edit(Change::Agent(_))
             | Target::ThreadNote(_)
             | Target::Answer(_)
@@ -1245,7 +1264,7 @@ impl Compose {
         let on = waiting_foot(waits, on);
         let source = self.source();
         let tone = source.color();
-        let agent = self.target == Target::Agent;
+        let agent = matches!(self.target, Target::Agent | Target::Overview(..));
         let small = look.room == Room::S;
         let request = match self.target {
             Target::Request(iid) => Some(iid),
@@ -1292,7 +1311,7 @@ impl Compose {
         .tooltip_show_delay(hover::LONG)
         .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(said.clone())).into())
         .on_click(move |_, _, cx| add(FootEvent::Add, cx));
-        let more = agent || request.is_some();
+        let more = agent || (request.is_some() && look.review);
         tail.push(if !more {
             add_button.into_any_element()
         } else {

@@ -156,6 +156,17 @@ impl Workspace {
             return;
         };
         let body = compose.edit.text().trim().to_owned();
+        // Overview's, on the request as a whole: no line, and no diff to be on screen (#241).
+        if compose.overview().is_some() {
+            if body.is_empty() || (draft && self.on_github()) {
+                return;
+            }
+            let change = match draft {
+                true => Change::CommentDraft { body },
+                false => Change::Comment { body },
+            };
+            return self.submit_compose(iid, change, cx);
+        }
         let head = match self.shown_diff(cx).as_ref().map(|d| &d.header) {
             Some(super::Header::Compare { head, .. }) => head.1.to_string(),
             _ => return,
@@ -272,6 +283,7 @@ impl Workspace {
                 Target::Request(_) => {
                     this.current_request(cx) == Some(iid)
                         && (compose.page.is_some()
+                            || compose.path.is_empty()
                             || this.current_path(cx).as_deref() == Some(compose.path.as_str()))
                 }
                 _ => this.current_request(cx) == Some(iid),

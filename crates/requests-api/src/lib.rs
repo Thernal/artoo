@@ -102,6 +102,10 @@ pub enum Change {
     Comment {
         body: String,
     },
+    /// A comment on the request kept pending, sent with the review (#241); GitHub keeps none.
+    CommentDraft {
+        body: String,
+    },
     /// A comment on a line of the diff at `head` (`range` its first and last line when it spans several), or a
     /// pending one (`draft`).
     OnLine {
@@ -334,6 +338,10 @@ pub enum Act {
     /// Discussion `ix` shown where it is: Changes at its line with it open, or the version it was written on when
     /// its line is not in the diff shown (#242).
     ShowThread(usize),
+    /// Overview's card of discussion or pending comment `0` folded, or opened again (#241).
+    FoldCard(String),
+    /// + on the description's paragraph `0`, counted from 1: a note on it for the agent (#241).
+    ParagraphNote(u32),
     /// The diff shows line `line` of file `path` (`old`: the removed side).
     JumpToLine { path: String, line: u32, old: bool },
     /// Submit review's card, on Approve when `approve` (the done card's, #188).
@@ -662,6 +670,24 @@ pub type Hears = Rc<dyn Fn(&Event, &mut App)>;
 #[derive(Clone)]
 pub struct TabActs(pub Acts);
 
+/// The kind of place a note for an agent on a request's description is on (`artoo_agents_api::places`, #241).
+pub const DESCRIPTION_PLACE: &str = "requests.description";
+
+/// The composers Overview has on request `0`, written by the tab (#241).
+#[derive(Clone)]
+pub struct OverviewComposers(pub Composers);
+
+/// Overview's composers on a request, as the tab draws them now.
+pub type Composers = Rc<dyn Fn(u64, &App) -> OverviewComposer>;
+
+/// The composer at the end of Overview's discussions, and the note on a paragraph of the description while one
+/// is written (its number, from 1).
+#[derive(Default)]
+pub struct OverviewComposer {
+    pub end: Option<AnyElement>,
+    pub paragraph: Option<(u32, AnyElement)>,
+}
+
 /// What other features ask of a tab's merge requests, from its services (`Rc<dyn Requests>`).
 pub trait Requests {
     /// The request on branch `branch` (a local or remote one by its name, a request's own ref by its number): its
@@ -866,6 +892,9 @@ pub trait Requests {
     fn merge_card(&self, look: CardLook, cx: &mut App) -> Option<AnyElement>;
 
     /// ☺+ opened on note `note`, closed; the note it is open on; a key in it (`github` the host's emoji).
+    /// The data of a note's place on request `number` (`DESCRIPTION_PLACE`): paragraph `k` of its description,
+    /// from 1, or with 0 the request.
+    fn description_place(&self, number: u64, k: u32, cx: &App) -> Option<String>;
     fn open_grid(&self, note: u64, cx: &mut App);
     fn close_grid(&self, cx: &mut App);
     fn grid_note(&self, cx: &App) -> Option<u64>;

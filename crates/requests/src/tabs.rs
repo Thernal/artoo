@@ -95,7 +95,10 @@ impl Tabs {
         // A picture clicked opens the request's images whole (#211).
         let selecting =
             (frame.selecting(cx)).map(|s| crate::images::viewing(&self.requests, s, cx));
+        let composers = services.get::<artoo_requests_api::OverviewComposers>();
+        let composer = composers.map_or_else(Default::default, |c| (c.0)(m.iid, cx));
         let look = OverviewLook {
+            composer,
             title: markdown::body(
                 &m.title,
                 false,

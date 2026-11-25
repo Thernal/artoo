@@ -253,6 +253,13 @@ pub trait Discussions: Send + Sync {
     /// Adds a pending reply to discussion `discussion` of request `iid`: sent with the review (#200).
     fn reply_draft(&self, iid: u64, discussion: &str, body: &str) -> Result<()>;
 
+    /// Adds a pending comment on request `iid` as a whole, sent with the review (#241). GitHub keeps none: its
+    /// pending comments are on lines or replies.
+    fn comment_draft(&self, iid: u64, body: &str) -> Result<()> {
+        let _ = (iid, body);
+        anyhow::bail!("This host keeps no pending comment on the request as a whole")
+    }
+
     /// Writes pending comment `id` of request `iid` again, before the review is sent (#200).
     fn edit_draft(&self, iid: u64, id: u64, body: &str) -> Result<()>;
 }
