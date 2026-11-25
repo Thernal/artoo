@@ -209,6 +209,31 @@ impl Store {
             .any(|(_, files)| files.contains_key(path))
     }
 
+    /// Un-views `path` of `root` everywhere it counts as read in another reading (#232): the same change marked in
+    /// any other comparison, in a since view, in a commit. Without it the file stays ticked by its crossing.
+    pub fn unread_elsewhere(&mut self, root: &str, path: &str, fp: u64, scope: &str) {
+        let prefix = format!("{root}|");
+        let mut moved = false;
+        self.marks.retain(|key, files| {
+            if key == scope || !key.starts_with(&prefix) {
+                return true;
+            }
+            let kept_by_commit_or_since = key[prefix.len()..].starts_with("commit:")
+                || key[prefix.len()..].starts_with("ver:");
+            if files
+                .get(path)
+                .is_some_and(|m| m.fp == fp || kept_by_commit_or_since)
+            {
+                files.remove(path);
+                moved = true;
+            }
+            !files.is_empty()
+        });
+        if moved {
+            self.save();
+        }
+    }
+
     /// Whether `path` was marked in commit `id`'s own diff.
     pub fn read_in_commit(&self, root: &str, path: &str, id: git2::Oid) -> bool {
         (self.marks.get(&format!("{root}|commit:{id}"))).is_some_and(|f| f.contains_key(path))
@@ -980,6 +1005,13 @@ impl Review {
             self.read_through(&[path]);
         } else {
             self.reviewed.clear(&scope, &path);
+            // A file read in another reading stays ticked by that crossing until it is unmarked there too (#232).
+            if let Some(root) = self.root.as_ref().map(|r| r.display().to_string()) {
+                self.reviewed.unread_elsewhere(&root, &path, fp, &scope);
+            }
+            if let Some(c) = self.crossed.get_mut(ix) {
+                *c = false;
+            }
         }
         self.review_changed(&[ix]);
         self.sync_complete();
@@ -1012,6 +1044,18 @@ impl Review {
             .collect();
         let head = self.viewed_rev();
         self.reviewed.set_many(&scope, &files, done, head);
+        if !done {
+            if let Some(root) = self.root.as_ref().map(|r| r.display().to_string()) {
+                for (path, fp) in &files {
+                    self.reviewed.unread_elsewhere(&root, path, *fp, &scope);
+                }
+            }
+            for &ix in ixs {
+                if let Some(c) = self.crossed.get_mut(ix) {
+                    *c = false;
+                }
+            }
+        }
         if done {
             let paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
             self.read_through(&paths);
@@ -1079,6 +1123,24 @@ mod tests {
             new_image: None,
             pictures: Vec::new(),
         }
+    }
+
+    #[test]
+    fn unviewing_a_file_takes_its_crossings_with_it() {
+        let mut store = Store::default();
+        let (here, other) = ("/r|name:a...b", "/r|commit:abc");
+        store.set(here, "a.rs", 7, None);
+        store.set(other, "a.rs", 7, None);
+        store.set("/r|worktree", "a.rs", 9, None);
+        assert!(store.read_anywhere("/r", "a.rs", 7));
+        store.clear(here, "a.rs");
+        // Cleared here, it still reads as viewed through the other scope: the bug.
+        assert!(store.read_anywhere("/r", "a.rs", 7));
+        store.unread_elsewhere("/r", "a.rs", 7, here);
+        assert!(!store.read_anywhere("/r", "a.rs", 7));
+        assert!(!store.read_in_commits("/r", "a.rs"));
+        // Another change of the file (other fingerprint) is another reading, left alone.
+        assert_eq!(store.get("/r|worktree", "a.rs"), Some(9));
     }
 
     #[test]
