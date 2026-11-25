@@ -466,9 +466,14 @@ pub fn symbols(keys: &str) -> String {
                 [] => (&parts[..0], ""),
             };
             let mut out = String::new();
-            for (word, sign) in [("ctrl", "⌃"), ("alt", "⌥"), ("shift", "⇧"), ("cmd", "⌘")]
-            {
-                if mods.contains(&word) {
+            // A binding writes `cmd` back as `super` on Linux and `win` on Windows.
+            for (words, sign) in [
+                (&["ctrl"][..], "⌃"),
+                (&["alt"], "⌥"),
+                (&["shift"], "⇧"),
+                (&["cmd", "super", "win"], "⌘"),
+            ] {
+                if words.iter().any(|w| mods.contains(w)) {
                     out.push_str(sign);
                 }
             }
@@ -612,5 +617,7 @@ mod tests {
         assert_eq!(symbols("cmd--"), "⌘-");
         assert_eq!(symbols("ctrl-1"), "⌃1");
         assert_eq!(symbols("cmd-f3"), "⌘F3");
+        assert_eq!(symbols("super-shift-enter"), "⇧⌘↵");
+        assert_eq!(symbols("win-f3"), "⌘F3");
     }
 }
