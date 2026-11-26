@@ -851,7 +851,7 @@ impl Panel {
                         .child(tipped(
                             discussion::button(
                                 "way-read-menu",
-                                "▾",
+                                "",
                                 None,
                                 if on {
                                     Kind::Primary(theme::accent())
@@ -859,6 +859,12 @@ impl Panel {
                                     Kind::Plain
                                 },
                             )
+                            // The chevron as the icons draw it, not a character.
+                            .child(icons::icon("chevron-down").size(px(14.)).text_color(if on {
+                                theme::base()
+                            } else {
+                                theme::muted()
+                            }))
                             .on_click(cx.listener(
                                 |this, _: &ClickEvent, _, cx| {
                                     this.connecting.read_menu = !this.connecting.read_menu;
@@ -1318,6 +1324,10 @@ pub(crate) const NO_TOKEN: &str = "No token";
 
 /// The ways found that cannot be used, each with why.
 fn not_here(not: &[NotHere], remote: &WebRemote) -> Option<AnyElement> {
+    // A token for cloning only is not said at all: it can do nothing here (the owner, 2026-11-26).
+    let not: Vec<&NotHere> = (not.iter())
+        .filter(|n| cloning_only(&n.why).is_none())
+        .collect();
     (!not.is_empty()).then(|| {
         let (cli, _) = connect::cli_name(remote.github);
         div()
@@ -1327,12 +1337,7 @@ fn not_here(not: &[NotHere], remote: &WebRemote) -> Option<AnyElement> {
             .flex_col()
             .gap(px(4.))
             .children(not.iter().map(|n| {
-                // A token for cloning only: its scope in a pill, as a way's, the sentence its tooltip.
-                let scope = cloning_only(&n.why);
-                let why = match scope {
-                    Some(_) => "Its token is for cloning only".to_owned(),
-                    None => n.why.clone(),
-                };
+                let why = n.why.clone();
                 let (icon, name) = match &n.via {
                     Via::Cli => ("terminal", cli.to_owned()),
                     Via::Git(from) => ("branch", capital(from)),
@@ -1349,7 +1354,6 @@ fn not_here(not: &[NotHere], remote: &WebRemote) -> Option<AnyElement> {
                     .id(SharedString::from(format!("not-here-{name}")))
                     .child(icons::icon(icon).size(px(14.)).text_color(theme::faint()))
                     .child(name)
-                    .children(scope.map(scope_pill))
                     .tooltip_show_delay(artoo_ui_kit::hover::LONG)
                     .tooltip({
                         let why = SharedString::from(why);

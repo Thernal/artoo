@@ -338,8 +338,13 @@ pub fn setting_frame<E: Styled + ParentElement + FluentBuilder>(name: &SharedStr
 
 /// `text` with the search's words marked (#203), as the lists' filters mark theirs.
 pub fn found_marked(text: impl Into<SharedString>) -> gpui::StyledText {
-    let text: SharedString = text.into();
     let query = LOOK.with(|l| l.borrow().query.clone());
+    words_marked(text, &query)
+}
+
+/// `text` with each of `query`'s words marked where it occurs, ignoring case (the search's rows, ⌘K's).
+pub fn words_marked(text: impl Into<SharedString>, query: &[String]) -> gpui::StyledText {
+    let text: SharedString = text.into();
     let low = text.to_ascii_lowercase();
     let mut spans: Vec<std::ops::Range<usize>> = (query.iter())
         .filter(|w| !w.is_empty())

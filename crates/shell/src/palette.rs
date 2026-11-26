@@ -42,6 +42,7 @@ fn rows(
     items: Vec<Row>,
     at: usize,
     dropped: bool,
+    words: &[String],
     host: &Rc<dyn PaletteHost>,
 ) -> (Vec<AnyElement>, Option<usize>) {
     let count = |group: &SharedString| items.iter().filter(|r| &r.group == group).count();
@@ -99,11 +100,15 @@ fn rows(
                         .map(|name| icons::icon(name).size(px(16.)).text_color(theme::muted())),
                 )
                 .child(
-                    hover::cut("label", keys::text(&item.label).into_owned())
-                        // A face is drawn in itself (#24).
-                        .when_some(item.face, |s, face| s.font_family(face))
-                        .when(!item.file, |s| s.flex_1())
-                        .when(item.file, |s| s.flex_none().max_w(px(320.))),
+                    hover::cut_with(
+                        "label",
+                        keys::text(&item.label).into_owned(),
+                        controls::words_marked(keys::text(&item.label).into_owned(), words),
+                    )
+                    // A face is drawn in itself (#24).
+                    .when_some(item.face, |s, face| s.font_family(face))
+                    .when(!item.file, |s| s.flex_1())
+                    .when(item.file, |s| s.flex_none().max_w(px(320.))),
                 )
                 .child(
                     // A file's folder gives way first; a command's key never does.
@@ -197,7 +202,8 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
         .map(|r| r.wear.verb)
         .filter(|v| !v.is_empty())
         .unwrap_or("open");
-    let (rows, picked) = rows(view.rows, view.at, dropped, &host);
+    let words: Vec<String> = view.query.split_whitespace().map(str::to_owned).collect();
+    let (rows, picked) = rows(view.rows, view.at, dropped, &words, &host);
     let (scroll, follow) = view.scroll;
     if follow && let Some(picked) = picked {
         scroll.scroll_to_item(picked);

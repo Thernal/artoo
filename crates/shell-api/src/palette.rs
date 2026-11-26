@@ -85,6 +85,8 @@ pub struct PaletteView {
     /// `>` moved it to Actions: its mark before the field.
     pub actions: bool,
     pub field: AnyElement,
+    /// What was typed: its words are marked in each row's label (the design's search, `Interface font`).
+    pub query: String,
     pub rows: Vec<Row>,
     /// The row picked.
     pub at: usize,

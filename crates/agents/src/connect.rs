@@ -62,7 +62,11 @@ pub fn settings(connect: Entity<Connect>, cx: &mut App) -> Rows {
         let connect = connect.clone();
         cx.new(|cx| {
             cx.observe(&connect, |_, _, cx| cx.notify()).detach();
-            AgentsSettings { connect, only }
+            AgentsSettings {
+                connect,
+                only,
+                folded: Vec::new(),
+            }
         })
     };
     let all = view(None, cx);
@@ -78,6 +82,8 @@ struct AgentsSettings {
     connect: Entity<Connect>,
     /// The one agent drawn, by its name (Settings' search); every one when none.
     only: Option<&'static str>,
+    /// The agents whose commands by hand are folded (the owner, 2026-11-26: always there, folding allowed).
+    folded: Vec<String>,
 }
 
 /// An agent's ids' word: its name's first, small ("claude").
@@ -161,6 +167,62 @@ impl Render for AgentsSettings {
                 )
                 .child(command(id, text))
         };
+        // The commands that connect it by hand, always under the agent (the owner, 2026-11-26: not only once it
+        // failed), folding at their head.
+        let by_hand_block = |word: String,
+                             commands: Vec<(String, String)>,
+                             folded: bool,
+                             cx: &mut Context<Self>| {
+            let fold_word = word.clone();
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .pl(px(32.))
+                .pr(px(2.))
+                .pb(px(if folded { 4. } else { 10. }))
+                .border_b_1()
+                .border_color(theme::island_border())
+                .child(
+                    div()
+                        .id(SharedString::from(format!("agents-by-hand-{word}")))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .h(px(24.))
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(theme::text()))
+                        .child(
+                            icons::icon(if folded {
+                                "chevron-right"
+                            } else {
+                                "chevron-down"
+                            })
+                            .flex_none()
+                            .size(px(13.))
+                            .text_color(theme::faint()),
+                        )
+                        .child(if commands.len() == 1 {
+                            "The command, by hand".to_owned()
+                        } else {
+                            format!("The commands, by hand · {}", commands.len())
+                        })
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            match this.folded.iter().position(|w| *w == fold_word) {
+                                Some(at) => {
+                                    this.folded.remove(at);
+                                }
+                                None => this.folded.push(fold_word.clone()),
+                            }
+                            cx.notify();
+                        })),
+                )
+                .when(!folded, |s| {
+                    s.children(commands.into_iter().map(|(id, text)| command(id, text)))
+                })
+        };
         // One row an agent (#201), on one line: its name, then its state as a glyph with its sentence as tooltip, and
         // what can be done — Connect all while one is not (the developer, 2026-11-14: the way to connect stays in
         // sight), the rest icons. Framed as every row of Settings is (#203): lit, ringed, walked by ⇥, what was
@@ -214,9 +276,8 @@ impl Render for AgentsSettings {
                     (false, Some(_)) => "limited · Only a Codex running in a terminal".to_owned(),
                     (false, None) => "not yet".to_owned(),
                 };
-                let copy = by_hand.clone();
-                // Connected: the ok glyph; else a half ring (limited) or the dashed one, its sentence the tooltip, the
-                // command to copy as an icon and Look again, which reads whether Codex has it now.
+                // Connected: the ok glyph; else a half ring (limited) or the dashed one, its sentence the tooltip, and
+                // Look again, which reads whether Codex has it now; its command to copy is under the row.
                 let mut end = Vec::new();
                 if on {
                     end.push(state(
@@ -239,13 +300,6 @@ impl Render for AgentsSettings {
                         },
                     ));
                     end.push(
-                        icon_button("agents-copy-codex", "copy", "Copy the command")
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
-                            })
-                            .into_any_element(),
-                    );
-                    end.push(
                         text_button("agents-look-codex", "Look again")
                             .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.notify()))
                             .into_any_element(),
@@ -256,6 +310,13 @@ impl Render for AgentsSettings {
                     name.to_owned(),
                     facts,
                     end,
+                ));
+                let folded = self.folded.contains(&word);
+                rows = rows.child(by_hand_block(
+                    word.clone(),
+                    vec![(format!("agents-cmd-{word}-hand"), by_hand.clone())],
+                    folded,
+                    cx,
                 ));
                 continue;
             };
@@ -429,7 +490,7 @@ impl Render for AgentsSettings {
                     rows = rows.child(failure(
                         format!("Not connected — {why}"),
                         format!("agents-cmd-{word}"),
-                        by_hand,
+                        by_hand.clone(),
                     ));
                 } else if let Some((_, text)) = said.as_ref().filter(|(by, _)| *by == name) {
                     rows = rows.child(
@@ -440,6 +501,25 @@ impl Render for AgentsSettings {
                             .child(text.clone()),
                     );
                 }
+            }
+            // Each profile's command by hand (the one a failure shows already is not said twice); with no profile
+            // found, the plain one.
+            let mut commands: Vec<(String, String)> = (profiles.iter().enumerate())
+                .filter(|(ix, _)| !failed_in.as_ref().is_some_and(|(at, _)| at == ix))
+                .map(|(ix, p)| {
+                    let text = match p.folder == ".claude" {
+                        true => by_hand.clone(),
+                        false => format!("CLAUDE_CONFIG_DIR={} {by_hand}", p.path),
+                    };
+                    (format!("agents-cmd-{word}-{ix}"), text)
+                })
+                .collect();
+            if profiles.is_empty() && failed.is_none() {
+                commands.push((format!("agents-cmd-{word}-hand"), by_hand.clone()));
+            }
+            if !commands.is_empty() {
+                let folded = self.folded.contains(&word);
+                rows = rows.child(by_hand_block(word.clone(), commands, folded, cx));
             }
         }
         rows

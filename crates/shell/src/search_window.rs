@@ -877,16 +877,9 @@ impl Render for Machine {
             (b, room.max(gpui::px(160.)))
         });
         // Its keys: ↑↓ tries the selection where a find tries one (a theme).
-        let tries = (p.items.get(p.at))
-            .is_some_and(|i| matches!(i.pick, Pick::Found { tried: Some(_), .. }));
-        let hint = under.map(|_| match tries {
-            // Three things apart: two spaces between them.
-            true => (
-                "↑↓ preview  ↵  esc",
-                "↑↓ previews a theme · ↵ keeps it · esc goes back",
-            ),
-            false => ("↑↓  ↵  esc", "↑↓ moves · ↵ picks · esc goes back"),
-        });
+        // The keys a dropped list takes are not written at its field's right (the owner, 2026-11-26: a theme is
+        // seen as the keys move over it); ⌘ held shows the keyboard's hints.
+        let hint = None;
         let follow = self.follow.replace(false);
         // A tab come to (⇥, a click, the window opened on another) is scrolled into sight, once.
         let on = (tabs.as_ref()).and_then(|t: &Vec<Tab>| t.iter().position(|t| t.lit));
@@ -901,6 +894,7 @@ impl Render for Machine {
                 tabs,
                 actions: p.from.is_some(),
                 field: self.field(&p.query, placeholder, cx).into_any_element(),
+                query: p.query.trim_start_matches('>').trim().to_owned(),
                 rows,
                 at: p.at,
                 empty,

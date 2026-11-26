@@ -624,6 +624,8 @@ fn tone_ink(tone: Tone) -> Rgba {
 fn mark_slot(words: &Words, tone: Tone) -> gpui::Div {
     let (ink, inside) = match (&words.mark, &words.source) {
         (Some((letter, hue)), _) => (*hue, Some(letter.to_string())),
+        // A source's news that went well wears the tone's glyph, not the source's letter (`GitLab · Connected`).
+        (None, Some(_)) if tone != Tone::Info => (tone_ink(tone), None),
         (None, Some(source)) => (
             theme::muted(),
             Some(
@@ -684,11 +686,6 @@ fn mark_slot(words: &Words, tone: Tone) -> gpui::Div {
 /// A toast's actions in the order they are drawn: the secondary first, the primary last.
 fn in_order<T>(secondary: Option<T>, primary: Option<T>) -> Vec<T> {
     secondary.into_iter().chain(primary).collect()
-}
-
-/// Whether the toast's one action sits on the title line: no body and one action. Else the actions are on its last line.
-fn on_title_line(has_body: bool, has_second: bool, has_button: bool) -> bool {
-    !has_body && !has_second && has_button
 }
 
 /// A toast's button: the primary one filled, the secondary one outlined; its key at its right.
@@ -813,8 +810,8 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
             } else {
                 (newest == Some(id)).then_some("⌥↵")
             };
-            // One action and no body: it sits on the title line; else on the last line, the secondary first.
-            let inline = on_title_line(body.is_some(), second.is_some(), button.is_some());
+            // Every toast's actions on its last line, at its right, the secondary first: never beside the title (the
+            // owner, 2026-11-26: one standard).
             let primary = button.map(|label| {
                 action_button(("toast-button", id as usize).into(), label, key, true)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.press(id, cx)))
@@ -824,11 +821,7 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.press_second(id, cx)),
                 )
             });
-            let (on_title, on_foot) = if inline {
-                (primary, None)
-            } else {
-                (None, primary)
-            };
+            let on_foot = primary;
             let more_tip = words.more_tip.clone().unwrap_or_else(|| "More".into());
             let head =
                 div()
@@ -837,7 +830,6 @@ impl<A: Clone + PartialEq + 'static> Render for Toasts<A> {
                     .gap(px(8.))
                     .min_h(px(24.))
                     .child(title)
-                    .children(on_title)
                     .child(
                         div()
                             .flex_none()
@@ -957,11 +949,6 @@ mod tests {
             ["Stop listening", "Show"]
         );
         assert_eq!(in_order(None, Some("Open")), ["Open"]);
-        // No body and one action: on the title line; a body or a second action: on the last line.
-        assert!(on_title_line(false, false, true));
-        assert!(!on_title_line(true, false, true));
-        assert!(!on_title_line(false, true, true));
-        assert!(!on_title_line(false, false, false));
     }
 
     #[test]
