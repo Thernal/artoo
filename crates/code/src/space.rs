@@ -921,9 +921,34 @@ impl CodeSpace {
             .h(px(26.))
             .pl(px(8. + row.depth as f32 * 14.))
             .gap(px(6.))
-            // A folder's chevron, then its icon; a file's icon under the folders' (#95). The
-            // chevron alone folds; the row opens the folder's page (#97).
+            // A folder's icon, a file's plain one (the design's rows, the owner, 2026-11-26).
             .child(match row.folder {
+                Some(_) => icons::folder_icon(&row.path, 16.),
+                None => icons::icon("file")
+                    .flex_none()
+                    .size(px(15.))
+                    .text_color(theme::muted())
+                    .into_any_element(),
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .cut_in_tip()
+                    .when(preview, |s| s.italic())
+                    .child(row.name.clone()),
+            )
+            .children(noted.then(|| {
+                div()
+                    .flex_none()
+                    .size(px(7.))
+                    .mr(px(4.))
+                    .rounded_full()
+                    .bg(theme::agent())
+            }))
+            // A folder's chevron at the row's end, as the design has it (the owner, 2026-11-26); it alone folds, the
+            // row opens the folder's page (#97).
+            .children(match row.folder {
                 Some(open) => {
                     let fold = row.path.clone();
                     div()
@@ -947,29 +972,10 @@ impl CodeSpace {
                             cx.notify();
                         }))
                         .into_any_element()
+                        .into()
                 }
-                None => div().w(px(12.)).flex_none().into_any_element(),
+                None => None,
             })
-            .child(match row.folder {
-                Some(_) => icons::folder_icon(&row.path, 16.),
-                None => icons::file_icon(&row.path, 16.),
-            })
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .cut_in_tip()
-                    .when(preview, |s| s.italic())
-                    .child(row.name.clone()),
-            )
-            .children(noted.then(|| {
-                div()
-                    .flex_none()
-                    .size(px(7.))
-                    .mr(px(4.))
-                    .rounded_full()
-                    .bg(theme::agent())
-            }))
             // A right click: Reveal in Finder, Copy path, Open in; a folder's, a note for the agent.
             .on_mouse_down(
                 gpui::MouseButton::Right,

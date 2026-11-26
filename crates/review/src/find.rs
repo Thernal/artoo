@@ -341,9 +341,14 @@ impl Review {
 
     /// ⌘F: the bar open, with what it had while it is.
     pub fn open_find(&mut self) {
-        if self.dfind.is_none() {
-            self.find_area = Area::default();
-            self.dfind = Some(String::new());
+        match self.dfind {
+            None => {
+                self.find_area = Area::default();
+                self.dfind = Some(String::new());
+            }
+            // ⌘F again, in the field or out of it: its words picked, so what is typed next replaces them, as the
+            // design's find bar has them (the owner, 2026-11-26).
+            Some(_) => self.find_area.edit.select_all(),
         }
     }
 

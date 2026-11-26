@@ -31,7 +31,8 @@ pub fn text_chip(id: &'static str, label: &'static str, active: bool) -> Statefu
         .items_center()
 }
 
-/// A quiet icon button on its own: a 28 px square, the glyph centred, its words the tip (find's ↑ ↓ ✕).
+/// A quiet icon button on its own: a framed 28 px square, the glyph centred, its words the tip (find's ↑ ↓ ✕, framed
+/// as the design draws them).
 pub fn square(
     id: &'static str,
     name: &'static str,
@@ -46,6 +47,8 @@ pub fn square(
         .items_center()
         .justify_center()
         .rounded(px(artoo_ui_kit::ROW_RADIUS))
+        .border_1()
+        .border_color(theme::island_border())
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
         .child(icons::icon(name).size(px(14.)).text_color(theme::muted()))

@@ -323,7 +323,7 @@ impl Workspace {
         };
         let marked = open && markdown::has_markdown(&comment.body);
         let hover = gpui::SharedString::from(format!("agent-head-{id}"));
-        let (erase, send) = (delete.clone(), delete.clone());
+        let (erase, send, erase_foot) = (delete.clone(), delete.clone(), delete.clone());
         let head = div()
             .id(("agent-bar", id))
             .group(hover.clone())
@@ -332,17 +332,46 @@ impl Workspace {
             .gap(px(8.))
             .h(px(28.))
             .cursor_pointer()
+            // The agent's mark, a tinted square, as the design draws it (the owner, 2026-11-26).
             .child(
                 div()
                     .id(gpui::SharedString::from(format!("agent-for-{id}")))
                     .flex_none()
+                    .size(px(22.))
+                    .rounded(px(6.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(gpui::Rgba {
+                        a: 0.18,
+                        ..theme::agent()
+                    })
                     .child(
                         super::icons::icon("bot")
-                            .size(px(14.))
+                            .size(px(13.))
                             .text_color(theme::agent()),
                     ),
             )
-            .child(
+            // A draft: a dashed circle, not sent yet; once sent, to whom.
+            .child(if draft && !answer {
+                div()
+                    .id(("agent-draft-mark", id))
+                    .flex_none()
+                    .child(
+                        super::icons::icon("circle-dashed")
+                            .size(px(14.))
+                            .text_color(theme::faint()),
+                    )
+                    .tooltip_show_delay(super::hover::LONG)
+                    .tooltip({
+                        let tip = format!("A draft for {to}, not sent yet");
+                        move |_, cx| {
+                            cx.new(|_| super::hover::TipOwned(tip.clone().into()))
+                                .into()
+                        }
+                    })
+                    .into_any_element()
+            } else {
                 div()
                     .flex_none()
                     .text_size(px(13.))
@@ -352,8 +381,9 @@ impl Workspace {
                         to.clone()
                     } else {
                         format!("To {to}")
-                    }),
-            )
+                    })
+                    .into_any_element()
+            })
             .children(answer.then(|| {
                 div()
                     .min_w_0()
@@ -388,7 +418,7 @@ impl Workspace {
                     .items_center()
                     .gap(px(2.))
                     .invisible()
-                    .group_hover(hover, |s| s.visible())
+                    .when(!(draft && open), |s| s.group_hover(hover, |s| s.visible()))
                     .children(marked.then(|| {
                         self.rich_switch(("agent-rich", id))
                             .on_click(move |_, _, cx| {
@@ -428,19 +458,14 @@ impl Workspace {
                         }),
                     ),
             )
-            .child(if draft {
+            .child(if draft && open {
+                div().into_any_element()
+            } else if draft {
                 div()
                     .flex_none()
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .child(
-                        div()
-                            .whitespace_nowrap()
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child("draft"),
-                    )
                     .child(
                         discussion::icon_button(
                             ("send-agent", id),
@@ -499,8 +524,30 @@ impl Workspace {
             });
         let change = Change::Agent(id);
         let edit_box = self.edit_box(change, editing.clone(), cx);
+        let editing_now = edit_box.is_some();
         let body = div().pb(px(6.)).child(match edit_box {
             Some(edit_box) => edit_box.into_any_element(),
+            // A draft is yours: who and when over its words, as the design has it (the owner, 2026-11-26).
+            None if draft => discussion::note(
+                "you",
+                true,
+                None,
+                (comment.written > 0)
+                    .then(|| super::format::short_ago(comment.written))
+                    .unwrap_or_default(),
+                markdown::body(
+                    &comment.body,
+                    self.settings.rich_comments,
+                    format!("md-agent-{id}"),
+                    None,
+                    Some(selecting.clone()),
+                    cx,
+                ),
+                true,
+                None,
+                None,
+            )
+            .into_any_element(),
             None => markdown::body(
                 &comment.body,
                 self.settings.rich_comments,
@@ -509,6 +556,67 @@ impl Workspace {
                 Some(selecting.clone()),
                 cx,
             ),
+        });
+        // A draft's foot: Edit at the left, Delete and Send at the right (the design's note to an agent).
+        let foot = (draft && !answer && !editing_now).then(|| {
+            let (erase, send) = (erase_foot.clone(), erase_foot.clone());
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .px(px(12.))
+                .pb(px(10.))
+                .child(
+                    div()
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(theme::island_border())
+                        .child(edit_button(
+                            ("edit-agent-foot", id),
+                            None,
+                            true,
+                            Change::Agent(id),
+                            editing.clone(),
+                        )),
+                )
+                .child(div().flex_1())
+                .child(
+                    discussion::icon_button(
+                        ("delete-agent-foot", id),
+                        "x",
+                        "Delete",
+                        None,
+                        None,
+                        Kind::Quiet,
+                        true,
+                    )
+                    .h(px(26.))
+                    .border_1()
+                    .border_color(theme::island_border())
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        erase
+                            .update(cx, |this, cx| this.erase_comment(id, Erase::Delete, cx))
+                            .ok();
+                    }),
+                )
+                .child(
+                    discussion::icon_button(
+                        ("send-agent-foot", id),
+                        "send",
+                        "Send",
+                        None,
+                        Some("Send only this one"),
+                        Kind::Primary(theme::agent()),
+                        false,
+                    )
+                    .h(px(26.))
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        send.update(cx, |this, cx| this.send_agent(vec![id], cx))
+                            .ok();
+                    }),
+                )
         });
         // The last question is answered under it while the comment is open; an earlier one, or
         // the last once it is done, shows its form as it was answered.
@@ -581,7 +689,8 @@ impl Workspace {
             .child(body)
             .children(replies)
             .children(form)
-            .children(answer_box);
+            .children(answer_box)
+            .children(foot);
         div()
             .w_full()
             .pl(px(indent))
