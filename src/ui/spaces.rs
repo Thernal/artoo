@@ -693,7 +693,7 @@ impl SpacesHost for Glue {
 
     fn dropped(
         &self,
-        space: Space,
+        _: Space,
         from: SharedString,
         to: SharedString,
         at: DropAt,
@@ -703,7 +703,6 @@ impl SpacesHost for Glue {
         self.tab
             .update(cx, |this, cx| {
                 if let Some(to) = Unit::read(&to) {
-                    let _ = space;
                     this.drop_unit(&from, super::groups::Target::Row(to, at.into()), cx)
                 }
             })
