@@ -852,11 +852,12 @@ impl artoo_branches_api::Branches for Handle {
     fn panel_shows(
         &self,
         route: Option<&artoo_core::route::Route>,
+        creating: bool,
         cx: &gpui::App,
     ) -> artoo_branches_api::PanelShows {
         self.0
             .upgrade()
-            .map(|h| h.read(cx).panel_shows(route))
+            .map(|h| h.read(cx).panel_shows(route, creating))
             .unwrap_or_default()
     }
 

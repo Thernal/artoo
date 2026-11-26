@@ -58,8 +58,10 @@ enum Menu {
 
 pub struct NewRequest {
     source: String,
-    /// The branch is not on origin, so the host cannot open a request from it.
+    /// The branch is not on origin: Create pushes it first (the owner, 2026-11-26).
     local_only: bool,
+    /// On origin, but this Mac's branch is not what origin has: Create pushes it first too.
+    unpushed: bool,
     target: String,
     title: String,
     description: String,
@@ -207,6 +209,14 @@ fn area_of(rq: &mut Requests) -> Option<&mut Area> {
 pub use artoo_core::mr::source_of;
 
 /// The tip of `name` on origin (`origin/name`).
+/// Whether branch `name` here is other than origin's: commits the host has not got.
+fn unpushed(branches: &[BranchRef], name: &str) -> bool {
+    let local = (branches.iter())
+        .find(|b| b.kind == RefKind::Local && b.name == name)
+        .map(|b| b.tip);
+    matches!((local, remote_tip(branches, name)), (Some(here), Some(there)) if here != there)
+}
+
 fn remote_tip(branches: &[BranchRef], name: &str) -> Option<Oid> {
     branches
         .iter()
@@ -298,6 +308,7 @@ impl Requests {
                     .unwrap_or("main")
                     .to_owned()
             });
+        let ahead_here = unpushed(here.branches, &source);
         let repo = Repo::open(here.root).ok();
         let commit = repo.as_ref().and_then(|r| r.commit(tip).ok());
         let title = commit
@@ -307,6 +318,7 @@ impl Requests {
         self.creating = Some(NewRequest {
             source,
             local_only: !on_origin,
+            unpushed: on_origin && ahead_here,
             target,
             title,
             description: String::new(),
@@ -670,6 +682,7 @@ impl Requests {
     pub fn pick_source(&mut self, here: &Here, name: String) -> Option<Pair> {
         let on_origin = remote_tip(here.branches, &name).is_some();
         let n = self.creating.as_mut()?;
+        n.unpushed = on_origin && unpushed(here.branches, &name);
         n.source = name;
         n.local_only = !on_origin;
         n.focus = Focus::Target;
@@ -983,7 +996,7 @@ impl Requests {
             self.keep_create(cx);
             return Some(iid);
         }
-        if n.local_only || n.posting || n.nothing {
+        if n.posting || n.nothing {
             return None;
         }
         if n.title.trim().is_empty() {
@@ -993,6 +1006,8 @@ impl Requests {
         }
         n.posting = true;
         n.error = None;
+        // Not on origin, or not all of it: pushed first, then made (the owner, 2026-11-26).
+        let push = (n.local_only || n.unpushed).then(|| n.root.clone());
         let (source, target, title, description) = (
             n.source.clone(),
             n.target.trim().to_owned(),
@@ -1011,7 +1026,13 @@ impl Requests {
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
-                .spawn(async move { host.create(&source, &target, &title, &description, &options) })
+                .spawn(async move {
+                    if let Some(root) = push {
+                        artoo_core::git::fetch::push_branch(&root, &source)
+                            .map_err(|e| anyhow::anyhow!("Could not push {source}: {e}"))?;
+                    }
+                    host.create(&source, &target, &title, &description, &options)
+                })
                 .await;
             this.update(cx, |this, cx| {
                 match result {
@@ -1043,6 +1064,14 @@ impl Requests {
         None
     }
 
+    /// Request | Changes to Changes (the owner, 2026-11-26: a file picked on the left shows it there).
+    pub fn show_create_changes(&mut self, cx: &mut Context<Self>) {
+        if let Some(n) = self.creating.as_mut().filter(|n| !n.changes) {
+            n.changes = true;
+            cx.notify();
+        }
+    }
+
     /// Request | Changes is on Changes: the diff of the pair stands in the pane.
     pub fn create_shows_changes(&self) -> bool {
         self.creating.as_ref().is_some_and(|n| n.changes)
@@ -1053,12 +1082,17 @@ impl Requests {
     pub fn create_bar(&self) -> Option<artoo_requests_api::CreateBar> {
         let n = self.creating.as_ref()?;
         let nothing = n.nothing && n.existing.is_none();
-        let go = if n.posting {
+        let pushes = n.local_only || n.unpushed;
+        let go = if n.posting && pushes {
+            "Pushing…".to_owned()
+        } else if n.posting {
             "Creating…".to_owned()
         } else if let Some(iid) = n.existing {
             format!("Open {}", words::number(iid))
         } else if nothing {
             "Create · Nothing to merge".to_owned()
+        } else if pushes {
+            "Push and create".to_owned()
         } else {
             "Create".to_owned()
         };
@@ -1066,7 +1100,7 @@ impl Requests {
             commits: n.commits,
             go,
             nothing,
-            blocked: n.local_only || n.posting,
+            blocked: n.posting,
         })
     }
 
@@ -1684,14 +1718,21 @@ impl Requests {
                 )
                 .child(keys::text(text).into_owned())
         };
-        let note = if n.local_only {
+        let note = if n.local_only || n.unpushed {
             Some((
-                words::say(&format!(
-                    "{} is only on this Mac, and GitLab cannot open a request from it. Push it first: git push -u origin {}",
-                    n.source, n.source
-                ))
+                words::say(&if n.local_only {
+                    format!(
+                        "{} is only on this Mac: Create pushes it to origin first.",
+                        n.source
+                    )
+                } else {
+                    format!(
+                        "{} has commits origin has not got: Create pushes them first.",
+                        n.source
+                    )
+                })
                 .into_owned(),
-                true,
+                false,
             ))
         } else {
             n.existing.map(|iid| {
@@ -2319,6 +2360,29 @@ fn branch_field(name: AnyElement) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn create_pushes_a_branch_origin_has_not_all_of() {
+        let at = |n: u8| Oid::from_bytes(&[n; 20]).unwrap();
+        let branch = |name: &str, kind: RefKind, tip: u8| BranchRef {
+            name: name.to_owned(),
+            refname: String::new(),
+            kind,
+            tip: at(tip),
+            is_head: false,
+        };
+        let list = [
+            branch("fix", RefKind::Local, 2),
+            branch("origin/fix", RefKind::Remote, 1),
+            branch("same", RefKind::Local, 3),
+            branch("origin/same", RefKind::Remote, 3),
+            branch("here", RefKind::Local, 4),
+        ];
+        assert!(unpushed(&list, "fix"));
+        assert!(!unpushed(&list, "same"));
+        // Only on this Mac is `local_only`, not this.
+        assert!(!unpushed(&list, "here"));
+    }
 
     #[test]
     fn the_templates_come_from_the_hosts_place_default_first() {

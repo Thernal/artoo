@@ -139,7 +139,9 @@ impl Render for Panel {
             .map(|(_, v)| v)
             .unwrap_or_default();
         self.history.update(cx, |h, _| h.of_request = of_request);
-        let shows = self.history.read(cx).panel_shows(route.as_ref());
+        let creating = (services.get::<Rc<dyn artoo_requests_api::Requests>>())
+            .is_some_and(|r| r.creating(cx));
+        let shows = self.history.read(cx).panel_shows(route.as_ref(), creating);
         let mut open_lists = 0;
         let mut sections: Vec<AnyElement> = Vec::new();
 
@@ -261,8 +263,19 @@ pub fn fill_viewed(
 impl History {
     /// What the panel holds on `route`: the versions on a request's page with more than one, not on its commits nor
     /// a branch's; the commits on a page without a Commits tab (the main line), not on a comparison nor the working
-    /// tree, which have only their changes (#147); a comparison's own commits once read.
-    pub fn panel_shows(&self, route: Option<&Route>) -> Shows {
+    /// tree, which have only their changes (#147); a comparison's own commits once read. While a request is
+    /// `creating`, the pair's commits in the history's place (the owner, 2026-11-26).
+    pub fn panel_shows(&self, route: Option<&Route>, creating: bool) -> Shows {
+        let pair =
+            (self.compare.as_ref()).is_some_and(|c| c.list.as_ref().is_some_and(|l| !l.is_empty()));
+        if creating && pair {
+            return Shows {
+                versions: false,
+                commits: false,
+                compare: true,
+                no_changes: false,
+            };
+        }
         let kind = route.map_or("", |r| r.kind.as_str());
         let request = [
             RequestRoute::KIND,

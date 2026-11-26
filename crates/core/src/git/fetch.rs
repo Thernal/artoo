@@ -52,6 +52,50 @@ pub fn fetch_branch(root: &Path, name: &str) -> Result<(), String> {
     git_fetch(root, &[&remote, &spec])
 }
 
+/// Branch `name` pushed to the project's remote, its upstream set (`git push -u <remote> <name>`): a new request asked
+/// for a branch the host has not got, or not all of (the owner, 2026-11-26: Create pushes first). No force: a branch
+/// that went another way on the remote is refused, said in git's words. Blocks; run it off the main thread.
+pub fn push_branch(root: &Path, name: &str) -> Result<(), String> {
+    let remote = web_remote(root)?;
+    let mut child = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["push", "--quiet", "--set-upstream", &remote])
+        .arg(format!("refs/heads/{name}:refs/heads/{name}"))
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "git is not installed".to_owned())?;
+    let started = Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            // A push carries more than a fetch's ask: twice its time.
+            Ok(None) if started.elapsed() > 2 * TIMEOUT => {
+                let _ = child.kill();
+                return Err("The remote did not answer in time — is the VPN on?".to_owned());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(200)),
+            Err(e) => return Err(e.to_string()),
+        }
+    };
+    if status.success() {
+        return Ok(());
+    }
+    let mut stderr = String::new();
+    if let Some(mut pipe) = child.stderr.take() {
+        let _ = std::io::Read::read_to_string(&mut pipe, &mut stderr);
+    }
+    if stderr.contains("[rejected]") || stderr.contains("non-fast-forward") {
+        return Err(format!(
+            "{name} went another way on {remote}: pull or rebase it first, then Create"
+        ));
+    }
+    Err(explain(&stderr))
+}
+
 fn web_remote(root: &Path) -> Result<String, String> {
     crate::git::Repo::open(root)
         .ok()

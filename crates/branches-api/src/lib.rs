@@ -557,8 +557,8 @@ pub trait Branches {
     fn step_pick(&self, down: bool, cx: &mut App);
     fn picked(&self, cx: &App) -> Option<Selection>;
 
-    /// What the side panel holds on `route`.
-    fn panel_shows(&self, route: Option<&Route>, cx: &App) -> PanelShows;
+    /// What the side panel holds on `route`, a request being written there or not (`creating`).
+    fn panel_shows(&self, route: Option<&Route>, creating: bool, cx: &App) -> PanelShows;
 
     /// A diff arrived: the branch page learns how many files it has, when it is the page's own. The branch
     /// page's count.

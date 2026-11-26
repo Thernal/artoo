@@ -40,8 +40,9 @@ impl Workspace {
         {
             self.arrive(route.clone(), cx);
         }
-        // A comparison's own page lists its commits (#21); a request's or a branch's has its own.
-        let own = request.is_none() && self.nav_page() == Some(&route);
+        // A comparison's own page lists its commits (#21); a request's or a branch's has its own. A request being
+        // written lists the pair's, as the design draws it (the owner, 2026-11-26).
+        let own = request.is_none() && (self.nav_page() == Some(&route) || self.creating(cx));
         self.read_compare_commits(own.then_some(page), cx);
         cx.notify();
     }
@@ -71,6 +72,10 @@ impl Workspace {
 
     /// A click on commit `ix`: its diff alone; with ⇧ the run from the one clicked last to it.
     pub(super) fn pick_compare_commit(&mut self, ix: usize, span: bool, cx: &mut Context<Self>) {
+        // One of a request's being written: its diff under Changes, the form kept.
+        if let Some(requests) = self.requests_api().filter(|r| r.creating(cx)) {
+            requests.show_create_changes(cx);
+        }
         let keep = self.current_path(cx);
         if self.root.is_some()
             && self

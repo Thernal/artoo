@@ -75,8 +75,9 @@ impl Workspace {
     /// What the panel holds on the page on screen (`Branches::panel_shows`).
     pub(super) fn panel_shows(&self, cx: &App) -> PanelShows {
         let route = self.nav_page().cloned();
+        let creating = self.creating(cx);
         self.branches()
-            .map(|b| b.panel_shows(route.as_ref(), cx))
+            .map(|b| b.panel_shows(route.as_ref(), creating, cx))
             .unwrap_or_default()
     }
 

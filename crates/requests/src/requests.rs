@@ -1755,6 +1755,12 @@ impl artoo_requests_api::Requests for Handle {
         }
     }
 
+    fn show_create_changes(&self, cx: &mut App) {
+        if let Some(rq) = self.0.upgrade() {
+            rq.update(cx, |rq, cx| rq.show_create_changes(cx));
+        }
+    }
+
     fn pick_branch(&self, name: String, source: bool, cx: &mut App) -> Option<Pair> {
         let branches = self.branch_list(cx);
         let here = self.0.upgrade()?.read(cx).here()?;

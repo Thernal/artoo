@@ -3504,6 +3504,11 @@ impl artoo_review_api::Host for TabHost {
                 }
                 ChangesEvent::ReviewAll => this.toggle_all_reviewed(cx),
                 ChangesEvent::Pick(ix) => {
+                    // A file of the request being written: the form steps aside for Changes, on that file (the
+                    // owner, 2026-11-26).
+                    if let Some(requests) = this.requests_api().filter(|r| r.creating(cx)) {
+                        requests.show_create_changes(cx);
+                    }
                     // Picked in the drawer, it goes and the file is on screen (#80); chosen, it is kept among the
                     // places opened lately (#192).
                     this.close_drawer(cx);
