@@ -496,8 +496,8 @@ impl Review {
         div()
             .id("diff-body")
             .relative()
-            // The ground between the files' cards.
-            .when(self.stack.is_some(), |s| s.bg(theme::base()))
+            // The files' cards stand on the island's own colour, as the design's: no darker ground under them (the
+            // owner, 2026-11-26).
             .flex_1()
             .min_h_0()
             .flex()

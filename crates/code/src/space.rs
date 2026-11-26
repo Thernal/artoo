@@ -1182,8 +1182,8 @@ impl CodeSpace {
         let root = self.root.clone();
         let last_pin = self.code.pins.last().cloned();
         // GPUI clips to a rectangle, not to the island's round corners: the strip rounds its own
-        // top inside the island's border, the tabs start a corner's width in so the one on screen
-        // never fills a corner, and ▾ rounds the other (the developer, 2026-10-23).
+        // top inside the island's border, the first tab rounds its own corner, and ▾ rounds the other (the
+        // developer, 2026-10-23; the owner, 2026-11-26: the first one's colour was cut square).
         let corner = if artoo_ui_kit::flat() {
             0.
         } else {
@@ -1197,110 +1197,133 @@ impl CodeSpace {
             .flex()
             .overflow_x_scroll()
             .track_scroll(&self.code.tab_scroll)
-            .children(tabs.iter().cloned().flat_map(|(key, preview)| {
-                let on = shown.as_ref() == Some(&key);
-                let pinned = self.code.pinned(&key);
-                // A line after the last pinned tab parts them from the rest (#20, B).
-                let parted = last_pin.as_ref() == Some(&key) && tabs.len() > self.code.pins.len();
-                let path = key.trim_end_matches('/').to_owned();
-                let folder = key.ends_with('/');
-                let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
-                let (open, close, menu) = (key.clone(), key.clone(), key.clone());
-                let (drag, drop) = (key.clone(), key.clone());
-                let full = root.as_ref().map(|r| r.join(&path));
-                let label = name.clone();
-                let whole = key.clone();
-                let tab = div()
-                    .id(SharedString::from(format!("code-tab-{key}")))
-                    .flex_none()
-                    .h_full()
-                    .pl(px(12.))
-                    .pr(px(6.))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .border_r_1()
-                    .border_color(rule)
-                    .text_size(px(12.))
-                    .cursor_pointer()
-                    // The one on screen opens into the page; the others sit on the strip's line.
-                    .when(on, |s| s.bg(theme::editor()).text_color(theme::text()))
-                    .when(!on, |s| {
-                        s.border_b_1()
-                            .text_color(theme::muted())
-                            .hover(|s| s.text_color(theme::text()))
-                    })
-                    // Its whole path in a long hover.
-                    .tooltip_show_delay(artoo_ui_kit::hover::LONG)
-                    .tooltip(move |_, cx| cx.new(|_| TipOwned(whole.clone().into())).into())
-                    // A kept tab dragged onto another takes its place.
-                    .drag_over::<DragCodeTab>(|s, _, _, _| s.bg(theme::selected()))
-                    .when(!preview, |s| {
-                        s.on_drag(DragCodeTab(drag), move |_, _, _, cx| {
-                            cx.new(|_| artoo_ui_kit::controls::DragLabel(label.clone()))
-                        })
-                    })
-                    .on_drop(cx.listener(move |this, dragged: &DragCodeTab, _, cx| {
-                        this.move_tab(&dragged.0, &drop, cx)
-                    }))
-                    .child(if folder {
-                        icons::folder_icon(&path, 14.)
-                    } else {
-                        icons::file_icon(&path, 14.)
-                    })
-                    .child(div().when(preview, |s| s.italic()).child(name))
-                    // A pinned tab's pin where × would be: a click unpins it.
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("code-tab-x-{key}")))
-                            .size(px(18.))
+            .children(
+                tabs.iter()
+                    .cloned()
+                    .enumerate()
+                    .flat_map(|(n, (key, preview))| {
+                        let on = shown.as_ref() == Some(&key);
+                        // The first bends with the island's corner: the one on screen fills it, never a square cut in it.
+                        let first = n == 0;
+                        let pinned = self.code.pinned(&key);
+                        // A line after the last pinned tab parts them from the rest (#20, B).
+                        let parted =
+                            last_pin.as_ref() == Some(&key) && tabs.len() > self.code.pins.len();
+                        let path = key.trim_end_matches('/').to_owned();
+                        let folder = key.ends_with('/');
+                        let name = path.rsplit('/').next().unwrap_or(&path).to_owned();
+                        let (open, close, menu) = (key.clone(), key.clone(), key.clone());
+                        let (drag, drop) = (key.clone(), key.clone());
+                        let full = root.as_ref().map(|r| r.join(&path));
+                        let label = name.clone();
+                        let whole = key.clone();
+                        let tab = div()
+                            .id(SharedString::from(format!("code-tab-{key}")))
+                            .relative()
+                            .flex_none()
+                            .h_full()
+                            .when(first, |s| s.rounded_tl(px(corner)))
+                            .pl(px(12.))
+                            .pr(px(6.))
                             .flex()
                             .items_center()
-                            .justify_center()
-                            .rounded(px(4.))
-                            .hover(|s| s.bg(theme::hover()))
-                            .child(
-                                icons::icon(if pinned { "pin" } else { "x" })
-                                    .size(px(12.))
-                                    .text_color(theme::faint()),
-                            )
-                            .when(pinned, |s| {
-                                s.tooltip_show_delay(artoo_ui_kit::hover::LONG)
-                                    .tooltip(|_, cx| cx.new(|_| Tip("Unpin")).into())
+                            .gap(px(6.))
+                            .border_r_1()
+                            .border_color(rule)
+                            .text_size(px(12.))
+                            .cursor_pointer()
+                            // The one on screen opens into the page, a line over it with round ends (the owner, 2026-11-26);
+                            // the others sit on the strip's line.
+                            .when(on, |s| {
+                                s.bg(theme::editor()).text_color(theme::text()).child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .left(px(if first { corner / 2. } else { 0. }))
+                                        .right_0()
+                                        .h(px(2.))
+                                        .rounded_full()
+                                        .bg(theme::accent()),
+                                )
                             })
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                cx.stop_propagation();
-                                if pinned {
-                                    this.pin(&close, cx)
+                            .when(!on, |s| {
+                                s.border_b_1()
+                                    .text_color(theme::muted())
+                                    .hover(|s| s.text_color(theme::text()))
+                            })
+                            // Its whole path in a long hover.
+                            .tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                            .tooltip(move |_, cx| cx.new(|_| TipOwned(whole.clone().into())).into())
+                            // A kept tab dragged onto another takes its place.
+                            .drag_over::<DragCodeTab>(|s, _, _, _| s.bg(theme::selected()))
+                            .when(!preview, |s| {
+                                s.on_drag(DragCodeTab(drag), move |_, _, _, cx| {
+                                    cx.new(|_| artoo_ui_kit::controls::DragLabel(label.clone()))
+                                })
+                            })
+                            .on_drop(cx.listener(move |this, dragged: &DragCodeTab, _, cx| {
+                                this.move_tab(&dragged.0, &drop, cx)
+                            }))
+                            .child(if folder {
+                                icons::folder_icon(&path, 14.)
+                            } else {
+                                icons::file_icon(&path, 14.)
+                            })
+                            .child(div().when(preview, |s| s.italic()).child(name))
+                            // A pinned tab's pin where × would be: a click unpins it.
+                            .child(
+                                div()
+                                    .id(SharedString::from(format!("code-tab-x-{key}")))
+                                    .size(px(18.))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(4.))
+                                    .hover(|s| s.bg(theme::hover()))
+                                    .child(
+                                        icons::icon(if pinned { "pin" } else { "x" })
+                                            .size(px(12.))
+                                            .text_color(theme::faint()),
+                                    )
+                                    .when(pinned, |s| {
+                                        s.tooltip_show_delay(artoo_ui_kit::hover::LONG)
+                                            .tooltip(|_, cx| cx.new(|_| Tip("Unpin")).into())
+                                    })
+                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                        cx.stop_propagation();
+                                        if pinned {
+                                            this.pin(&close, cx)
+                                        } else {
+                                            this.close_tab(&close, cx)
+                                        }
+                                    })),
+                            )
+                            .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
+                                if e.click_count() > 1 {
+                                    this.keep_tab(&open, cx)
                                 } else {
-                                    this.close_tab(&close, cx)
+                                    this.open_tab(&open, cx)
                                 }
-                            })),
-                    )
-                    .on_click(cx.listener(move |this, e: &ClickEvent, _, cx| {
-                        if e.click_count() > 1 {
-                            this.keep_tab(&open, cx)
-                        } else {
-                            this.open_tab(&open, cx)
-                        }
-                    }))
-                    .on_mouse_down(
-                        MouseButton::Right,
-                        cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
-                            let groups = this.tab_menu(&menu, preview, pinned, full.clone(), cx);
-                            this.frame.menu(e.position, groups, cx)
-                        }),
-                    );
-                let line = parted.then(|| {
-                    div()
-                        .flex_none()
-                        .w(px(2.))
-                        .h_full()
-                        .bg(theme::border())
-                        .into_any_element()
-                });
-                std::iter::once(tab.into_any_element()).chain(line)
-            }))
+                            }))
+                            .on_mouse_down(
+                                MouseButton::Right,
+                                cx.listener(move |this, e: &gpui::MouseDownEvent, _, cx| {
+                                    let groups =
+                                        this.tab_menu(&menu, preview, pinned, full.clone(), cx);
+                                    this.frame.menu(e.position, groups, cx)
+                                }),
+                            );
+                        let line = parted.then(|| {
+                            div()
+                                .flex_none()
+                                .w(px(2.))
+                                .h_full()
+                                .bg(theme::border())
+                                .into_any_element()
+                        });
+                        std::iter::once(tab.into_any_element()).chain(line)
+                    }),
+            )
             // The rest of the strip, on its line.
             .child(
                 div()
@@ -1357,14 +1380,6 @@ impl CodeSpace {
                 .flex()
                 .rounded_t(px(corner))
                 .bg(theme::panel())
-                .child(
-                    div()
-                        .flex_none()
-                        .w(px(corner))
-                        .h_full()
-                        .border_b_1()
-                        .border_color(rule),
-                )
                 .child(strip)
                 .child(all),
         )

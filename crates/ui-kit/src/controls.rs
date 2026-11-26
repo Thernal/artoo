@@ -47,8 +47,11 @@ pub fn bar_button(
     key: &'static str,
     primary: bool,
 ) -> gpui::Stateful<gpui::Div> {
+    // No words, no empty child: a glyph put in it stays in the middle (the owner, 2026-11-26).
     button_frame(id, primary)
-        .child(words::say(label).into_owned())
+        .when(!label.is_empty(), |s| {
+            s.child(words::say(label).into_owned())
+        })
         .when(!key.is_empty(), |s| {
             s.child(keys::caps(
                 key,
@@ -299,15 +302,7 @@ pub fn setting_frame<E: Styled + ParentElement + FluentBuilder>(name: &SharedStr
     row.relative()
         .when(lit || focus, |r| r.mx(px(-8.)).px(px(8.)))
         .when(lit, |r| {
-            r.bg(theme::info_bg()).child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .bottom_0()
-                    .w(px(2.))
-                    .bg(theme::accent()),
-            )
+            r.bg(theme::info_bg()).child(rail(theme::accent(), 2., 2.))
         })
         .when(focus, |r| {
             r.child(
@@ -610,6 +605,20 @@ pub fn chip(
         .child(label.into())
 }
 
+/// A line on one side of a row or a card, its ends round as the top bar's line is (the owner, 2026-11-26: a line on
+/// one border is never cut square): drawn over the left edge of a `relative` parent, `inset` in from its top and
+/// bottom.
+pub fn rail(color: impl Into<gpui::Hsla>, width: f32, inset: f32) -> gpui::Div {
+    div()
+        .absolute()
+        .left_0()
+        .top(px(inset))
+        .bottom(px(inset))
+        .w(px(width))
+        .rounded_full()
+        .bg(color.into())
+}
+
 /// Chips that belong together, on a shared rounded track.
 pub fn group() -> gpui::Div {
     div()
@@ -720,6 +729,43 @@ pub fn primary_button(id: &'static str, label: &str, key: &'static str) -> gpui:
         .hover(|s| s.opacity(0.9))
         .child(words::say(label).into_owned())
         .child(keys::caps(key, keys::On::Filled))
+}
+
+/// A button at a Settings row's end (Change, Sign in), as the design draws it: words on the panel's colour, no
+/// line round them, 24 px.
+pub fn row_button(
+    id: impl Into<gpui::ElementId>,
+    label: impl Into<SharedString>,
+) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(24.))
+        .px(px(8.))
+        .flex()
+        .items_center()
+        .rounded(px(ROW_RADIUS))
+        .bg(theme::panel())
+        .text_size(px(12.))
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(label.into())
+}
+
+/// `row_button` with one glyph in a square: Test beside Change.
+pub fn row_icon_button(id: impl Into<gpui::ElementId>, icon: &'static str) -> gpui::Stateful<Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .size(px(24.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(ROW_RADIUS))
+        .bg(theme::panel())
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .child(icons::icon(icon).size(px(14.)).text_color(theme::muted()))
 }
 
 /// A plain outlined button.

@@ -271,6 +271,12 @@ impl artoo_branches_api::Branches for Handle {
         self.0.upgrade().is_some_and(|h| h.read(cx).main_changes)
     }
 
+    fn facts(&self, cx: &gpui::App) -> Option<gpui::AnyElement> {
+        let h = self.0.upgrade()?;
+        let h = h.read(cx);
+        crate::facts::inline(h.page.as_ref()?).map(gpui::IntoElement::into_any_element)
+    }
+
     fn set_main_changes(&self, on: bool, cx: &mut gpui::App) {
         if let Some(h) = self.0.upgrade() {
             h.update(cx, |h, cx| {

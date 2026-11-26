@@ -28,7 +28,8 @@ pub fn create_switch(requests: Entity<Requests>, services: Rc<Services>) -> Piec
                 .get::<Rc<dyn Review>>()?
                 .shown(cx)
                 .map_or(0, |d| d.files.len());
-            requests.update(cx, |rq, cx| rq.render_create_switch(files, cx))
+            let facts = services.get::<Rc<dyn Branches>>()?.facts(cx);
+            requests.update(cx, |rq, cx| rq.render_create_switch(files, facts, cx))
         }),
     }
 }
@@ -59,8 +60,9 @@ pub fn create_form(requests: Entity<Requests>, frame: Rc<dyn Frame>) -> Piece {
                 selecting: Some(drawing.selecting.clone()),
                 branches: &branches,
             };
+            let facts = services.get::<Rc<dyn Branches>>()?.facts(cx);
             let (switch, form) = requests.update(cx, |rq, cx| {
-                let switch = rq.render_create_switch(files, cx);
+                let switch = rq.render_create_switch(files, facts, cx);
                 (switch, rq.render_create_form(&look, acts, cx))
             });
             let form = input_box(form?, create::INPUT, &frame);

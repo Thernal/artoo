@@ -11,7 +11,7 @@ use gpui::{AnyElement, ClickEvent, Div, IntoElement, Stateful, canvas, prelude::
 use std::cell::Cell;
 
 /// A width not measured yet, taken as wide enough: Split · Unified, Collapse all, View ▾.
-const GUESS: [f32; 3] = [112., 86., 64.];
+const GUESS: [f32; 3] = [112., HEIGHT, 72.];
 /// One control height in a bar (Design `SYSTEM.md`, One control, one source): the group's, the icon buttons' side.
 const HEIGHT: f32 = 28.;
 /// The toolbar's gap between its parts and its side padding (`render_toolbar`, `render_options`).
@@ -94,18 +94,45 @@ pub fn expand_all(
     folded: bool,
     click: impl Fn(&ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
-    let (words, tip) = if folded {
-        ("Expand all", "Every file open".to_string())
+    // An icon button, its words the tip (the owner, 2026-11-26).
+    let (glyph, tip) = if folded {
+        (
+            "chevrons-up-down",
+            "Expand all  ·  every file open".to_string(),
+        )
     } else {
         (
-            "Collapse all",
-            keys::text("Every file folded  ⌥⇧A").into_owned(),
+            "chevrons-down-up",
+            keys::text("Collapse all  ·  every file folded  ⌥⇧A").into_owned(),
         )
     };
-    text_chip("expand-all", words, false)
-        .tip(tip)
-        .on_click(click)
-        .into_any_element()
+    square("expand-all", glyph, tip, click).into_any_element()
+}
+
+/// View ▾ as the design draws it: a framed button, its words and a chevron, lit while its menu is open.
+pub fn view_button(open: bool) -> Stateful<Div> {
+    gpui::div()
+        .id("view")
+        .flex_none()
+        .h(px(HEIGHT))
+        .px(px(10.))
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .rounded(px(artoo_ui_kit::ROW_RADIUS))
+        .border_1()
+        .border_color(theme::island_border())
+        .text_size(px(12.))
+        .text_color(theme::text())
+        .cursor_pointer()
+        .when(open, |s| s.bg(theme::selected()))
+        .hover(|s| s.bg(theme::hover()))
+        .child("View")
+        .child(
+            icons::icon("chevron")
+                .size(px(12.))
+                .text_color(theme::muted()),
+        )
 }
 
 /// What the toolbar was last drawn at, in pixels.

@@ -57,26 +57,30 @@ pub fn filters(
             .find(|(why, ..)| *why == shown.why)
             .map_or(("All", 0), |(_, name, new)| (*name, *new));
         let (view, on) = (view.clone(), on.clone());
-        chip(
-            "inbox-why",
-            format!("{} ▾", counted(name, new)),
-            shown.why.is_some(),
-        )
-        .on_click(move |e: &ClickEvent, _, cx| {
-            let items = (whys.iter())
-                .map(|&(why, name, new)| {
-                    let on = on.clone();
-                    artoo_shell_api::MenuItem::new(counted(name, new), move |_, cx| {
-                        on(InboxEvent::Filter(InboxFilter { why, ..shown }), cx)
+        chip("inbox-why", counted(name, new), shown.why.is_some())
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .child(
+                icons::icon("chevron")
+                    .size(px(12.))
+                    .text_color(theme::muted()),
+            )
+            .on_click(move |e: &ClickEvent, _, cx| {
+                let items = (whys.iter())
+                    .map(|&(why, name, new)| {
+                        let on = on.clone();
+                        artoo_shell_api::MenuItem::new(counted(name, new), move |_, cx| {
+                            on(InboxEvent::Filter(InboxFilter { why, ..shown }), cx)
+                        })
+                        .checked(why == shown.why)
                     })
-                    .checked(why == shown.why)
-                })
-                .collect();
-            if let Some(frame) = view.read(cx).frame.as_ref().and_then(|f| f.upgrade()) {
-                frame.menu(e.position(), vec![items], cx);
-            }
-        })
-        .into_any_element()
+                    .collect();
+                if let Some(frame) = view.read(cx).frame.as_ref().and_then(|f| f.upgrade()) {
+                    frame.menu(e.position(), vec![items], cx);
+                }
+            })
+            .into_any_element()
     } else {
         controls::group()
             .children(whys.into_iter().map(|(why, name, new)| {
@@ -107,10 +111,19 @@ pub fn filters(
         .find(|s| Some(s.id) == shown.source)
         .map_or("All", |s| s.name.as_str());
     let (view, layers) = (view.clone(), view.clone());
+    // Its chevron an icon, not a glyph (the owner, 2026-11-26).
     let source = chip(
         "inbox-source",
-        format!("Source: {name} ▾"),
+        format!("Source: {name}"),
         shown.source.is_some(),
+    )
+    .flex()
+    .items_center()
+    .gap(px(4.))
+    .child(
+        icons::icon("chevron")
+            .size(px(12.))
+            .text_color(theme::muted()),
     )
     .relative()
     .child(
@@ -696,8 +709,10 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
     let [title_cut, gist_cut, project_cut] = [(); 3].map(|_| WasCut::default());
     let mut cut: Vec<(Option<WasCut>, SharedString)> =
         vec![(Some(title_cut.clone()), title.clone().into())];
-    let gist = (wide && !gist.is_empty()).then(|| gist.to_owned());
-    if let Some(gist) = &gist {
+    // Every row of a wide list two lines tall, the second empty when nothing was written: one height for all (the
+    // owner, 2026-11-26).
+    let gist = wide.then(|| gist.to_owned());
+    if let Some(gist) = gist.as_ref().filter(|g| !g.is_empty()) {
         cut.push((Some(gist_cut.clone()), gist.clone().into()));
     }
     cut.push((None, tip.into()));
@@ -764,6 +779,7 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
                 )
                 .children(gist.map(|gist| {
                     hover::cut_in_row(gist.clone(), gist, &gist_cut)
+                        .h(px(16.))
                         .text_size(px(12.))
                         .line_height(px(16.))
                         .text_color(theme::muted())

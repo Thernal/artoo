@@ -527,11 +527,10 @@ impl Workspace {
         let editing_now = edit_box.is_some();
         let body = div().pb(px(6.)).child(match edit_box {
             Some(edit_box) => edit_box.into_any_element(),
-            // A draft is yours: who and when over its words, as the design has it (the owner, 2026-11-26).
-            None if draft => discussion::note(
-                "you",
-                true,
-                None,
+            // A draft is yours: who and when over its words, no face — the card's purple rail says it is for the agent
+            // (the owner, 2026-11-26).
+            None if draft => discussion::faceless_note(
+                "You",
                 if comment.written > 0 {
                     super::format::short_ago(comment.written)
                 } else {
@@ -545,9 +544,6 @@ impl Workspace {
                     Some(selecting.clone()),
                     cx,
                 ),
-                true,
-                None,
-                None,
             )
             .into_any_element(),
             None => markdown::body(

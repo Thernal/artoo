@@ -43,6 +43,19 @@ pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
             }
             let review = services.get::<Rc<dyn Review>>()?;
             let diff = review.shown(cx)?;
+            // A compare says its range in the bar and the side panel, its counts on its cards: no head of its own,
+            // unless a side looks wrong (the owner, 2026-11-26).
+            if let Header::Compare {
+                stale,
+                since_merge_base,
+                commits,
+                ..
+            } = &diff.header
+                && stale.is_none()
+                && !(*since_merge_base && *commits == 0)
+            {
+                return None;
+            }
             let acts = services.get::<Acts>()?;
             let h = history.read(cx);
             // A request's own Changes, whole or since you read: the page bar says what it is, the toolbar is the
@@ -70,7 +83,6 @@ pub fn piece(history: Entity<History>, services: Rc<Services>) -> Piece {
                 version,
                 message_open: h.message_open,
                 web: drawing.web.as_ref(),
-                compare_title: h.compare_title(route),
             };
             let cx: &App = cx;
             let text = |key: String, text: &str| {
@@ -148,8 +160,6 @@ pub struct HeadLook<'a> {
     pub message_open: bool,
     /// Where the repository is on the web: a commit's page there.
     pub web: Option<&'a WebRemote>,
-    /// A comparison narrowed to one of its commits: that commit's subject.
-    pub compare_title: Option<String>,
 }
 
 /// Text selectable as the tab's comments are, by its key: a commit's title and message.
@@ -557,10 +567,10 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
             base,
             head,
             since_merge_base,
-            start,
             commits,
             request,
             stale,
+            ..
         } => {
             let since = *since_merge_base;
             // Why the result looks wrong, with the one click that fixes it.
@@ -617,40 +627,8 @@ fn summary(diff: &Diff, look: &HeadLook, text: Selectable, acts: &Acts) -> gpui:
                     chip("cmp-swap-hint", "Swap", false).on_click(asks(acts, swap)),
                 )
             });
-            header
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .flex_wrap()
-                        .gap_x(px(12.))
-                        .gap_y(px(4.))
-                        .child(
-                            div()
-                                .text_size(px(15.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(
-                                    look.compare_title
-                                        .clone()
-                                        .unwrap_or_else(|| format!("{} … {}", base.0, head.0)),
-                                ),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .gap_3()
-                        .text_size(px(12.))
-                        .text_color(theme::muted())
-                        .child(format!(
-                            "{} · from {}",
-                            plural(*commits, "commit"),
-                            format::short(*start)
-                        ))
-                        .child(stats),
-                )
-                .children(stale_note)
-                .children(empty_note)
+            // What a side gets wrong, alone: the range and its counts are the bar's and the cards'.
+            header.children(stale_note).children(empty_note)
         }
         Header::Interdiff { old, new, .. } => header
             .child(

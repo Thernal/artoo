@@ -1104,8 +1104,13 @@ impl Requests {
         })
     }
 
-    /// The Request | Changes switch at the top of the pane.
-    pub fn render_create_switch(&self, files: usize, cx: &mut Context<Self>) -> Option<AnyElement> {
+    /// The Request | Changes switch at the top of the pane, the branch's `facts` at its right end.
+    pub fn render_create_switch(
+        &self,
+        files: usize,
+        facts: Option<AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
         let n = self.creating.as_ref()?;
         let set = |changes: bool| {
             cx.listener(move |this: &mut Self, _: &ClickEvent, _, cx| {
@@ -1152,6 +1157,8 @@ impl Requests {
                                 .tip("⌃⇥"),
                         ),
                 )
+                .child(div().flex_1())
+                .children(facts)
                 .into_any_element(),
         )
     }
@@ -1372,7 +1379,11 @@ impl Requests {
                     .bg(theme::base())
                     .cursor_pointer()
                     .child(div().flex_1().min_w_0().overflow_hidden().child(body))
-                    .child(div().text_color(theme::faint()).child("▾"))
+                    .child(
+                        icons::icon("chevron")
+                            .size(px(12.))
+                            .text_color(theme::faint()),
+                    )
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.toggle_create_menu(menu, cx)
                     }))
@@ -1606,17 +1617,8 @@ impl Requests {
             .bg(theme::panel())
             .shadow_lg()
             .text_size(px(13.))
-            .child(rows)
-            .child(
-                div()
-                    .px(px(12.))
-                    .py(px(6.))
-                    .border_t_1()
-                    .border_color(theme::island_border())
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
-                    .child(keys::text("↑↓ move   ↵ choose   esc close").into_owned()),
-            );
+            // No keys at its foot: a menu's are known (the owner, 2026-11-26).
+            .child(rows);
         Some(
             div()
                 .absolute()

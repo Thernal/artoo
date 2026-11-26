@@ -842,12 +842,17 @@ impl Panel {
             let dim = !is_way;
             let button: Option<AnyElement> = match row {
                 Row::Way(way) if way.via == Via::Ssh && way.write && can_read => Some(
+                    // One split button, its ▾ joined to it as the kit's are (the owner, 2026-11-26: a chevron on
+                    // its own looked apart).
                     div()
                         .flex_none()
                         .flex()
                         .items_center()
-                        .gap(px(2.))
-                        .child(self.way_button(("way", i), way, on, true, Some("api"), cx))
+                        .gap(px(if on { 1. } else { 0. }))
+                        .child(
+                            self.way_button(("way", i), way, on, true, Some("api"), cx)
+                                .rounded_r(px(0.)),
+                        )
                         .child(tipped(
                             discussion::button(
                                 "way-read-menu",
@@ -859,6 +864,9 @@ impl Panel {
                                     Kind::Plain
                                 },
                             )
+                            .rounded_l(px(0.))
+                            .px(px(6.))
+                            .when(!on, |b| b.border_l_0())
                             // The chevron as the icons draw it, not a character.
                             .child(icons::icon("chevron-down").size(px(14.)).text_color(if on {
                                 theme::base()

@@ -655,6 +655,8 @@ pub struct MenuItem {
     pub note: Option<(&'static str, String)>,
     /// The row's tooltip: a title and a line.
     pub tip: Option<(String, String)>,
+    /// A second menu in groups, opened beside the row on hover (Move to ▸); empty for none.
+    pub subs: Vec<Vec<MenuItem>>,
 }
 
 impl MenuItem {
@@ -670,6 +672,7 @@ impl MenuItem {
             switch: None,
             note: None,
             tip: None,
+            subs: Vec::new(),
         }
     }
 
@@ -686,6 +689,7 @@ impl MenuItem {
             switch: None,
             note: None,
             tip: None,
+            subs: Vec::new(),
         }
     }
 
@@ -733,6 +737,14 @@ impl MenuItem {
 
     pub fn key(self, key: &'static str) -> Self {
         Self { key, ..self }
+    }
+
+    /// A second menu of `groups`, opened beside the row while the pointer is on it.
+    pub fn subs(self, groups: Vec<Vec<MenuItem>>) -> Self {
+        Self {
+            subs: groups,
+            ..self
+        }
     }
 
     pub fn checked(self, on: bool) -> Self {
@@ -1026,6 +1038,9 @@ pub struct BarParts {
     /// The list's filter, by its placeholder (`Filter`): the tab draws it and takes ⌘F for it, its words read with
     /// `Frame::filter`; its page says `Screen::List`.
     pub filter: Option<&'static str>,
+    /// The filter's field drawn only while ⌘F has it or it holds words: ⌘F is the way to it (the owner, 2026-11-26,
+    /// of Tasks' `Filter issues`).
+    pub filter_on_keys: bool,
     /// The actions, the primary one last, each folding into `⋯` as the tab's own do.
     pub actions: Vec<bar::BarAction>,
     /// Rows only `⋯` holds, after the actions folded into it; with any, `⋯` shows though nothing folds.

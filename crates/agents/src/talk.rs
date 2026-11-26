@@ -493,11 +493,15 @@ fn claude(ix: usize, says: &[Say], comments: &[Comment], look: &Look, cx: &App) 
         .items_start()
         .gap(px(6.))
         .pl(px(8.))
-        .border_l_2()
-        .border_color(Rgba {
-            a: 0.7,
-            ..look.mark.1
-        })
+        .relative()
+        .child(artoo_ui_kit::controls::rail(
+            Rgba {
+                a: 0.7,
+                ..look.mark.1
+            },
+            2.,
+            0.,
+        ))
         .children(bubbles)
         .into_any_element()
 }

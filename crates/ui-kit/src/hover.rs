@@ -567,6 +567,9 @@ pub struct IssueCard {
     /// Where it is kept: `Jira`, and its host under it as the tooltip of the source's mark.
     pub source: String,
     pub host: String,
+    /// The glyph of the tab its issues open in (Tasks' `list-checks`), drawn as the source's mark; none draws the
+    /// source's letters (the owner, 2026-11-26: a tab's icon, not a letter box).
+    pub space_icon: Option<&'static str>,
     /// Its state in the tracker's words, and whether it is a done one (drawn in the added colour).
     pub state: Option<(String, bool)>,
     /// The tracker's colour of the state; none takes the added colour for a done one, else the accent.
@@ -601,11 +604,18 @@ pub fn issue_card(card: &IssueCard, actions: Option<gpui::Div>) -> gpui::Div {
             )
             .child(div().flex_1().min_w_0().child(value.to_owned()))
     };
-    let mark = crate::monogram::monogram(
-        &crate::monogram::initials(&card.source),
-        crate::monogram::hue(&card.source),
-        16.,
-    );
+    let mark = match card.space_icon {
+        Some(glyph) => crate::icons::icon(glyph)
+            .size(px(14.))
+            .text_color(theme::muted())
+            .into_any_element(),
+        None => crate::monogram::monogram(
+            &crate::monogram::initials(&card.source),
+            crate::monogram::hue(&card.source),
+            16.,
+        )
+        .into_any_element(),
+    };
     card_frame()
         .child(
             div()

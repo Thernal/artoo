@@ -339,6 +339,10 @@ pub trait Branches {
     /// Whether branch `refname` is the one open and the main line itself (#208).
     fn main_line(&self, refname: &str, cx: &App) -> bool;
 
+    /// The open branch's facts in one quiet run — `↑2 ↓0` from the main line, where it is pushed —, for a row another
+    /// part draws (New merge request's Request · Changes); none for the main line or before they are read.
+    fn facts(&self, cx: &App) -> Option<AnyElement>;
+
     /// The main line's page shows its Changes tab in the side panel, not its Commits (#208).
     fn main_changes(&self, cx: &App) -> bool;
     fn set_main_changes(&self, on: bool, cx: &mut App);

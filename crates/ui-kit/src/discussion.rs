@@ -26,6 +26,16 @@ impl Source {
         }
     }
 
+    /// The rail on a card's left, bending with its corners (Design `c-conversation.html`): blue on the request, the
+    /// agent's purple, orange while yours waits for the review (the owner, 2026-11-26).
+    pub fn rail(self) -> Rgba {
+        match self {
+            Source::GitLab => theme::accent(),
+            Source::Agent => theme::agent(),
+            Source::Pending => theme::warning(),
+        }
+    }
+
     fn tint(self) -> Rgba {
         match self {
             Source::GitLab => theme::warning_bg(),
@@ -43,14 +53,12 @@ impl Source {
     }
 }
 
-/// The card of a discussion: a quiet surface with no outline (variant D, `d-calm.html`). Being
-/// selected is a rail on its left edge in the source's colour, bending with the card's corners —
-/// never a ring, since an outline means only "you are typing here".
+/// The card of a discussion: a quiet surface, a rail on its left edge in the source's colour bending with the card's
+/// corners (`Source::rail`).
 pub fn frame(source: Source, selected: bool) -> Div {
     // The one the keys act on wears a ring (#191, Design K2); it takes its width out of the padding, so the text
     // does not move.
     const RING: f32 = 2.;
-    let _ = source;
     div()
         .relative()
         .w_full()
@@ -68,7 +76,12 @@ pub fn frame(source: Source, selected: bool) -> Div {
                 .pb(px(12. - RING))
         })
         .when(!selected, |s| {
-            s.pl(px(14.)).pr(px(14.)).pt(px(10.)).pb(px(12.))
+            s.border_l(px(RING))
+                .border_color(source.rail())
+                .pl(px(14. - RING))
+                .pr(px(14.))
+                .pt(px(10.))
+                .pb(px(12.))
         })
         .font_family(theme::ui_font())
         .text_size(px(13.))
@@ -308,6 +321,34 @@ pub fn note(
         )
 }
 
+/// A note with no face: its author's name and time over its words (the owner, 2026-11-26: yours to an agent wears no
+/// avatar; the card's rail says whose it is).
+pub fn faceless_note(name: &str, time: String, body: AnyElement) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .pb(px(12.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(name.to_owned()),
+                )
+                .children((!time.is_empty()).then(|| {
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(format!("· {time}"))
+                })),
+        )
+        .child(div().min_w_0().child(body))
+}
+
 /// An agent's note: no avatar, the agent's bar at its left is its mark (the owner, 2026-11-26: a face for an agent says
 /// nothing); its name and time over its words.
 pub fn agent_note(name: &str, time: String, body: AnyElement) -> Div {
@@ -317,11 +358,15 @@ pub fn agent_note(name: &str, time: String, body: AnyElement) -> Div {
         .gap(px(4.))
         .mb(px(12.))
         .pl(px(10.))
-        .border_l_2()
-        .border_color(Rgba {
-            a: 0.7,
-            ..theme::agent()
-        })
+        .relative()
+        .child(crate::controls::rail(
+            Rgba {
+                a: 0.7,
+                ..theme::agent()
+            },
+            2.,
+            0.,
+        ))
         .child(
             div()
                 .flex()

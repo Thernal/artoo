@@ -149,14 +149,6 @@ pub fn render_list(choices: &[Choice], pick: usize) -> Div {
                         .child(c.detail.clone()),
                 )
         }))
-        .child(
-            div()
-                .px(px(8.))
-                .pt(px(4.))
-                .text_size(px(11.))
-                .text_color(theme::faint())
-                .child("↑↓ move · ↵ or ⇥ puts it in · esc"),
-        )
 }
 
 #[cfg(test)]

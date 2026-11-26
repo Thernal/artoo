@@ -7,7 +7,7 @@ use crate::panel::{self, Fields, NO_TOKEN, Panel};
 use artoo_hosts_api::Host;
 use artoo_hosts_api::connect::Here;
 use artoo_shell_api::Frame;
-use artoo_ui_kit::{hover, icons, px, theme};
+use artoo_ui_kit::{controls, hover, icons, px, theme};
 use gpui::{
     AnyElement, App, AppContext, ClickEvent, Context, Entity, SharedString, Window, div, prelude::*,
 };
@@ -393,47 +393,23 @@ impl Accounts {
             .when(source.is_some(), |d| {
                 d.child(panel::in_use_mark(("account-in-use", i)))
                     .child(panel::tipped(
-                        div()
-                            .id(("account-test", i))
-                            .flex_none()
-                            .size(px(24.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(6.))
-                            .cursor_pointer()
-                            .hover(|s| s.bg(theme::hover()))
-                            .child(
-                                icons::icon("activity")
-                                    .size(px(14.))
-                                    .text_color(theme::muted()),
-                            )
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        controls::row_icon_button(("account-test", i), "activity").on_click(
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 let host = this.rows.iter().find(|r| r.key == test_key);
                                 if let Some(host) = host.map(|r| crate::hosts::of(&r.web)) {
                                     this.test(test_key.clone(), host, cx);
                                 }
-                            })),
+                            }),
+                        ),
                         "Test the token".to_owned(),
                     ))
             })
             .child(
-                div()
-                    .id(("account-open", i))
-                    .flex_none()
-                    .h(px(24.))
-                    .px(px(8.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(6.))
-                    .bg(theme::hover())
-                    .text_size(px(12.))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(theme::selected()))
-                    .child(label)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                controls::row_button(("account-open", i), label).on_click(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
                         this.toggle(&key, cx);
-                    })),
+                    },
+                )),
             );
         let ways = open.then(|| self.ways(&row, cx)).flatten();
         div()

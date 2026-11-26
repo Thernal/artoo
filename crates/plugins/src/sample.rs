@@ -114,6 +114,7 @@ impl artoo_shell_api::issues::Tracker for Tracker {
             },
             source: "Jira".into(),
             host: "acme.atlassian.net".into(),
+            space_icon: Some("list-checks"),
             state: Some((state.into(), false)),
             state_tint: None,
             epic: (key == "PAY-412").then(|| {

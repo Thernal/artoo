@@ -25,7 +25,7 @@ fn current_ring() -> gpui::Rgba {
     }
 }
 
-/// The ground between two files' cards.
+/// The room between two files' cards.
 pub const CARD_GAP: f32 = 16.;
 /// The card's inset from the sides of the diff.
 pub const CARD_MARGIN: f32 = 6.;
@@ -202,8 +202,8 @@ pub(crate) fn note_action(
 
 impl Review {
     /// A file's header in the list, the top of the file's card: a click folds or opens it, the
-    /// chip at the right marks it reviewed. Cards stand apart on the darker ground between them. The active card's
-    /// header has what the file's line had (#188, Design A3): its changes with ↑ ↓, Open in, `V` on its mark;
+    /// chip at the right marks it reviewed. Cards stand apart by their frames and the room between them. The active
+    /// card's header has what the file's line had (#188, Design A3): its changes with ↑ ↓, Open in, `V` on its mark;
     /// `stuck`, it is drawn over the rows while they scroll under it; `open_in`, the tab's, drawn before.
     #[allow(clippy::too_many_arguments)]
     pub fn render_header(

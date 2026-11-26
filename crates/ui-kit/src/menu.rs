@@ -39,6 +39,8 @@ pub struct Entry<A> {
     pub go: Option<Option<String>>,
     /// The whole row's tooltip: a title and, under it, a line.
     pub tip: Option<(String, Option<String>)>,
+    /// A second menu, in groups, opened beside the row while the pointer is on it (Move to ▸).
+    pub subs: Option<Vec<Vec<Entry<A>>>>,
 }
 
 /// A fact at a row's end.
@@ -87,6 +89,7 @@ impl<A> Entry<A> {
             value: None,
             go: None,
             tip: None,
+            subs: None,
         }
     }
 
@@ -129,6 +132,12 @@ impl<A> Entry<A> {
     pub fn sub(mut self) -> Self {
         self.go = Some(Some(String::new()));
         self
+    }
+
+    /// A second menu of `groups`, opened beside the row on hover (or a click), with the chevron at the end.
+    pub fn subs(mut self, groups: Vec<Vec<Entry<A>>>) -> Self {
+        self.subs = Some(groups.into_iter().filter(|g| !g.is_empty()).collect());
+        self.sub()
     }
 
     /// An icon before the label, in the muted colour (the design's menus: Rename's pencil, Move to's folder).
@@ -300,6 +309,8 @@ pub struct Menu<A> {
     marks: motion::Marks,
     /// An entry clicked.
     run: OnEntry<A>,
+    /// The entry of the open panel whose second menu shows beside it: its group and its place in it.
+    sub: Option<(usize, usize)>,
 }
 
 impl<A: Clone + 'static> Menu<A> {
@@ -309,6 +320,7 @@ impl<A: Clone + 'static> Menu<A> {
             leaving: None,
             marks: Default::default(),
             run,
+            sub: None,
         }
     }
 
@@ -340,6 +352,7 @@ impl<A: Clone + 'static> Menu<A> {
                 plain: None,
                 width,
             });
+            self.sub = None;
             self.leaving = None;
             cx.notify();
         }
@@ -362,6 +375,7 @@ impl<A: Clone + 'static> Menu<A> {
 
     /// It closes; it fades on its way out (#56, 5).
     pub fn close(&mut self, cx: &mut Context<Self>) {
+        self.sub = None;
         if let Some(menu) = self.open.take() {
             self.leaving = Some(menu);
             self.marks.mark("menu");
@@ -395,13 +409,10 @@ impl<A: Clone + 'static> Menu<A> {
         menu: &Panel<A>,
         viewport: gpui::Size<Pixels>,
         live: bool,
+        top: bool,
         cx: &mut Context<Self>,
     ) -> (gpui::Div, f32) {
-        let rows: f32 = (menu.groups.iter().flatten())
-            .map(|e| if e.under.is_some() { TALL } else { ROW })
-            .sum();
-        let heads = menu.titles.iter().flatten().count();
-        let height = rows + heads as f32 * HEAD + menu.groups.len() as f32 * 9. + 12.;
+        let height = Self::height(menu);
         // Inside the window: moved back from an edge it would cross, and scrolling when taller
         // than the window has room for.
         // The pointer and the window in the interface's own units: `px` scales by the interface
@@ -563,9 +574,26 @@ impl<A: Clone + 'static> Menu<A> {
                             Some(line) => s.tip_two(title, line),
                             None => s.tip(title),
                         })
-                        .when_some(act.filter(|_| live), |s, act| {
+                        // On the open panel a row's hover shows its second menu beside it, or takes another's away;
+                        // a click on a row with one opens it too.
+                        .when(live && top, |s| {
+                            let at = entry.subs.is_some().then_some((g, i));
+                            s.on_hover(cx.listener(move |this, on: &bool, _, cx| {
+                                if *on && this.sub != at {
+                                    this.sub = at;
+                                    cx.notify();
+                                }
+                            }))
+                        })
+                        .when_some(act.filter(|_| live && entry.subs.is_none()), |s, act| {
                             s.on_click(cx.listener(move |this, _, window, cx| {
                                 this.press(act.clone(), window, cx)
+                            }))
+                        })
+                        .when(live && top && entry.subs.is_some(), |s| {
+                            s.on_click(cx.listener(move |this, _, _, cx| {
+                                this.sub = Some((g, i));
+                                cx.notify();
                             }))
                         })
                 }))
@@ -601,6 +629,78 @@ impl<A: Clone + 'static> Menu<A> {
             );
         (panel, y)
     }
+
+    /// The panel's height, before the window's room cuts it.
+    fn height(menu: &Panel<A>) -> f32 {
+        let rows: f32 = (menu.groups.iter().flatten())
+            .map(|e| if e.under.is_some() { TALL } else { ROW })
+            .sum();
+        let heads = menu.titles.iter().flatten().count();
+        rows + heads as f32 * HEAD + menu.groups.len() as f32 * 9. + 12.
+    }
+
+    /// How far below the panel's top entry `i` of group `g` begins.
+    fn row_top(menu: &Panel<A>, g: usize, i: usize) -> f32 {
+        let mut y = 6.;
+        for (gi, entries) in menu.groups.iter().enumerate() {
+            if gi > 0 {
+                y += 9.;
+            }
+            if menu.titles.get(gi).copied().flatten().is_some() {
+                y += HEAD;
+            }
+            for (ei, e) in entries.iter().enumerate() {
+                if (gi, ei) == (g, i) {
+                    return y;
+                }
+                y += if e.under.is_some() { TALL } else { ROW };
+            }
+        }
+        y
+    }
+
+    /// The second menu of the entry hovered, beside its row: right of the panel, or left of it where the window
+    /// has no room.
+    fn second(
+        &self,
+        menu: &Panel<A>,
+        viewport: gpui::Size<Pixels>,
+        y: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Div> {
+        let (g, i) = self.sub?;
+        let groups = menu.groups.get(g)?.get(i)?.subs.clone()?;
+        if groups.is_empty() {
+            return None;
+        }
+        let zoom = ui_zoom();
+        let width = if groups.iter().flatten().any(|e| e.under.is_some()) {
+            WIDTH + 40.
+        } else {
+            WIDTH
+        };
+        let room = f32::from(viewport.width / zoom);
+        let x = (f32::from(menu.at.x / zoom))
+            .min(room - menu.width - EDGE)
+            .max(EDGE);
+        let right = x + menu.width - 4.;
+        let x = if right + width + EDGE <= room {
+            right
+        } else {
+            (x - width + 4.).max(EDGE)
+        };
+        let second = Panel {
+            at: gpui::point(
+                gpui::px(x * zoom),
+                gpui::px((y + Self::row_top(menu, g, i) - 7.) * zoom),
+            ),
+            titles: vec![None; groups.len()],
+            groups,
+            plain: None,
+            width,
+        };
+        Some(Self::panel(&second, viewport, true, false, cx).0)
+    }
 }
 
 impl<A: Clone + 'static> Render for Menu<A> {
@@ -611,7 +711,7 @@ impl<A: Clone + 'static> Render for Menu<A> {
             let Some(menu) = self.leaving.as_ref().filter(|_| self.marks.recent("menu")) else {
                 return div().into_any_element();
             };
-            let (panel, _) = Self::panel(menu, viewport, false, cx);
+            let (panel, _) = Self::panel(menu, viewport, false, true, cx);
             return motion::toward(
                 panel,
                 "menu-leaving",
@@ -622,7 +722,8 @@ impl<A: Clone + 'static> Render for Menu<A> {
             )
             .into_any_element();
         };
-        let (panel, y) = Self::panel(menu, viewport, true, cx);
+        let (panel, y) = Self::panel(menu, viewport, true, true, cx);
+        let second = self.second(menu, viewport, y, cx);
         div()
             .absolute()
             .size_full()
@@ -650,6 +751,7 @@ impl<A: Clone + 'static> Render for Menu<A> {
                 motion::FAST,
                 move |panel, v| panel.top(px(y - 4. * (1. - v))).opacity(v),
             ))
+            .children(second)
             .into_any_element()
     }
 }

@@ -385,10 +385,13 @@ fn line_choices(
                 .items_start()
                 .gap(px(12.))
                 .px(px(8.))
+                .relative()
                 .when(picked, |s| {
-                    s.bg(theme::agent_bg())
-                        .border_l(px(3.))
-                        .border_color(theme::agent())
+                    s.bg(theme::agent_bg()).child(artoo_ui_kit::controls::rail(
+                        theme::agent(),
+                        3.,
+                        0.,
+                    ))
                 })
                 .child(
                     div()

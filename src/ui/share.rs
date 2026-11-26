@@ -106,7 +106,7 @@ impl Workspace {
         // Move to ▸ beside it (#246, Design round 48).
         let first = vec![
             rename,
-            self.move_to_entry(super::groups::Unit::Page(item.clone()), at),
+            self.move_to_entry(super::groups::Unit::Page(item.clone()), cx),
         ];
         groups.insert(0, first);
         groups.push(self.close_entries(item, cx));

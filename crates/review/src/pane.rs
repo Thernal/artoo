@@ -373,7 +373,7 @@ impl Review {
             // View ▾ on its own, as the requests' list draws Display ▾ (the owner, 2026-11-26).
             .child(measured(
                 |t| &t.view,
-                crate::toolbar::text_chip("view", "View ▾", menu_open)
+                crate::toolbar::view_button(menu_open)
                     .relative()
                     .child({
                         let bounds = bounds.clone();

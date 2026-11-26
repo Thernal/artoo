@@ -153,7 +153,11 @@ impl Workspace {
                     Vec::new()
                 } else {
                     let mut actions = self.actions_of(space, page.as_ref(), cx);
-                    if let Some(placeholder) = parts.filter {
+                    if let Some(placeholder) = parts.filter
+                        && (!parts.filter_on_keys
+                            || self.field == Some(super::Field::Branches)
+                            || !self.bfilter.is_empty())
+                    {
                         actions.push(BarAction::new("filter", self.bar_filter(placeholder, cx)));
                     }
                     actions.append(&mut parts.actions);

@@ -1000,7 +1000,8 @@ impl Compose {
             .min_h(px(min_h))
             .px(px(pad_x))
             .py(px(pad_y))
-            .bg(theme::base())
+            // No colour of its own: its frame's shows, so a frame on another colour (an issue's description being
+            // edited, on the editor's) holds its text on it too.
             .cursor_text()
             .child(div().w_full().min_w_0().child(styled))
             .children(text.is_empty().then(|| {

@@ -10,7 +10,7 @@ use artoo_branches_api::Branches;
 use artoo_hosts_api::{Draft, Thread};
 use artoo_requests_api::{DISCUSSIONS, DiscussionsHost};
 use artoo_shell_api::{Badge, ListKey, Services, Tool};
-use artoo_ui_kit::controls::{comment_item, group_heading, skeleton, tool_foot};
+use artoo_ui_kit::controls::{comment_item, group_heading, rail, skeleton, tool_foot};
 use artoo_ui_kit::format::one_line;
 use artoo_ui_kit::hover::{self, Hover, Tip};
 use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme, words};
@@ -197,17 +197,7 @@ fn card(
         .bg(theme::panel())
         .overflow_hidden()
         .relative()
-        .when(pending, |s| {
-            s.child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .bottom_0()
-                    .w(px(2.))
-                    .bg(theme::warning()),
-            )
-        })
+        .when(pending, |s| s.child(rail(theme::warning(), 2., 6.)))
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
         .children(notes)

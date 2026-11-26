@@ -755,10 +755,13 @@ impl AssetSource for Icons {
 /// An 18 px icon; set its colour on the icon itself (an svg takes none from its parent).
 pub fn icon(name: &'static str) -> Svg {
     debug_assert!(ICONS.iter().any(|(n, _)| *n == name), "unknown icon {name}");
+    // An svg takes no colour from its parent: without its own it draws nothing (the Inbox's Source ▾ was blank). The
+    // muted ink unless the caller sets another.
     svg()
         .path(format!("icons/{name}.svg"))
         .size(px(18.))
         .flex_none()
+        .text_color(super::theme::muted())
 }
 
 /// The icon of the file at `path` (from the repository's root), in colour, `size` square

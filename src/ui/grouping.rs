@@ -275,14 +275,11 @@ impl Workspace {
         }
     }
 
-    /// `Move to ▸` in the menu of a page or a group: its entry, which opens where it may go at `at`.
-    pub(super) fn move_to_entry(&self, unit: Unit, at: Point<Pixels>) -> Entry {
-        Entry::new(
-            "Move to",
-            Act::new(move |this, _, cx| this.move_menu(unit.clone(), at, cx)),
-        )
-        .icon("folder")
-        .sub()
+    /// `Move to ▸` in the menu of a page or a group: where it may go, a second menu opened on hover.
+    pub(super) fn move_to_entry(&self, unit: Unit, cx: &App) -> Entry {
+        Entry::new("Move to", Act::new(|_, _, _| {}))
+            .icon("folder")
+            .subs(self.move_groups(unit, cx))
     }
 
     /// The tops of the menu in its order: each tab's list, and the Groups tab's, with their names.
@@ -295,7 +292,7 @@ impl Workspace {
 
     /// Where `unit` may go, in the menu's order: the groups of each tab and of Groups, each in by how deep it is,
     /// the one it is in checked; for a group the tops it may go to (its tab, Groups); for a page New group… last.
-    fn move_menu(&mut self, unit: Unit, at: Point<Pixels>, cx: &mut Context<Self>) {
+    fn move_groups(&self, unit: Unit, cx: &App) -> Vec<Vec<Entry>> {
         let (groups, tabs) = (self.synced_groups(), self.open_tabs());
         let here = groups.find(&unit).map(|(list, _)| list);
         let goes = |list: &List| {
@@ -311,10 +308,15 @@ impl Workspace {
             for (depth, group) in groups.all(&top) {
                 let into = List::Group(group.id);
                 let name = format!("{}{}", "\u{2003}".repeat(depth), group.name);
+                // Each group with its folder, as the design's second menu (the owner, 2026-11-26).
                 if here.as_ref() == Some(&into) {
-                    entries.push(Entry::new(name, Act::new(|_, _, _| {})).checked(true));
+                    entries.push(
+                        Entry::new(name, Act::new(|_, _, _| {}))
+                            .icon("folder")
+                            .checked(true),
+                    );
                 } else if goes(&into) {
-                    entries.push(self.move_entry(&unit, into, name));
+                    entries.push(self.move_entry(&unit, into, name).icon("folder"));
                 }
             }
             if !entries.is_empty() {
@@ -323,15 +325,19 @@ impl Workspace {
         }
         if let (Unit::Page(item), Some(list)) = (&unit, here) {
             let item = item.clone();
-            menu.push(vec![Entry::new(
-                "New group\u{2026}",
-                Act::new(move |this, _, cx| {
-                    let id = this.regroup(cx, |g, _| g.start(&list, std::slice::from_ref(&item)));
-                    this.start_group_rename(id, cx);
-                }),
-            )]);
+            menu.push(vec![
+                Entry::new(
+                    "New group\u{2026}",
+                    Act::new(move |this, _, cx| {
+                        let id =
+                            this.regroup(cx, |g, _| g.start(&list, std::slice::from_ref(&item)));
+                        this.start_group_rename(id, cx);
+                    }),
+                )
+                .icon("plus"),
+            ]);
         }
-        self.open_menu(at, menu, cx);
+        menu
     }
 
     fn move_entry(&self, unit: &Unit, into: List, name: String) -> Entry {
@@ -375,7 +381,7 @@ impl Workspace {
         )
         .icon("x");
         let menu = vec![
-            vec![sub, rename, self.move_to_entry(Unit::Group(id), at)],
+            vec![sub, rename, self.move_to_entry(Unit::Group(id), cx)],
             vec![ungroup, close],
         ];
         self.open_menu(at, menu, cx);

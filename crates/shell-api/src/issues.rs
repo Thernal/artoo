@@ -145,11 +145,13 @@ pub fn drawn(card: &IssueCard) -> gpui::Div {
     .on_click(move |_, _, cx| {
         open(cx, &key);
     });
+    // At the right, as every card's and toast's actions are (the owner, 2026-11-26).
     artoo_ui_kit::hover::issue_card(card, glyphs).child(
         gpui::div()
             .mt(artoo_ui_kit::px(4.))
             .flex()
             .items_center()
+            .justify_end()
             .child(open_here),
     )
 }

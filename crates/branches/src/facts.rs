@@ -63,8 +63,46 @@ pub fn line(history: Entity<History>, services: Rc<Services>) -> Piece {
     Piece {
         id: "branches.line",
         slot: Slot::Identity,
-        draw: Rc::new(move |route, _, cx| line_of(&history, &services, route, cx)),
+        draw: Rc::new(move |route, _, cx| {
+            // A new merge request says them at the end of its Request · Changes (`Branches::facts`): no line of its
+            // own over the page (the owner, 2026-11-26).
+            if (services.get::<Rc<dyn artoo_requests_api::Requests>>())
+                .is_some_and(|r| r.creating(cx))
+            {
+                return None;
+            }
+            line_of(&history, &services, route, cx)
+        }),
     }
+}
+
+/// The branch's facts in a quiet run for another part's row: how far it is from the main line and where it is
+/// pushed, each its sentence's tooltip. None for the main line.
+pub fn inline(f: &Facts) -> Option<Div> {
+    let main = f.base.as_ref()?.0.trim_start_matches("origin/").to_owned();
+    Some(
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(14.))
+            .text_size(px(12.))
+            .text_color(theme::muted())
+            .child(
+                div()
+                    .id("fact-ahead")
+                    .flex()
+                    .gap(px(8.))
+                    .child(format!("↑{}", f.ahead))
+                    .child(format!("↓{}", f.behind))
+                    .tip(format!(
+                        "{} ahead of {main}, {} behind",
+                        plural(f.ahead, "commit"),
+                        f.behind
+                    )),
+            )
+            .child(origin_fact(f.upstream.as_ref())),
+    )
 }
 
 /// The line of the branch `route` is, while it is the one with tabs loaded.

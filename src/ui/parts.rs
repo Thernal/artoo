@@ -127,45 +127,7 @@ impl Frame for TabFrame {
     ) {
         let groups = groups
             .into_iter()
-            .map(|(title, group)| {
-                let group = group
-                    .into_iter()
-                    .map(|item| {
-                        let entry = match item.run {
-                            Some(run) => Entry::new(item.label, Act::part(run)),
-                            None => Entry::off(item.label),
-                        };
-                        let mut entry = entry.key(item.key);
-                        if let Some(on) = item.checked {
-                            entry = entry.checked(on);
-                        }
-                        // Every part of the row the item carries: one drawing of a menu row, the kit's.
-                        if let Some(icon) = item.icon {
-                            entry = entry.lead(artoo_ui_kit::menu::Lead::Icon(
-                                icon,
-                                artoo_ui_kit::theme::muted(),
-                            ));
-                        }
-                        if let Some(under) = item.under {
-                            entry = entry.under(under);
-                        }
-                        if let Some(quiet) = item.quiet {
-                            entry = entry.quiet(quiet);
-                        }
-                        if let Some(on) = item.switch {
-                            entry = entry.switch(on);
-                        }
-                        if let Some((icon, tip)) = item.note {
-                            entry = entry.note(icon, tip);
-                        }
-                        if let Some((title, line)) = item.tip {
-                            entry = entry.tip_two(title, line);
-                        }
-                        entry
-                    })
-                    .collect();
-                (title, group)
-            })
+            .map(|(title, group)| (title, group.into_iter().map(entry_of).collect()))
             .collect();
         self.later(cx, move |this, cx| this.open_titled(at, groups, cx));
     }
@@ -770,4 +732,46 @@ impl Workspace {
         }
         open.is_some()
     }
+}
+
+/// A part's menu item as the kit's entry: every part of the row it carries, its second menu too — one drawing of a
+/// menu row, the kit's.
+fn entry_of(item: MenuItem) -> Entry {
+    let entry = match item.run {
+        Some(run) => Entry::new(item.label, Act::part(run)),
+        None => Entry::off(item.label),
+    };
+    let mut entry = entry.key(item.key);
+    if let Some(on) = item.checked {
+        entry = entry.checked(on);
+    }
+    if let Some(icon) = item.icon {
+        entry = entry.lead(artoo_ui_kit::menu::Lead::Icon(
+            icon,
+            artoo_ui_kit::theme::muted(),
+        ));
+    }
+    if let Some(under) = item.under {
+        entry = entry.under(under);
+    }
+    if let Some(quiet) = item.quiet {
+        entry = entry.quiet(quiet);
+    }
+    if let Some(on) = item.switch {
+        entry = entry.switch(on);
+    }
+    if let Some((icon, tip)) = item.note {
+        entry = entry.note(icon, tip);
+    }
+    if let Some((title, line)) = item.tip {
+        entry = entry.tip_two(title, line);
+    }
+    if !item.subs.is_empty() {
+        entry = entry.subs(
+            (item.subs.into_iter())
+                .map(|g| g.into_iter().map(entry_of).collect())
+                .collect(),
+        );
+    }
+    entry
 }

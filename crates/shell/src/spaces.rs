@@ -201,13 +201,18 @@ fn group_head(
         .flex()
         .items_center()
         .gap(px(6.))
-        .rounded(px(ROW_RADIUS))
+        // On the tree's line as every page row is (the owner, 2026-11-26: a group's row lost it).
+        .border_l_1()
+        .border_color(theme::island_border())
+        .rounded_r(px(ROW_RADIUS))
         .text_size(px(12.))
         .text_color(theme::muted())
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
         .when(open.on, |s| {
-            s.bg(theme::selected()).text_color(theme::text())
+            s.bg(theme::selected())
+                .text_color(theme::text())
+                .child(artoo_ui_kit::controls::rail(theme::accent(), 2., 0.).left(px(-1.)))
         })
         // Renamed in place: the whole row is the field, ringed.
         .when(open.editing.is_some(), |s| {
@@ -592,8 +597,12 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                     .text_size(px(12.))
                     .cursor_pointer()
                     .when(on, |s| {
-                        s.border_l_2()
-                            .border_color(theme::accent())
+                        s.border_l_1()
+                            .border_color(gpui::transparent_black())
+                            // Over the tree's line, where its 1 px is on the other rows.
+                            .child(
+                                artoo_ui_kit::controls::rail(theme::accent(), 2., 0.).left(px(-1.)),
+                            )
                             .rounded_r(px(ROW_RADIUS))
                             .bg(theme::selected())
                             .text_color(theme::text())
