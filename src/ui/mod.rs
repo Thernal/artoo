@@ -506,6 +506,41 @@ async fn snapshot_drag(window: gpui::AnyWindowHandle, step: &str, cx: &mut gpui:
     }
 }
 
+/// A snapshot turns the wheel over a point, `scroll:700,500>600`: the page under it 600 points down (a negative number
+/// up), for what sits below the fold — a page that keys do not scroll.
+#[cfg(feature = "snapshot")]
+async fn snapshot_scroll(window: gpui::AnyWindowHandle, step: &str, cx: &mut gpui::AsyncApp) {
+    let Some((at, by)) = step.split_once('>') else {
+        return;
+    };
+    let (Some((position, ..)), Ok(by)) = (click_at(at), by.trim().parse::<f32>()) else {
+        return;
+    };
+    let events = [
+        gpui::PlatformInput::MouseMove(gpui::MouseMoveEvent {
+            position,
+            pressed_button: None,
+            modifiers: Default::default(),
+        }),
+        gpui::PlatformInput::ScrollWheel(gpui::ScrollWheelEvent {
+            position,
+            delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-by))),
+            modifiers: Default::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        }),
+    ];
+    let executor = cx.background_executor().clone();
+    for event in events {
+        cx.update_window(window, |_, window, cx| {
+            window.dispatch_event(event, cx);
+            window.draw(cx).clear(cx);
+        })
+        .ok();
+        executor.timer(std::time::Duration::from_millis(100)).await;
+    }
+    executor.timer(std::time::Duration::from_millis(500)).await;
+}
+
 /// A snapshot's keystrokes, `right right cmd-t`, each drawn after it; `wait` waits a second.
 #[cfg(feature = "snapshot")]
 async fn snapshot_keys(window: gpui::AnyWindowHandle, keys: &str, cx: &mut gpui::AsyncApp) {
@@ -1345,11 +1380,14 @@ fn snapshot(window: gpui::WindowHandle<shell::Shell>, cx: &mut App) {
         }
         // Clicks and keys in any order (`ARTOO_SNAPSHOT_STEPS`, F61): steps apart by `;`, each a click as
         // `ARTOO_SNAPSHOT_CLICK` takes one, `wait`, or keys as `ARTOO_SNAPSHOT_KEYS` — `620,410; f i x; cmd-enter`
-        // clicks a field, types in it and sends it, what keys before clicks could not.
+        // clicks a field, types in it and sends it, what keys before clicks could not; `drag:…` drags, `scroll:…`
+        // turns the wheel.
         if let Ok(steps) = std::env::var("ARTOO_SNAPSHOT_STEPS") {
             for step in steps.split(';').map(str::trim).filter(|s| !s.is_empty()) {
                 if let Some(drag) = step.strip_prefix("drag:") {
                     snapshot_drag(window.into(), drag, cx).await;
+                } else if let Some(scroll) = step.strip_prefix("scroll:") {
+                    snapshot_scroll(window.into(), scroll, cx).await;
                 } else if click_at(step).is_some() {
                     snapshot_click(window.into(), step, cx).await;
                 } else {

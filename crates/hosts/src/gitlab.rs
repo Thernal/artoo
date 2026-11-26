@@ -1052,6 +1052,10 @@ fn send_with(
 /// not have the call (GitLab before 17.4). The token goes as `Authorization`, which curl does not
 /// carry on to another host when the upload is redirected to its storage.
 pub fn upload(remote: &WebRemote, path: &str, out: &std::path::Path) -> bool {
+    // `ARTOO_MR_FIXTURE`: the upload is `<dir>/uploads/<secret>/<file>`, for a description's pictures in a UI check.
+    if let Some(dir) = fixture() {
+        return std::fs::copy(dir.join("uploads").join(path), out).is_ok();
+    }
     let (Ok((host, project)), Some(token)) = (api(remote), token(remote)) else {
         return false;
     };
