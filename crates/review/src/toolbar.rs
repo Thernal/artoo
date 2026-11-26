@@ -11,7 +11,7 @@ use gpui::{AnyElement, ClickEvent, Div, IntoElement, Stateful, canvas, prelude::
 use std::cell::Cell;
 
 /// A width not measured yet, taken as wide enough: Split · Unified, Collapse all, View ▾.
-const GUESS: [f32; 3] = [60., 32., 72.];
+const GUESS: [f32; 3] = [112., 86., 64.];
 /// One control height in a bar (Design `SYSTEM.md`, One control, one source): the group's, the icon buttons' side.
 const HEIGHT: f32 = 28.;
 /// The toolbar's gap between its parts and its side padding (`render_toolbar`, `render_options`).
@@ -29,22 +29,6 @@ pub fn text_chip(id: &'static str, label: &'static str, active: bool) -> Statefu
         .h(px(HEIGHT - 4.))
         .flex()
         .items_center()
-}
-
-/// An icon chip: a square of the track's inside, the glyph centred.
-fn glyph(id: &'static str, name: &'static str, active: bool) -> Stateful<Div> {
-    let colour = if active {
-        theme::text()
-    } else {
-        theme::muted()
-    };
-    chip(id, "", active)
-        .size(px(HEIGHT - 4.))
-        .p_0()
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(icons::icon(name).size(px(14.)).text_color(colour))
 }
 
 /// A quiet icon button on its own: a 28 px square, the glyph centred, its words the tip (find's ↑ ↓ ✕).
@@ -70,8 +54,8 @@ pub fn square(
 }
 
 /// Split and Unified, the one drawing of the layout switch (Design round 21, F1; every toolbar that shows it calls
-/// this): two glyphs in one 28 px group, a tip each. The one on screen is marked (`unified`); `narrow` dims Split
-/// with the room it needs.
+/// this): two words in one 28 px group, as the requests' list draws All · To review · Mine (the owner, 2026-11-26),
+/// a tip each. The one on screen is marked (`unified`); `narrow` dims Split with the room it needs.
 pub fn layout(
     unified: bool,
     narrow: bool,
@@ -80,7 +64,7 @@ pub fn layout(
 ) -> AnyElement {
     tool_group()
         .child(
-            glyph("split", "columns", !unified)
+            text_chip("split", "Split", !unified)
                 // One tooltip: GPUI panics when an element sets it twice.
                 .tip_two(
                     "Split",
@@ -94,29 +78,30 @@ pub fn layout(
                 .on_click(split),
         )
         .child(
-            glyph("unified", "rows", unified)
+            text_chip("unified", "Unified", unified)
                 .tip_two("Unified", "One column")
                 .on_click(one_column),
         )
         .into_any_element()
 }
 
-/// Expand all (`folded`: a file is folded) or Collapse all: one glyph in a 28 px square, its words as the tip.
+/// Expand all (`folded`: a file is folded) or Collapse all: its words on their own, as the requests' list draws
+/// Open ▾ beside its tabs (the owner, 2026-11-26); the key the tip.
 pub fn expand_all(
     folded: bool,
     click: impl Fn(&ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> AnyElement {
-    let (name, tip) = if folded {
-        ("chevrons-up-down", "Expand all".to_string())
+    let (words, tip) = if folded {
+        ("Expand all", "Every file open".to_string())
     } else {
         (
-            "chevrons-down-up",
-            keys::text("Collapse all  ⌥⇧A").into_owned(),
+            "Collapse all",
+            keys::text("Every file folded  ⌥⇧A").into_owned(),
         )
     };
-    tool_group()
-        .w(px(HEIGHT))
-        .child(glyph("expand-all", name, false).tip(tip).on_click(click))
+    text_chip("expand-all", words, false)
+        .tip(tip)
+        .on_click(click)
         .into_any_element()
 }
 

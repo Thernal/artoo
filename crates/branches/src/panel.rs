@@ -316,13 +316,15 @@ impl History {
                     && (a.to_string(), b.to_string()) == (c.base_commit, c.head_commit)
             })
         });
-        // The main line's Commits and Changes are tabs (#208): one or the other, the whole column.
+        // The main line's Commits and Changes are tabs (#208): one or the other, the whole column. A commit's own page
+        // of it lists that commit's files under its commits, as the design has it (the owner, 2026-11-26).
         let main = branch.as_deref().is_some_and(|b| self.main_line(b));
+        let main_commit = main && kind != BranchRoute::KIND;
         Shows {
             versions: self.versions.len() > 1 && !commit_level && !on_branch && !loose && !working,
             commits: !tabbed && !loose && !(main && self.main_changes),
             compare,
-            no_changes: main && !self.main_changes,
+            no_changes: main && !self.main_changes && !main_commit,
         }
     }
 

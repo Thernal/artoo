@@ -3503,6 +3503,7 @@ impl artoo_review_api::Host for TabHost {
                     this.set_reviewed_many(&ixs, done, cx);
                 }
                 ChangesEvent::ReviewAll => this.toggle_all_reviewed(cx),
+                ChangesEvent::ListFiles(list) => this.set_file_view(list, cx),
                 ChangesEvent::Pick(ix) => {
                     // A file of the request being written: the form steps aside for Changes, on that file (the
                     // owner, 2026-11-26).

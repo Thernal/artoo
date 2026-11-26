@@ -430,9 +430,17 @@ fn path(route: &Route, drawing: &Drawing, services: &Services, cx: &App) -> Opti
             (up, versions(r.from, r.to), false, card(&r.refname))
         }
         WorkingTreeRoute::KIND => (vec![root()], "Working tree".to_owned(), false, None),
+        // Branches › Compare › v2.4.0 … main, as the design has it (the owner, 2026-11-26); Compare is the comparison
+        // itself, there being no page of comparisons.
         CompareRoute::KIND => {
             let r = CompareRoute::from_route(route)?;
-            (vec![root()], format!("{} … {}", r.base, r.head), true, None)
+            let compare = PathUp::new("Compare", Some(route.clone()));
+            (
+                vec![root(), compare],
+                format!("{} … {}", r.base, r.head),
+                true,
+                None,
+            )
         }
         _ => return None,
     };

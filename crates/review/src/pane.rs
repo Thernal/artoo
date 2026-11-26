@@ -350,15 +350,6 @@ impl Review {
             .flex()
             .items_center()
             .gap_2()
-            .children(
-                (self.stack.is_some() && fold < ToolbarFold::Collapse).then(|| {
-                    let folded = self.any_folded();
-                    measured(
-                        |t| &t.collapse,
-                        crate::toolbar::expand_all(folded, event(PaneEvent::ExpandAll { folded })),
-                    )
-                }),
-            )
             .when(fold < ToolbarFold::Layout, |s| {
                 s.child(measured(
                     |t| &t.layout,
@@ -370,25 +361,32 @@ impl Review {
                     ),
                 ))
             })
+            .children(
+                (self.stack.is_some() && fold < ToolbarFold::Collapse).then(|| {
+                    let folded = self.any_folded();
+                    measured(
+                        |t| &t.collapse,
+                        crate::toolbar::expand_all(folded, event(PaneEvent::ExpandAll { folded })),
+                    )
+                }),
+            )
+            // View ▾ on its own, as the requests' list draws Display ▾ (the owner, 2026-11-26).
             .child(measured(
                 |t| &t.view,
-                crate::toolbar::tool_group()
-                    .child(
-                        crate::toolbar::text_chip("view", "View ▾", menu_open)
-                            .relative()
-                            .child({
-                                let bounds = bounds.clone();
-                                canvas(move |b, _, _| bounds.set(Some(b)), |_, _, _, _| {})
-                                    .absolute()
-                                    .size_full()
-                            })
-                            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                // The menu hangs from the button.
-                                if let Some(under) = bounds.get() {
-                                    menu.pane(PaneEvent::ViewMenu { under }, cx)
-                                }
-                            }),
-                    )
+                crate::toolbar::text_chip("view", "View ▾", menu_open)
+                    .relative()
+                    .child({
+                        let bounds = bounds.clone();
+                        canvas(move |b, _, _| bounds.set(Some(b)), |_, _, _, _| {})
+                            .absolute()
+                            .size_full()
+                    })
+                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                        // The menu hangs from the button.
+                        if let Some(under) = bounds.get() {
+                            menu.pane(PaneEvent::ViewMenu { under }, cx)
+                        }
+                    })
                     .into_any_element(),
             ))
     }
@@ -416,34 +414,26 @@ impl Review {
                             format!("{} in this file", plural(total, "change")),
                         ),
                     };
-                    let step = |id, glyph, tip, forward| {
-                        let host = host.clone();
-                        crate::toolbar::square(id, glyph, tip, move |_, _, cx| {
-                            cx.stop_propagation();
-                            host.pane(PaneEvent::Step { forward }, cx)
-                        })
-                    };
+                    // No ↑ ↓ beside it (the owner, 2026-11-26: not in the design, and n p step already); a click
+                    // steps to the next change.
+                    let host = host.clone();
                     s.child(
                         div()
                             .id("change-at")
                             .mr(px(4.))
+                            .px(px(4.))
+                            .rounded(px(ROW_RADIUS))
                             .text_size(px(12.))
                             .text_color(theme::muted())
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
                             .child(words)
-                            .tip(tip),
+                            .tip_two(tip, keys::text("Next  n · Previous  p").into_owned())
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                host.pane(PaneEvent::Step { forward: true }, cx)
+                            }),
                     )
-                    .child(step(
-                        "change-before",
-                        "arrow-up",
-                        "Previous change  p",
-                        false,
-                    ))
-                    .child(step(
-                        "change-after",
-                        "arrow-down",
-                        "Next change  n",
-                        true,
-                    ))
                 })
         })
     }

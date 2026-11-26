@@ -724,6 +724,8 @@ pub enum ChangesEvent {
     Section,
     /// A press in the section: the keyboard works in its list.
     Pressed,
+    /// Tree | List in the section's head: the files as a list (`true`) or as their folders' tree.
+    ListFiles(bool),
 }
 
 /// What the review's host gives it to draw its rows with (the tab, for now): the rows other features pin on

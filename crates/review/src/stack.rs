@@ -16,9 +16,14 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// The room Open in takes on the current card's header: its icon's 24 px square and the ▾'s 16
-/// (`Workspace::open_in_chips`).
-const OPEN_IN_ROOM: f32 = 40.;
+/// The frame of the file the keyboard works in: the focus colour, quiet, so the card is told apart without standing
+/// out of the page (the owner, 2026-11-26: the design draws every card alike).
+fn current_ring() -> gpui::Rgba {
+    gpui::Rgba {
+        a: 0.4,
+        ..theme::focus()
+    }
+}
 
 /// The ground between two files' cards.
 pub const CARD_GAP: f32 = 16.;
@@ -246,7 +251,7 @@ impl Review {
                     .when(!folded && !stuck, |s| s.border_b_0())
                     .when(stuck, |s| s.shadow_md())
                     .border_color(if active {
-                        theme::focus()
+                        current_ring()
                     } else {
                         theme::island_border()
                     })
@@ -307,6 +312,13 @@ impl Review {
                     .children(host.badge(file.path(), cx))
                     .children(self.badges(file, cx))
                     .children(switch)
+                    // The file the keyboard works in: its changes and Open in, from the file's line (#188), before
+                    // its counts: the counts stay by the mark on every card, at the bar's end as the design has them
+                    // (the owner, 2026-11-26), whichever card is the current one. Open in is not asked of the tab for
+                    // the others: a header pinned over the rows is drawn while the review updates.
+                    .when(active, |s| {
+                        s.children(self.change_nav(host)).children(open_in)
+                    })
                     .child(
                         div()
                             .flex_none()
@@ -324,24 +336,6 @@ impl Review {
                                     .child(format!("−{}", file.removed)),
                             ),
                     )
-                    // The file the keyboard works in: its changes and Open in, from the file's line (#188).
-                    // Every card's bar is the same: the others keep the room, so the counts and the mark stay where
-                    // they are when a card becomes the current one.
-                    // Open in is not asked of the tab for the others: a header pinned over the rows is drawn while
-                    // the review updates, and the tab reads the review for it. Its room is its two squares.
-                    .map(|s| {
-                        if active {
-                            self.open_in_room.set(open_in.is_some());
-                            s.children(self.change_nav(host)).children(open_in)
-                        } else {
-                            s.children(self.change_nav(host).map(|nav| nav.invisible()))
-                                .children(
-                                    self.open_in_room
-                                        .get()
-                                        .then(|| div().flex_none().w(px(OPEN_IN_ROOM))),
-                                )
-                        }
-                    })
                     // Branches' files: a `☐ Viewed` box; a tick folds the card to its head (#209).
                     .children(state.filter(|_| viewing).map(|state| {
                         let ticked = state == State::Done;
@@ -658,10 +652,10 @@ impl Review {
             .or((!stack.matches.is_empty()).then_some(0))
     }
 
-    /// A row of a file's card: its sides framed, and the last one closes the card.
+    /// A row of a file's card: its sides framed (the current file's `current_ring`), and the last one closes the card.
     pub fn card_row(&self, row: gpui::AnyElement, file: usize, last: bool) -> gpui::AnyElement {
         let border = if file == self.file {
-            theme::focus()
+            current_ring()
         } else {
             theme::island_border()
         };

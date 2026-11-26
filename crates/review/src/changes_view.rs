@@ -84,6 +84,26 @@ impl Review {
                 None => plural(diff.file_count(), "file"),
             }
         };
+        // Tree | List in the head while it is open, as the design has it (the owner, 2026-11-26); View ▾ has it too.
+        let list = self.options.list_files;
+        let files_as = (!folded).then(|| {
+            let switch = |id: &'static str, word: &'static str, on: bool, to: bool| {
+                let host = host.clone();
+                artoo_ui_kit::controls::chip(id, word, on)
+                    .text_size(px(11.))
+                    .py_0()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        host.changes(ChangesEvent::ListFiles(to), cx)
+                    })
+            };
+            artoo_ui_kit::controls::group()
+                .p(px(1.))
+                .child(switch("changes-tree", "Tree", !list, false))
+                .child(switch("changes-list", "List", list, true))
+                .into_any_element()
+        });
         let header = Head {
             title: format!(
                 "Changes{}{}",
@@ -91,7 +111,10 @@ impl Review {
                 look.tag
             ),
             summary: Some(summary),
-            end: vec![count(diff.file_count().to_string())],
+            end: files_as
+                .into_iter()
+                .chain([count(diff.file_count().to_string())])
+                .collect(),
             folded,
             opens: !one,
         };
