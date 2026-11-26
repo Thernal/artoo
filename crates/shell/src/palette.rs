@@ -326,6 +326,14 @@ fn palette(view: PaletteView, host: Rc<dyn PaletteHost>) -> AnyElement {
                         .flex()
                         .items_center()
                         .gap_2()
+                        // The search's glyph before its words, as the design draws ⌘K (the owner, 2026-11-26).
+                        .when(!view.actions, |d| {
+                            d.child(
+                                icons::icon("search")
+                                    .size(px(14.))
+                                    .text_color(theme::faint()),
+                            )
+                        })
                         .children(view.actions.then(|| {
                             div()
                                 .flex_none()
