@@ -459,14 +459,23 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   it a note on the request (`Target::Overview(iid, 0)`). + on a description paragraph writes a note to the agent
   under it (`Target::Overview(iid, k)`), kept as a draft on the place `requests.description`
   (`!398 · description · ¶1`, its digest the paragraph; `crates/requests/src/description.rs`). No activity events.
-- **Groups and order of open pages** (#246, Design round 46; `src/ui/groups.rs` the rules, `src/ui/grouping.rs`
-  the tab's side): a group is a name and its pages' items (`Opened::item`), so one may later hold pages of several
-  spaces (round 47, undecided — today a page moves only among its own space's). The order is `Nav::open`'s, a
-  group's pages standing together. Move to group ▸ in a page's menu (a second menu: the space's groups, New
-  group…); a row dragged onto a page makes a group (`Make a group`) or joins its group, to a row's edge takes that
-  place (its group, or none beside a head); a head folds on a click, renames on a double click, drags with its
-  pages. The last page out ends the group, said with Undo. Kept in `nav.txt` as the line's `groups=` column. No
-  key reorders: ⌥↑ ⌥↓ are the requests'.
+- **Groups and order of open pages** (#246, Design rounds 46 and 48; `src/ui/groups.rs` the tree and its rules,
+  pure and tested, `src/ui/grouping.rs` the tab's side): a tree over the open pages per project — each tab's list
+  (its pages and groups in order) and the **Groups** tab's (groups alone, pages of any tab), a group holding pages
+  and groups to any depth, a page in one place only. The tree is told of pages opened and closed (`Groups::sync`:
+  a new page goes to its tab's bottom), and `Nav::open` follows its order (`gather_open`). A drop is planned by
+  `Groups::plan` — what it does, which top-level group goes to Groups first (another tab's page or group put in a
+  group under a tab takes its whole top-level group there), the words over the place (`New group`, `Move to
+  Groups`) — and the menu is drawn again each frame of a drag, so each row says where the dragged one may go
+  (`spaces::Drops`, the row in `spaces::dragging`). A page on a page makes a group of both, a group on a group its
+  subgroup, both at the bottom of that list; a row's edge takes that place; a tab's row the bottom of its list; the
+  menu's end, below the last tab, takes a group to Groups. Groups is `spaces::GROUPS`, offered while it holds a group
+  (`offered_spaces`, last until dragged), its row's click shows its tree. Move to ▸ (a page's and a group's menu)
+  lists the groups in the menu's order, each in by its depth, where the move may go; New group… last for a page. A
+  group's menu: New subgroup…, Rename…, Move to ▸, Ungroup (its contents a level up; at Groups' top its pages go
+  home), Close pages. ⌃⌥↑ ⌃⌥↓ move the row on screen (the page, or the folded group's head it is under). Said with
+  Undo (the tree and the pages closed, as they were): a group moved to Groups, a group whose last page left, the
+  Groups tab gone. Kept in `nav.txt` as the line's `tree=` column (an earlier build's `groups=` is read into it).
 - **Editing your own request** (Design round 46; `src/ui/editing.rs`, `crates/core/src/request_edits.rs`): where
   the host lets you (`Details::can_edit`: the author, GitLab's Developer and up, GitHub's push — from the project's
   read kept 15 minutes, and the repository's shared with the merge state) an open request's title edits where it stands (pencil or double click, ↵

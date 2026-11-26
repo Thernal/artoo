@@ -253,6 +253,8 @@ actions!(
         SearchBranches,
         SearchRequests,
         MarkReady,
+        MoveRowUp,
+        MoveRowDown,
         SearchActions,
         Compare,
         PaletteUp,

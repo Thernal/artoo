@@ -102,8 +102,11 @@ impl Workspace {
             )
             .key("or double-click")
         };
-        // Move to group ▸ beside it (#246).
-        let first = vec![rename, self.move_to_group_entry(item, at)];
+        // Move to ▸ beside it (#246, Design round 48).
+        let first = vec![
+            rename,
+            self.move_to_entry(super::groups::Unit::Page(item.clone()), at),
+        ];
         groups.insert(0, first);
         groups.push(self.close_entries(item, cx));
         self.open_menu(at, groups, cx);

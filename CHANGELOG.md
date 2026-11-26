@@ -10,8 +10,10 @@ for someone using the app, not for someone reading the code; the commits follow 
   you are writing.
 - **Comments on a request's Overview.** Its discussions stand after the description as cards, with a comment box
   under them; + beside a paragraph of the description writes a note for your agent on it.
-- **Groups of open pages.** Drag one open page onto another, or use Move to group in its menu; groups fold, and
-  pages and groups drag into the order you want, kept per project.
+- **Groups of open pages.** Drag one open page onto another, or use Move to in its menu; groups fold, hold groups
+  of their own, and pages and groups drag into the order you want — or move with ⌃⌥↑ ⌃⌥↓ —, kept per project. A
+  new group goes to the bottom of its list. A group can hold pages of several tabs: it then stands under a Groups
+  tab of its own, there while it holds a group, and dragging a group below the last tab takes it there.
 - **Edit your own request.** Its title and description change where they stand, and Draft becomes ready from its
   state, or with ⇧⌘R on its Overview; an agent can propose an edit, which you compare and save with its button or
   discard.

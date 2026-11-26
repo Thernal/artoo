@@ -1,221 +1,364 @@
-//! The tab's side of the groups of open pages (#246, `groups`): Move to group ▸ in a page's menu, a row dropped on
-//! another, a group folded and named, and the toast with Undo when the last page leaves one.
+//! The tab's side of the groups of open pages (#246, Design rounds 46 and 48; the rules in `groups`): the Groups tab,
+//! Move to ▸ in a page's and a group's menu, a row dropped on another, on a tab or at the menu's end, a group folded,
+//! named, made inside another, ungrouped, its pages closed, a row moved by ⌃⌥↑ ⌃⌥↓, and the toast with Undo when a
+//! group goes to Groups, the last page leaves one, or the Groups tab ends.
 
 use super::Workspace;
-use super::groups::{Group, Groups, NEW, Unit};
+use super::groups::{At, Groups, List, Plan, Target, Unit};
 use super::menu::{Act, Entry};
 use super::nav::Opened;
+use super::spaces::GROUPS;
 use artoo_core::route::Route;
-use artoo_shell_api::spaces::{DropAt, Space};
+use artoo_shell_api::spaces::{DropAt, Drops, Space};
 use artoo_ui_kit::toast::Words;
 use gpui::{App, Context, Pixels, Point};
 use std::cell::Cell;
 use std::rc::Rc;
 
-/// What stood before a change that may end a group: the groups, and the open pages with their places.
+/// What stood before a change of the groups: the tree, and the open pages with their places — what Undo puts back.
 pub(super) struct Before {
     groups: Groups,
     open: Vec<Opened>,
 }
 
+/// The tab of each open page, as `Groups` asks it.
+pub(super) struct Tabs(Vec<(Route, String)>);
+
+impl Tabs {
+    pub fn of(&self, item: &Route) -> String {
+        (self.0.iter())
+            .find(|(o, _)| o == item)
+            .map_or_else(String::new, |(_, t)| t.clone())
+    }
+}
+
+/// The list a space's row stands for: a tab's, the Groups tab's.
+pub(super) fn list_of(space: Space) -> List {
+    match space {
+        GROUPS => List::Groups,
+        tab => List::Tab(tab.name().to_owned()),
+    }
+}
+
+impl From<DropAt> for At {
+    fn from(at: DropAt) -> At {
+        match at {
+            DropAt::Before => At::Before,
+            DropAt::After => At::After,
+            DropAt::Onto => At::Onto,
+        }
+    }
+}
+
 impl Workspace {
-    /// What stands now, before `item` leaves its group or the menu; none when it is in no group.
-    pub(super) fn grouping_before(&self, item: &Route) -> Option<Before> {
-        self.nav.groups.of(item)?;
-        Some(Before {
-            groups: self.nav.groups.clone(),
-            open: self.nav.open.clone(),
-        })
+    /// The open pages, each with its tab.
+    pub(super) fn open_tabs(&self) -> Tabs {
+        Tabs(
+            (self.nav.open.iter())
+                .map(|o| {
+                    let tab = self.item_space(&o.item);
+                    (
+                        o.item.clone(),
+                        tab.map_or_else(String::new, |s| s.name().to_owned()),
+                    )
+                })
+                .collect(),
+        )
     }
 
-    /// After a change: a group no page is left in ends, said with Undo.
-    pub(super) fn groups_left(&mut self, before: Option<Before>, cx: &mut Context<Self>) {
-        let ended = self.nav.groups.ended();
-        let Some(before) = before else {
-            return;
+    /// The tree as the open pages are now, without changing the kept one: what the menu draws.
+    pub(super) fn synced_groups(&self) -> Groups {
+        let mut groups = self.nav.groups.clone();
+        groups.sync(&self.open_tabs().0);
+        groups
+    }
+
+    /// The kept tree told of the pages opened and closed since.
+    pub(super) fn sync_groups(&mut self) {
+        let open = self.open_tabs();
+        self.nav.groups.sync(&open.0);
+    }
+
+    pub(super) fn before_groups(&self) -> Before {
+        Before {
+            groups: self.nav.groups.clone(),
+            open: self.nav.open.clone(),
+        }
+    }
+
+    /// After a change from `before`: a group no page is left in ends, the order follows the tree, and it is kept.
+    /// What changed more than an order is said with Undo: a group gone to Groups, a group ended, the Groups tab gone.
+    pub(super) fn regrouped(&mut self, before: Before, cx: &mut Context<Self>) {
+        self.sync_groups();
+        let ended = self.nav.groups.ended(&before.groups);
+        self.gather_open();
+        let was = &before.groups;
+        let came = (self.nav.groups.all(&List::Groups).into_iter())
+            .find(|(_, g)| {
+                (was.find(&Unit::Group(g.id)))
+                    .and_then(|(list, _)| was.home(&list))
+                    .is_some_and(|home| home != List::Groups)
+            })
+            .map(|(_, g)| g.name.clone());
+        let gone = !was.shared.is_empty() && self.nav.groups.shared.is_empty();
+        let words = match (came, ended.first()) {
+            (Some(name), _) => Some(Words::new(format!("{name} moved to Groups"))),
+            (None, Some(name)) => Some(Words::new("Group ended").about(name.clone())),
+            (None, None) if gone => Some(Words::new("Groups closed")),
+            _ => None,
         };
-        for group in ended {
-            // As it was, with its last page and where that stood.
-            let Some(was) = before.groups.get(group.id).cloned() else {
-                continue;
-            };
-            let pages: Vec<(usize, Opened)> = (before.open.iter().enumerate())
-                .filter(|(_, o)| was.items.contains(&o.item))
-                .map(|(at, o)| (at, o.clone()))
-                .collect();
-            let words = Words::new("Group ended").about(was.name.clone());
-            let (tab, back) = (cx.weak_entity(), Cell::new(Some((was, pages))));
+        if let Some(words) = words {
+            let (tab, back) = (cx.weak_entity(), Cell::new(Some(before)));
             let undo = Rc::new(move |cx: &mut App| {
-                if let Some((group, pages)) = back.take() {
-                    tab.update(cx, |this, cx| this.restore_group(group, pages, cx))
-                        .ok();
+                if let Some(before) = back.take() {
+                    tab.update(cx, |this, cx| this.undo_groups(before, cx)).ok();
                 }
             });
             self.toasts
                 .update(cx, |t, cx| t.show_with(words, "Undo", undo, cx));
         }
+        self.save_nav();
+        cx.notify();
     }
 
-    /// Undo: the group is back, its last page where it was, opened again when it was closed.
-    fn restore_group(&mut self, group: Group, pages: Vec<(usize, Opened)>, cx: &mut Context<Self>) {
-        for (at, page) in pages {
-            match self.nav.open.iter().position(|o| o.item == page.item) {
-                Some(now) => {
-                    let page = self.nav.open.remove(now);
-                    self.nav.open.insert(at.min(self.nav.open.len()), page);
-                }
-                None => self.nav.open.insert(at.min(self.nav.open.len()), page),
+    /// Undo: the tree as it was, and the pages closed since opened again where they stood.
+    fn undo_groups(&mut self, before: Before, cx: &mut Context<Self>) {
+        for (at, page) in before.open.iter().enumerate() {
+            if self.nav.opened(&page.item).is_none() {
+                let at = at.min(self.nav.open.len());
+                self.nav.open.insert(at, page.clone());
             }
         }
-        self.nav.groups.restore(group);
-        self.nav.groups.ended();
+        self.nav.groups = before.groups;
+        self.sync_groups();
         self.gather_open();
         self.save_nav();
         cx.notify();
     }
 
-    /// The open pages in the order of `items`.
-    fn reorder_open(&mut self, items: &[Route]) {
-        let at = |item: &Route| items.iter().position(|i| i == item).unwrap_or(usize::MAX);
+    /// The open pages in the tree's order: ⌥⌘→ and the menu's shift-pick go as the menu draws them.
+    pub(super) fn gather_open(&mut self) {
+        let order = self.nav.groups.order();
+        let at = |item: &Route| order.iter().position(|i| i == item).unwrap_or(usize::MAX);
         self.nav.open.sort_by_key(|o| at(&o.item));
     }
 
-    fn open_order(&self) -> Vec<Route> {
-        self.nav.open.iter().map(|o| o.item.clone()).collect()
-    }
-
-    /// Each group's pages brought together.
-    pub(super) fn gather_open(&mut self) {
-        let mut order = self.open_order();
-        self.nav.groups.gather(&mut order);
-        self.reorder_open(&order);
-    }
-
-    /// A change of the groups and the order, `change` told both: kept, and a group left empty said.
+    /// A change of the tree, `change` told it and each page's tab; a page put somewhere by hand stays, no longer
+    /// only looked at (#194).
     fn regroup<T>(
         &mut self,
-        item: Option<&Route>,
         cx: &mut Context<Self>,
-        change: impl FnOnce(&mut Groups, &mut Vec<Route>) -> T,
+        change: impl FnOnce(&mut Groups, &Tabs) -> T,
     ) -> T {
-        let before = item.and_then(|item| self.grouping_before(item));
-        let mut order = self.open_order();
-        let out = change(&mut self.nav.groups, &mut order);
-        self.reorder_open(&order);
-        // A page put somewhere by hand stays: no longer only looked at (#194).
+        self.sync_groups();
+        let before = self.before_groups();
+        let tabs = self.open_tabs();
+        let out = change(&mut self.nav.groups, &tabs);
+        let groups = &self.nav.groups;
         for open in &mut self.nav.open {
-            if self.nav.groups.of(&open.item).is_some() || Some(&open.item) == item {
+            let unit = Unit::Page(open.item.clone());
+            if groups.of(&open.item).is_some() || groups.find(&unit) != before.groups.find(&unit) {
                 open.preview = false;
             }
         }
-        self.groups_left(before, cx);
-        self.save_nav();
-        cx.notify();
+        self.regrouped(before, cx);
         out
     }
 
-    /// A row of `space` dropped on another: onto a page, a group of both, or into its group; onto a head, into the
-    /// group; at an edge, its place there.
-    pub(super) fn drop_row(
-        &mut self,
-        space: Space,
-        from: &str,
-        to: &str,
-        at: DropAt,
-        cx: &mut Context<Self>,
-    ) {
-        let (Some(from), Some(to)) = (Unit::read(from), Unit::read(to)) else {
-            return;
+    /// What `from` let go on `to` would do; none where it may not go.
+    fn drop_plan(&self, groups: &Groups, tabs: &Tabs, from: &Unit, to: Target) -> Option<Plan> {
+        groups.plan(from, to, &|item| tabs.of(item))
+    }
+
+    /// What a drop of the row being dragged does on row `row`, as the menu is drawn during the drag.
+    pub(super) fn row_drops(
+        &self,
+        groups: &Groups,
+        tabs: &Tabs,
+        dragged: Option<&Unit>,
+        row: &Unit,
+    ) -> Drops {
+        let Some(from) = dragged.filter(|d| *d != row) else {
+            return Drops::default();
         };
-        // Pages of several spaces in one group wait on their design: a page moves among its own space's.
-        let here = |unit: &Unit| match unit {
-            Unit::Page(item) => self.item_space(item) == Some(space),
-            Unit::Group(id) => (self.nav.groups.get(*id))
-                .is_some_and(|g| g.items.iter().any(|i| self.item_space(i) == Some(space))),
-        };
-        if from == to || !here(&from) || !here(&to) {
-            return;
-        }
-        let moved = match &from {
-            Unit::Page(item) => Some(item.clone()),
-            Unit::Group(_) => None,
-        };
-        match (at, moved.as_ref(), &to) {
-            (DropAt::Onto, Some(item), Unit::Group(id)) => {
-                self.regroup(moved.as_ref(), cx, |g, order| g.join(order, item, *id));
-            }
-            (DropAt::Onto, Some(item), Unit::Page(target)) => {
-                match self.nav.groups.of(target).map(|g| g.id) {
-                    Some(id) => {
-                        self.regroup(moved.as_ref(), cx, |g, order| g.join(order, item, id));
-                    }
-                    None => {
-                        let target = target.clone();
-                        let id = self.regroup(moved.as_ref(), cx, |g, order| {
-                            g.start(order, &[target.clone(), item.clone()])
-                        });
-                        if let Some(open) = self.nav.open.iter_mut().find(|o| o.item == target) {
-                            open.preview = false;
-                        }
-                        self.start_group_rename(id, cx);
-                    }
-                }
-            }
-            (DropAt::Onto, None, _) => {}
-            (at, _, _) => {
-                self.regroup(moved.as_ref(), cx, |g, order| {
-                    g.place(order, &from, &to, at == DropAt::After)
-                });
-            }
+        let plan = |at| self.drop_plan(groups, tabs, from, Target::Row(row.clone(), at));
+        let onto = plan(At::Onto);
+        Drops {
+            before: plan(At::Before).is_some(),
+            // Below a group's head stands what is in it: its After is not drawn.
+            after: matches!(row, Unit::Page(_)) && plan(At::After).is_some(),
+            onto: onto.is_some(),
+            hint: onto.and_then(|p| p.hint),
         }
     }
 
-    /// `Move to group ▸` in the menu of open page `item`: its entry, which opens the groups at `at`.
-    pub(super) fn move_to_group_entry(&self, item: &Route, at: Point<Pixels>) -> Entry {
-        let item = item.clone();
+    /// What a drop of the row being dragged does on the row of `space`, or at the menu's end (`GROUPS`).
+    pub(super) fn list_drops(
+        &self,
+        groups: &Groups,
+        tabs: &Tabs,
+        dragged: Option<&Unit>,
+        space: Space,
+    ) -> Drops {
+        let Some(from) = dragged else {
+            return Drops::default();
+        };
+        let plan = self.drop_plan(groups, tabs, from, Target::List(list_of(space)));
+        Drops {
+            onto: plan.is_some(),
+            hint: plan.and_then(|p| p.hint),
+            ..Drops::default()
+        }
+    }
+
+    /// The row of key `from` let go on `to`: done as `Groups::plan` says; a group a drop made has its name typed.
+    pub(super) fn drop_unit(&mut self, from: &str, to: Target, cx: &mut Context<Self>) {
+        let Some(from) = Unit::read(from) else {
+            return;
+        };
+        let (groups, tabs) = (self.synced_groups(), self.open_tabs());
+        let Some(plan) = self.drop_plan(&groups, &tabs, &from, to) else {
+            return;
+        };
+        if let Some(id) = self.regroup(cx, |g, _| g.apply(&from, &plan)) {
+            self.start_group_rename(id, cx);
+        }
+    }
+
+    /// `Move to ▸` in the menu of a page or a group: its entry, which opens where it may go at `at`.
+    pub(super) fn move_to_entry(&self, unit: Unit, at: Point<Pixels>) -> Entry {
         Entry::new(
-            "Move to group",
-            Act::new(move |this, _, cx| this.group_menu(item.clone(), at, cx)),
+            "Move to",
+            Act::new(move |this, _, cx| this.move_menu(unit.clone(), at, cx)),
         )
         .quiet("▸")
     }
 
-    /// The groups of the page's space, the one it is in checked, and New group….
-    fn group_menu(&mut self, item: Route, at: Point<Pixels>, cx: &mut Context<Self>) {
-        let space = self.item_space(&item);
-        let own = self.nav.groups.of(&item).map(|g| g.id);
-        let groups: Vec<Entry> = (self.nav.groups.list.iter())
-            .filter(|g| g.items.iter().any(|i| self.item_space(i) == space))
-            .map(|g| {
-                let (id, item) = (g.id, item.clone());
-                let entry = Entry::new(
-                    g.name.clone(),
-                    Act::new(move |this, _, cx| {
-                        if own != Some(id) {
-                            this.regroup(Some(&item), cx, |g, order| g.join(order, &item, id));
-                        }
-                    }),
-                );
-                match own == Some(id) {
-                    true => entry.checked(true),
-                    false => entry,
+    /// The tops of the menu in its order: each tab's list, and the Groups tab's, with their names.
+    fn menu_tops(&self, cx: &App) -> Vec<(List, &'static str)> {
+        let offered = self.offered_spaces(cx);
+        (artoo_shell_api::spaces::ordered(&self.layout.spaces, &offered).into_iter())
+            .map(|s| (list_of(s.space), s.label))
+            .collect()
+    }
+
+    /// Where `unit` may go, in the menu's order: the groups of each tab and of Groups, each in by how deep it is,
+    /// the one it is in checked; for a group the tops it may go to (its tab, Groups); for a page New group… last.
+    fn move_menu(&mut self, unit: Unit, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let (groups, tabs) = (self.synced_groups(), self.open_tabs());
+        let here = groups.find(&unit).map(|(list, _)| list);
+        let goes = |list: &List| {
+            self.drop_plan(&groups, &tabs, &unit, Target::List(list.clone()))
+                .is_some()
+        };
+        let mut menu: Vec<Vec<Entry>> = Vec::new();
+        for (top, label) in self.menu_tops(cx) {
+            let mut entries = Vec::new();
+            if matches!(unit, Unit::Group(_)) && here.as_ref() != Some(&top) && goes(&top) {
+                entries.push(self.move_entry(&unit, top.clone(), label.to_owned()));
+            }
+            for (depth, group) in groups.all(&top) {
+                let into = List::Group(group.id);
+                let name = format!("{}{}", "\u{2003}".repeat(depth), group.name);
+                if here.as_ref() == Some(&into) {
+                    entries.push(Entry::new(name, Act::new(|_, _, _| {})).checked(true));
+                } else if goes(&into) {
+                    entries.push(self.move_entry(&unit, into, name));
                 }
-            })
-            .collect();
-        let new = Entry::new(
-            "New group\u{2026}",
-            Act::new(move |this, _, cx| {
-                let id = this.regroup(Some(&item), cx, |g, order| {
-                    g.start(order, std::slice::from_ref(&item))
-                });
-                this.start_group_rename(id, cx);
-            }),
-        );
-        let mut menu = vec![vec![new]];
-        if !groups.is_empty() {
-            menu.insert(0, groups);
+            }
+            if !entries.is_empty() {
+                menu.push(entries);
+            }
+        }
+        if let (Unit::Page(item), Some(list)) = (&unit, here) {
+            let item = item.clone();
+            menu.push(vec![Entry::new(
+                "New group\u{2026}",
+                Act::new(move |this, _, cx| {
+                    let id = this.regroup(cx, |g, _| g.start(&list, std::slice::from_ref(&item)));
+                    this.start_group_rename(id, cx);
+                }),
+            )]);
         }
         self.open_menu(at, menu, cx);
+    }
+
+    fn move_entry(&self, unit: &Unit, into: List, name: String) -> Entry {
+        let unit = unit.clone();
+        Entry::new(
+            name,
+            Act::new(move |this, _, cx| {
+                this.drop_unit(&unit.key(), Target::List(into.clone()), cx)
+            }),
+        )
+    }
+
+    /// A group's head right-clicked: New subgroup…, Rename…, Move to ▸, then Ungroup and Close pages.
+    pub(super) fn group_context(&mut self, id: u64, at: Point<Pixels>, cx: &mut Context<Self>) {
+        let sub = Entry::new(
+            "New subgroup\u{2026}",
+            Act::new(move |this, _, cx| {
+                if let Some(new) = this.regroup(cx, |g, _| g.subgroup(id)) {
+                    if let Some(group) = this.nav.groups.get_mut(id) {
+                        group.shut = false;
+                    }
+                    this.start_group_rename(new, cx);
+                }
+            }),
+        );
+        let rename = Entry::new(
+            "Rename\u{2026}",
+            Act::new(move |this, _, cx| this.start_group_rename(id, cx)),
+        )
+        .key("or double-click");
+        let ungroup = Entry::new(
+            "Ungroup",
+            Act::new(move |this, _, cx| {
+                this.regroup(cx, |g, tabs| g.ungroup(id, &|item| tabs.of(item)));
+            }),
+        );
+        let close = Entry::new(
+            "Close pages",
+            Act::new(move |this, _, cx| this.close_group(id, cx)),
+        );
+        let menu = vec![
+            vec![sub, rename, self.move_to_entry(Unit::Group(id), at)],
+            vec![ungroup, close],
+        ];
+        self.open_menu(at, menu, cx);
+    }
+
+    /// Close pages: every page under group `id` closes, and the group ends, said with Undo.
+    fn close_group(&mut self, id: u64, cx: &mut Context<Self>) {
+        self.sync_groups();
+        let before = self.before_groups();
+        for item in self.nav.groups.pages(id) {
+            self.close_one(&item, cx);
+        }
+        self.regrouped(before, cx);
+    }
+
+    /// ⌃⌥↑ ⌃⌥↓: the row on screen in the menu one place up or down its list — the page shown, or the head of the
+    /// folded group it is under. Whether there was one.
+    pub(super) fn step_row(&mut self, up: bool, cx: &mut Context<Self>) -> bool {
+        let Some(item) = self.nav_page().and_then(|p| self.item_of(p)) else {
+            return false;
+        };
+        if self.nav.opened(&item).is_none() {
+            return false;
+        }
+        self.sync_groups();
+        let groups = &self.nav.groups;
+        let mut unit = Unit::Page(item);
+        let mut cur = unit.clone();
+        while let Some((List::Group(id), _)) = groups.find(&cur) {
+            if groups.get(id).is_some_and(|g| g.shut) {
+                unit = Unit::Group(id);
+            }
+            cur = Unit::Group(id);
+        }
+        self.regroup(cx, |g, _| g.step(&unit, up));
+        true
     }
 
     /// A click on a group's head: folded, or open again.
@@ -246,7 +389,7 @@ impl Workspace {
         let name = self.label_name.trim().to_owned();
         if let Some(group) = self.nav.groups.get_mut(id) {
             group.name = if name.is_empty() {
-                NEW.to_owned()
+                super::groups::NEW.to_owned()
             } else {
                 name
             };

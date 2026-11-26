@@ -632,6 +632,19 @@ pub(super) fn own() -> Vec<Action> {
             .icon("check")
             .order(at(48) + 1)
             .key("cmd-shift-r", TAB),
+        // The row on screen in the menu, among its tab's or its group's (Design rounds 46 and 48).
+        Action::new("shell.row-up", MoveRowUp)
+            .heading(Heading::Move)
+            .words("Move the open page up the menu")
+            .icon("up")
+            .order(at(48) + 2)
+            .key("ctrl-alt-up", NOT_TYPING),
+        Action::new("shell.row-down", MoveRowDown)
+            .heading(Heading::Move)
+            .words("Move the open page down the menu")
+            .icon("down")
+            .order(at(48) + 3)
+            .key("ctrl-alt-down", NOT_TYPING),
         // In a comment box ⌘⇧P previews the markdown.
         Action::new("shell.search-actions", SearchActions)
             .heading(Heading::Find)

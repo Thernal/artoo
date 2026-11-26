@@ -5,7 +5,7 @@
 
 use crate::rail::project_hue;
 use artoo_shell_api::spaces::{
-    DropAt, Head, Open, Places, Space, SpaceRow, SpacesHost, SpacesMenu, SpacesRenderer,
+    DropAt, Drops, Head, Open, Places, Space, SpaceRow, SpacesHost, SpacesMenu, SpacesRenderer,
 };
 use artoo_ui_kit::controls::DragLabel;
 use artoo_ui_kit::hover::{self, CutInTip, Hover, Tip, TipOwned};
@@ -54,14 +54,12 @@ impl Render for Ghost {
     }
 }
 
-/// A page's or a group's row being dragged in the menu (#246).
+/// A page's or a group's row being dragged in the menu (#246): what the drop names, and the words that follow the
+/// pointer. Where it may go the tab says (`Drops`), as it draws the menu during the drag.
 #[derive(Clone)]
 struct DragRow {
-    space: Space,
     key: SharedString,
     label: SharedString,
-    /// It is a group: moved among the others, dropped onto none.
-    group: bool,
 }
 
 /// The row a drop would take in: the accent, faint, over its words.
@@ -72,76 +70,112 @@ fn tint() -> gpui::Rgba {
     }
 }
 
-/// Row `n`'s places to drop on, over it: before it and after it at its edges, onto it between them — for a page in
-/// no group, where it says `Make a group`.
-fn zones(
-    host: &Rc<dyn SpacesHost>,
-    space: Space,
-    id: &SharedString,
-    n: usize,
-    key: SharedString,
-    within: bool,
-) -> [AnyElement; 3] {
-    let zone = |at: DropAt| {
-        let (host, to) = (host.clone(), key.clone());
-        let mine = key.clone();
-        let name: SharedString = format!("{id}-drop-{n}-{}", at as u8).into();
-        div()
-            .absolute()
-            .left_0()
-            .right_0()
-            .group(name.clone())
-            .can_drop(move |dragged, _, _| {
-                dragged.downcast_ref::<DragRow>().is_some_and(|d| {
-                    d.space == space && d.key != mine && !(d.group && at == DropAt::Onto)
-                })
-            })
-            .on_drop(move |dragged: &DragRow, window, cx| {
-                host.dropped(space, dragged.key.clone(), to.clone(), at, window, cx)
-            })
-    };
-    let line = |s: gpui::StyleRefinement| s.border_color(theme::accent());
-    let before = zone(DropAt::Before)
-        .top_0()
-        .h(px(7.))
-        .drag_over::<DragRow>(move |s, _, _, _| line(s).border_t_2())
-        .into_any_element();
-    let after = zone(DropAt::After)
-        .bottom_0()
-        .h(px(7.))
-        .drag_over::<DragRow>(move |s, _, _, _| line(s).border_b_2())
-        .into_any_element();
-    let name: SharedString = format!("{id}-drop-{n}-{}", DropAt::Onto as u8).into();
-    let hint = (!within).then(|| {
+/// A step in for each group a row stands in, three at most (Design round 48: the name stays readable).
+fn indent(depth: usize) -> f32 {
+    16. * depth.min(3) as f32
+}
+
+/// The words over a place a drop would change more than an order: `New group`, `Move to Groups`.
+fn hint_chip(group: SharedString, hint: Option<&'static str>) -> Option<gpui::Div> {
+    hint.map(|hint| {
         div()
             // A cursor gives it the hitbox its style under a drag is read by.
             .cursor_pointer()
             .invisible()
-            .group_drag_over::<DragRow>(name, |s| s.visible())
+            .group_drag_over::<DragRow>(group, |s| s.visible())
+            .flex_none()
             .px(px(8.))
             .rounded(px(4.))
             .bg(theme::accent())
             .text_color(theme::base())
             .text_size(px(11.))
             .font_weight(FontWeight::SEMIBOLD)
-            .child("Make a group")
-    });
-    let onto = zone(DropAt::Onto)
-        .top(px(7.))
-        .bottom(px(7.))
-        .flex()
-        .items_center()
-        .justify_end()
-        .pr(px(6.))
-        .rounded(px(ROW_RADIUS))
-        .drag_over::<DragRow>(move |s, _, _, _| line(s).border_1().bg(tint()))
-        .children(hint)
-        .into_any_element();
-    [before, onto, after]
+            .child(hint)
+    })
 }
 
-/// A group's head (#246): its chevron, its name — or the field it is typed in — and how many pages it holds; a
-/// click folds it, a double click renames it, a page dropped on it joins.
+/// Row `n`'s places to drop on, over it, as the tab says (`drops`): before it and after it at its edges, onto it
+/// between them, where its hint shows.
+fn zones(
+    host: &Rc<dyn SpacesHost>,
+    space: Space,
+    id: &SharedString,
+    n: usize,
+    key: SharedString,
+    drops: Drops,
+) -> Vec<AnyElement> {
+    let zone = |at: DropAt, takes: bool| {
+        let (host, to) = (host.clone(), key.clone());
+        let name: SharedString = format!("{id}-drop-{n}-{}", at as u8).into();
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .group(name)
+            .can_drop(move |dragged, _, _| {
+                takes
+                    && dragged
+                        .downcast_ref::<DragRow>()
+                        .is_some_and(|d| d.key != to)
+            })
+            .on_drop({
+                let to = key.clone();
+                move |dragged: &DragRow, window, cx| {
+                    host.dropped(space, dragged.key.clone(), to.clone(), at, window, cx)
+                }
+            })
+    };
+    let line = |s: gpui::StyleRefinement| s.border_color(theme::accent());
+    let mut out = Vec::new();
+    if drops.before {
+        out.push(
+            zone(DropAt::Before, true)
+                .top_0()
+                .h(px(7.))
+                .drag_over::<DragRow>(move |s, _, _, _| line(s).border_t_2())
+                .into_any_element(),
+        );
+    }
+    if drops.after {
+        out.push(
+            zone(DropAt::After, true)
+                .bottom_0()
+                .h(px(7.))
+                .drag_over::<DragRow>(move |s, _, _, _| line(s).border_b_2())
+                .into_any_element(),
+        );
+    }
+    if drops.onto {
+        let name: SharedString = format!("{id}-drop-{n}-{}", DropAt::Onto as u8).into();
+        out.push(
+            zone(DropAt::Onto, true)
+                .top(px(if drops.before { 7. } else { 0. }))
+                .bottom(px(if drops.after { 7. } else { 0. }))
+                .flex()
+                .items_center()
+                .justify_end()
+                .pr(px(6.))
+                .rounded(px(ROW_RADIUS))
+                .drag_over::<DragRow>(move |s, _, _, _| line(s).border_1().bg(tint()))
+                .children(hint_chip(name, drops.hint))
+                .into_any_element(),
+        );
+    }
+    out
+}
+
+/// The row's drag: its words follow the pointer, and the tab learns which row it is (`spaces::set_dragging`).
+fn drag_of(key: SharedString, label: SharedString) -> DragRow {
+    DragRow { key, label }
+}
+
+fn ghost(drag: &DragRow, cx: &mut gpui::App) -> gpui::Entity<Ghost> {
+    artoo_shell_api::spaces::set_dragging(cx, drag.key.clone());
+    cx.new(|_| Ghost(drag.label.clone()))
+}
+
+/// A group's head (#246, Design round 48): its chevron, its name — or the field it is typed in — and how many pages
+/// it holds; a click folds it, a double click renames it, a right click is its menu, a row dropped on it goes in.
 fn group_head(
     host: &Rc<dyn SpacesHost>,
     space: Space,
@@ -151,37 +185,17 @@ fn group_head(
     head: Head,
     open: Open,
 ) -> AnyElement {
-    let (click, drop, over) = (host.clone(), host.clone(), host.clone());
+    let (click, menu_row) = (host.clone(), host.clone());
     let key = open.key.clone();
-    let drag = DragRow {
-        space,
-        key: key.clone(),
-        label: open.label.clone().into(),
-        group: true,
-    };
-    // Before it at its top edge; onto it elsewhere (a group dropped there goes before it).
-    let zone = |at: DropAt, host: Rc<dyn SpacesHost>| {
-        let (to, mine) = (key.clone(), key.clone());
-        div()
-            .absolute()
-            .left_0()
-            .right_0()
-            .can_drop(move |dragged, _, _| {
-                (dragged.downcast_ref::<DragRow>())
-                    .is_some_and(|d| d.space == space && d.key != mine)
-            })
-            .on_drop(move |dragged: &DragRow, window, cx| {
-                let at = if dragged.group { DropAt::Before } else { at };
-                host.dropped(space, dragged.key.clone(), to.clone(), at, window, cx)
-            })
-    };
+    let drag = drag_of(key.clone(), open.label.clone().into());
+    let drops = zones(host, space, id, n, key, open.drops);
     div()
         .id(SharedString::from(format!("{id}-open-{n}")))
         .relative()
         .flex_none()
         .h(px(28.))
         .ml(px(if nested { 35. } else { 17. }))
-        .pl(px(8.))
+        .pl(px(8. + indent(open.depth)))
         .pr(px(8.))
         .flex()
         .items_center()
@@ -225,29 +239,16 @@ fn group_head(
             let tip: SharedString = open.tip.into();
             move |_, cx| cx.new(|_| TipOwned(tip.clone())).into()
         })
+        .on_mouse_down(MouseButton::Right, move |e: &MouseDownEvent, window, cx| {
+            menu_row.row_menu(space, n, e.position, window, cx)
+        })
         .on_click(move |e: &ClickEvent, window, cx| match e.click_count() {
             1 => click.open(space, n, false, window, cx),
             2 => click.rename(space, n, window, cx),
             _ => {}
         })
-        .on_drag(drag, |drag: &DragRow, _, _, cx| {
-            cx.new(|_| Ghost(drag.label.clone()))
-        })
-        .child(
-            zone(DropAt::Before, over)
-                .top_0()
-                .h(px(7.))
-                .drag_over::<DragRow>(|s, _, _, _| s.border_color(theme::accent()).border_t_2()),
-        )
-        .child(
-            zone(DropAt::Onto, drop)
-                .top(px(7.))
-                .bottom_0()
-                .rounded(px(ROW_RADIUS))
-                .drag_over::<DragRow>(|s, _, _, _| {
-                    s.border_color(theme::accent()).border_1().bg(tint())
-                }),
-        )
+        .on_drag(drag, |drag: &DragRow, _, _, cx| ghost(drag, cx))
+        .children(drops)
         .into_any_element()
 }
 
@@ -313,6 +314,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
         let (missing, opens, shut) = (row.missing, row.opens, row.shut);
         let any = !opens.is_empty();
         let (toggle, go, moved) = (host.clone(), host.clone(), host.clone());
+        let (row_drops, dropped_on) = (row.drops, host.clone());
         let call = opens
             .iter()
             .filter(|_| shut)
@@ -475,7 +477,8 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
             })
             .tooltip_show_delay(hover::LONG)
             .tooltip(move |_, cx| cx.new(|_| TipOwned(tip.clone())).into())
-            // Dragged onto another space, it takes that place in the menu (kept).
+            // Dragged onto another space, it takes that place in the menu (kept). A page or a group dropped on it
+            // goes to the bottom of its list, where the tab says it may (Design round 48).
             .when(!foot, |s| {
                 s.drag_over::<DragSpace>(|s, _, _, _| s.bg(theme::selected()))
                     .on_drag(DragSpace(space), move |_, _, _, cx| {
@@ -484,6 +487,25 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                     .on_drop(move |dragged: &DragSpace, window, cx| {
                         moved.moved(dragged.0, space, window, cx)
                     })
+                    .can_drop(move |dragged, _, _| {
+                        dragged.is::<DragSpace>() || (row_drops.onto && dragged.is::<DragRow>())
+                    })
+                    .drag_over::<DragRow>(|s, _, _, _| {
+                        s.bg(tint()).border_1().border_color(theme::accent())
+                    })
+                    .on_drop(move |dragged: &DragRow, window, cx| {
+                        dropped_on.dropped_on(dragged.key.clone(), space, window, cx)
+                    })
+                    .children(hint_chip(id.clone(), row_drops.hint).map(|chip| {
+                        div()
+                            .absolute()
+                            .right(px(30.))
+                            .top_0()
+                            .bottom_0()
+                            .flex()
+                            .items_center()
+                            .child(chip)
+                    }))
             })
             // A double click folds or opens what is open under it, as its chevron does.
             .on_click(move |e: &ClickEvent, window, cx| {
@@ -531,14 +553,9 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                 }
                 let group: gpui::SharedString = format!("{id}-open-{n}").into();
                 let key = open.key.clone();
-                let within = open.within;
-                let drag = DragRow {
-                    space,
-                    key: key.clone(),
-                    label: open.label.clone().into(),
-                    group: false,
-                };
-                let drops = (!key.is_empty()).then(|| zones(&host, space, &id, n, key, within));
+                let depth = open.depth;
+                let drag = drag_of(key.clone(), open.label.clone().into());
+                let drops = (!key.is_empty()).then(|| zones(&host, space, &id, n, key, open.drops));
                 let (on, picked) = (open.on, open.picked);
                 let (pick, close, menu_row, rename) =
                     (host.clone(), host.clone(), host.clone(), host.clone());
@@ -558,7 +575,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                     .flex_none()
                     .min_h(px(28.))
                     .ml(px(if nested { 35. } else { 17. }))
-                    .pl(px(if within { 28. } else { 12. }))
+                    .pl(px(12. + indent(depth)))
                     .pr(px(6.))
                     .relative()
                     .flex()
@@ -663,9 +680,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                     })
                     // Dragged among the pages and groups of its space (#246).
                     .when(drops.is_some(), |s| {
-                        s.on_drag(drag, |drag: &DragRow, _, _, cx| {
-                            cx.new(|_| Ghost(drag.label.clone()))
-                        })
+                        s.on_drag(drag, |drag: &DragRow, _, _, cx| ghost(drag, cx))
                     })
                     .children(drops.into_iter().flatten())
                     .into_any_element()
@@ -704,6 +719,32 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
         .map(|row| draw(row, true))
         .collect::<Vec<_>>();
     let under = if nested { None } else { drawn.take() };
+    // After the last space, while a group dragged there would go to the Groups tab (Design round 48, M3).
+    let end = menu.end.onto.then(|| {
+        let host = host.clone();
+        div()
+            .id("menu-end-drop")
+            .group("menu-end-drop")
+            .flex_none()
+            .h(px(28.))
+            .mx(px(8.))
+            .flex()
+            .items_center()
+            .justify_end()
+            .border_t_2()
+            .border_color(gpui::transparent_black())
+            .can_drop(|dragged, _, _| dragged.is::<DragRow>())
+            .drag_over::<DragRow>(|s, _, _, _| s.border_color(theme::accent()))
+            .on_drop(move |dragged: &DragRow, window, cx| {
+                host.dropped_on(
+                    dragged.key.clone(),
+                    artoo_shell_api::spaces::GROUPS,
+                    window,
+                    cx,
+                )
+            })
+            .children(hint_chip("menu-end-drop".into(), menu.end.hint))
+    });
     let tabs = menu.tabs;
     let list = div()
         .id("places")
@@ -809,6 +850,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
             rows
         }))
         .children(under.into_iter().flatten())
+        .children(end)
         // A narrow window's side panel, folded into this column (#80).
         .children(menu.panel_icons);
     // The foot's rows, under the list and apart from it: they stay when the list scrolls (#176).

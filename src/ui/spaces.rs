@@ -5,16 +5,17 @@
 //! (D2); Settings is the title bar's gear. Until the spaces get pages of their own (#72, #75), Code opens search
 //! everywhere on Files, Branches and Merge requests the picker beside the menu.
 
-use super::groups::Unit;
-use super::nav::Page;
+use super::grouping::Tabs;
+use super::groups::{Groups, List, Row, Unit};
+use super::nav::{Opened, Page};
 use super::requests::Scope;
 use super::{Workspace, icons, px, theme};
 use artoo_core::route::Route;
 use artoo_shell_api::ItemRow;
 use artoo_shell_api::spaces::{
-    self, DropAt, Head, Open, SpaceRow, SpacesHost, SpacesMenu, ordered,
+    self, DropAt, Drops, Head, Open, SpaceInfo, SpaceRow, SpacesHost, SpacesMenu, ordered,
 };
-pub use artoo_shell_api::spaces::{Places, Space};
+pub use artoo_shell_api::spaces::{GROUPS, Places, Space};
 
 /// The spaces the tab coordinates, by their owners' ids: what each lacks and what waits in it are still the tab's;
 /// their pages say the rest — their bar, their zones, their rows here (#171 phase 7).
@@ -79,8 +80,8 @@ struct OpenRow {
     call: Option<String>,
     /// A group's head rather than a page (#246).
     head: Option<(u64, Head)>,
-    /// A page in a group.
-    within: bool,
+    /// How deep in groups it stands (Design round 48).
+    depth: usize,
 }
 
 impl OpenRow {
@@ -124,15 +125,16 @@ impl Workspace {
         }
     }
 
-    /// The rows open under `space`: its items (its requests, its branches), and the page it keeps when that belongs
-    /// to no item (Code's file); each as its pages say (`Pages::row`), one they say nothing of by its kind.
-    fn open_rows(&self, space: Space, cx: &App) -> Vec<OpenRow> {
-        let here = self.space() == Some(space);
-        let pages = self.space_pages(space);
-        let said = |item: &Route, page: &Route| pages.and_then(|p| (p.row)(item, page, cx));
+    /// The rows open under `space`: the page it keeps when that belongs to no item (Code's file), then its pages and
+    /// groups as the tree has them (`groups`, synced), a folded group's own left out; each page as its tab's pages say
+    /// it (`Pages::row`). The Groups tab's are its groups, of pages of any tab.
+    fn open_rows(&self, space: Space, groups: &Groups, cx: &App) -> Vec<OpenRow> {
         let mut rows = Vec::new();
-        if let Some(page) = self.page_of(space).filter(|p| self.item_of(p).is_none())
-            && let Some(row) = said(page, page)
+        if space != GROUPS
+            && let Some(page) = self.page_of(space).filter(|p| self.item_of(p).is_none())
+            && let Some(row) = self
+                .space_pages(space)
+                .and_then(|p| (p.row)(page, page, cx))
         {
             rows.push(OpenRow {
                 item: None,
@@ -140,35 +142,86 @@ impl Workspace {
                 label: row.label,
                 mono: row.mono,
                 tip: row.tip,
-                on: here,
+                on: self.space() == Some(space),
                 drafts: false,
                 preview: false,
                 news: row.news,
                 agent: None,
                 call: None,
                 head: None,
-                within: false,
+                depth: 0,
             });
         }
-        let loaded = self.page_of(space).and_then(|p| self.item_of(p));
-        rows.extend(self.open_items(space).into_iter().map(|open| {
-            let on = here && self.is_shown(&open.item);
-            // The one loaded says its files as they are now.
-            let now: Vec<String>;
-            let paths = match &self.shown_diff(cx) {
-                Some(diff) if loaded.as_ref() == Some(&open.item) => {
-                    now = diff.files.iter().map(|f| f.path().to_owned()).collect();
-                    &now
+        // The groups the page on screen is under: a folded one's head is marked for it.
+        let mut above = Vec::new();
+        if let Some(item) = self.nav_page().and_then(|p| self.item_of(p)) {
+            let mut at = Unit::Page(item);
+            while let Some((List::Group(id), _)) = groups.find(&at) {
+                above.push(id);
+                at = Unit::Group(id);
+            }
+        }
+        for (depth, row) in groups.rows(&super::grouping::list_of(space)) {
+            match row {
+                Row::Page(item) => {
+                    if let Some(open) = self.nav.opened(item) {
+                        let mut row = self.item_row(open, cx);
+                        row.depth = depth;
+                        rows.push(row);
+                    }
                 }
-                _ => &open.paths,
-            };
-            // Unsent drafts on its files, or a note a plugin says its item holds (an issue's).
-            let drafts = self
-                .comments(cx)
-                .iter()
-                .any(|c| c.state == crate::comment::State::Draft && paths.contains(&c.path))
-                || artoo_shell_api::spaces::has_note(cx, &open.item);
-            let row = said(&open.item, &open.page).unwrap_or_else(|| ItemRow {
+                Row::Head(group) => rows.push(OpenRow {
+                    item: None,
+                    icon: div().into_any_element(),
+                    label: group.name.clone(),
+                    mono: false,
+                    tip: format!("{}  double-click renames", group.name),
+                    on: group.shut && above.contains(&group.id),
+                    drafts: false,
+                    preview: false,
+                    news: false,
+                    agent: None,
+                    call: None,
+                    head: Some((
+                        group.id,
+                        Head {
+                            count: groups.pages(group.id).len(),
+                            shut: group.shut,
+                        },
+                    )),
+                    depth,
+                }),
+            }
+        }
+        rows
+    }
+
+    /// Open page `open`'s row, as its tab's pages say it (`Pages::row`), one they say nothing of by its kind, with
+    /// what the tab adds: its dots, the name the reviewer gave it, the agent that gathered it.
+    fn item_row(&self, open: &Opened, cx: &App) -> OpenRow {
+        let space = self.item_space(&open.item);
+        let on = space.is_some() && self.space() == space && self.is_shown(&open.item);
+        let pages = space.and_then(|s| self.space_pages(s));
+        let loaded = space
+            .and_then(|s| self.page_of(s))
+            .and_then(|p| self.item_of(p));
+        // The one loaded says its files as they are now.
+        let now: Vec<String>;
+        let paths = match &self.shown_diff(cx) {
+            Some(diff) if loaded.as_ref() == Some(&open.item) => {
+                now = diff.files.iter().map(|f| f.path().to_owned()).collect();
+                &now
+            }
+            _ => &open.paths,
+        };
+        // Unsent drafts on its files, or a note a plugin says its item holds (an issue's).
+        let drafts = self
+            .comments(cx)
+            .iter()
+            .any(|c| c.state == crate::comment::State::Draft && paths.contains(&c.path))
+            || artoo_shell_api::spaces::has_note(cx, &open.item);
+        let row =
+            (pages.and_then(|p| (p.row)(&open.item, &open.page, cx))).unwrap_or_else(|| ItemRow {
                 icon: icons::icon("layers")
                     .size(px(14.))
                     .text_color(theme::faint())
@@ -178,108 +231,64 @@ impl Workspace {
                 tip: open.page.kind.clone(),
                 news: false,
             });
-            // A name the reviewer gave it replaces its title, its number kept.
-            let named = self.page_name(&open.item).map(str::to_owned);
-            let (row_label, row_tip) = match &named {
-                Some(name) => (
-                    super::nav::named_label(&row.label, name),
-                    format!("{}  named by you", row.tip),
-                ),
-                None => (row.label.clone(), row.tip.clone()),
-            };
-            // A request an agent gathered: its line under the title, its mark and its comments waiting (#148).
-            let gathered = match Page::from_route(&open.item) {
-                Some(Page::Request(iid)) => self.gathered(iid, cx).map(|g| (iid, g)),
-                _ => None,
-            };
-            let tip = match gathered.and_then(|(_, g)| g.note.as_deref().map(|n| (g, n))) {
-                Some((g, note)) if !note.is_empty() => format!("{row_tip}\n{}: {note}", g.agent),
-                Some((g, _)) => format!("{row_tip}\nGathered by {}", g.agent),
-                None => row_tip,
-            };
-            let agent = gathered.map(|(iid, g)| {
-                let (letter, hue) = self.agents.agent_mark(&g.agent, cx);
-                (letter, hue, self.agent_waiting(iid, &g.agent, cx))
-            });
-            OpenRow {
-                item: Some(open.item.clone()),
-                icon: row.icon,
-                label: row_label,
-                mono: row.mono && named.is_none(),
-                tip,
-                on,
-                drafts,
-                preview: open.preview,
-                news: row.news,
-                agent,
-                call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
-                head: None,
-                within: false,
-            }
-        }));
-        self.grouped(rows)
+        // A name the reviewer gave it replaces its title, its number kept.
+        let named = self.page_name(&open.item).map(str::to_owned);
+        let (row_label, row_tip) = match &named {
+            Some(name) => (
+                super::nav::named_label(&row.label, name),
+                format!("{}  named by you", row.tip),
+            ),
+            None => (row.label.clone(), row.tip.clone()),
+        };
+        // A request an agent gathered: its line under the title, its mark and its comments waiting (#148).
+        let gathered = match Page::from_route(&open.item) {
+            Some(Page::Request(iid)) => self.gathered(iid, cx).map(|g| (iid, g)),
+            _ => None,
+        };
+        let tip = match gathered.and_then(|(_, g)| g.note.as_deref().map(|n| (g, n))) {
+            Some((g, note)) if !note.is_empty() => format!("{row_tip}\n{}: {note}", g.agent),
+            Some((g, _)) => format!("{row_tip}\nGathered by {}", g.agent),
+            None => row_tip,
+        };
+        let agent = gathered.map(|(iid, g)| {
+            let (letter, hue) = self.agents.agent_mark(&g.agent, cx);
+            (letter, hue, self.agent_waiting(iid, &g.agent, cx))
+        });
+        OpenRow {
+            item: Some(open.item.clone()),
+            icon: row.icon,
+            label: row_label,
+            mono: row.mono && named.is_none(),
+            tip,
+            on,
+            drafts,
+            preview: open.preview,
+            news: row.news,
+            agent,
+            call: self.agent_calls.get(&open.item).filter(|_| !on).cloned(),
+            head: None,
+            depth: 0,
+        }
     }
 
-    /// `rows` with each group's head before its pages, a folded group's pages left out; its head is marked when
-    /// the page on screen is among them.
-    fn grouped(&self, rows: Vec<OpenRow>) -> Vec<OpenRow> {
-        let mut out: Vec<OpenRow> = Vec::with_capacity(rows.len());
-        let mut seen = Vec::new();
-        let group_of = |row: &OpenRow| row.item.as_ref().and_then(|i| self.nav.groups.of(i));
-        let counts: Vec<u64> = rows
-            .iter()
-            .filter_map(|r| group_of(r).map(|g| g.id))
-            .collect();
-        let shown: Vec<u64> = rows
-            .iter()
-            .filter(|r| r.on)
-            .filter_map(|r| group_of(r).map(|g| g.id))
-            .collect();
-        for mut row in rows {
-            let Some(group) = group_of(&row) else {
-                out.push(row);
-                continue;
-            };
-            if !seen.contains(&group.id) {
-                seen.push(group.id);
-                let count = counts.iter().filter(|&&id| id == group.id).count();
-                out.push(OpenRow {
-                    item: None,
-                    icon: div().into_any_element(),
-                    label: group.name.clone(),
-                    mono: false,
-                    tip: format!("{}  double-click renames", group.name),
-                    on: group.shut && shown.contains(&group.id),
-                    drafts: false,
-                    preview: false,
-                    news: false,
-                    agent: None,
-                    call: None,
-                    head: Some((
-                        group.id,
-                        Head {
-                            count,
-                            shut: group.shut,
-                        },
-                    )),
-                    within: false,
-                });
-            }
-            if !group.shut {
-                row.within = true;
-                out.push(row);
-            }
+    /// The spaces the menu offers, the Groups tab after them while it holds a group (Design round 48).
+    pub(super) fn offered_spaces(&self, cx: &App) -> Vec<SpaceInfo> {
+        let mut offered = spaces::all(cx);
+        if !self.nav.groups.shared.is_empty() {
+            offered.push(SpaceInfo {
+                space: GROUPS,
+                label: "Groups",
+                icon: "layers",
+                order: u16::MAX,
+                go: "",
+            });
         }
-        out
+        offered
     }
 
     /// The title of open item `item`'s row, without its number: what Rename… starts from.
     pub(super) fn row_title(&self, item: &Route, cx: &App) -> Option<String> {
-        let space = self.item_space(item)?;
-        let row = self
-            .open_rows(space, cx)
-            .into_iter()
-            .find(|o| o.item.as_ref() == Some(item))?;
+        let row = self.item_row(self.nav.opened(item)?, cx);
         Some(super::nav::split_number(&row.label).1.to_owned())
     }
 
@@ -288,12 +297,7 @@ impl Workspace {
         if self.renaming.as_ref() != Some(item) || self.field != Some(super::lists::Field::Rename) {
             return None;
         }
-        let space = self.item_space(item)?;
-        let label = self
-            .open_rows(space, cx)
-            .into_iter()
-            .find(|o| o.item.as_ref() == Some(item))?
-            .label;
+        let label = self.item_row(self.nav.opened(item)?, cx).label;
         let number = super::nav::split_number(&label).0.to_owned();
         let field = self.name_field(cx);
         Some(
@@ -389,7 +393,7 @@ impl Workspace {
 
     /// `from` dragged onto `to` in the menu: it takes `to`'s place, kept in `layout.txt`.
     fn move_space(&mut self, from: Space, to: Space, cx: &mut Context<Self>) {
-        let mut order: Vec<Space> = ordered(&self.layout.spaces, &spaces::all(cx))
+        let mut order: Vec<Space> = ordered(&self.layout.spaces, &self.offered_spaces(cx))
             .into_iter()
             .map(|s| s.space)
             .collect();
@@ -410,6 +414,13 @@ impl Workspace {
     /// One the project lacks a token for opens the connect panel; one it lacks a remote or git
     /// for opens too, and says so in its middle (#210).
     pub(super) fn go_space(&mut self, space: Space, cx: &mut Context<Self>) {
+        // The Groups tab has no page: a click shows its tree (Design round 48).
+        if space == GROUPS {
+            if self.nav.folded.contains(&GROUPS) {
+                self.toggle_open_items(GROUPS, cx);
+            }
+            return;
+        }
         let offered = spaces::known(cx).iter().any(|s| s.space == space);
         match self.missing(space, cx) {
             _ if self.root.is_none() || !offered => {}
@@ -455,7 +466,11 @@ impl Workspace {
         let (mut rows, mut items) = (Vec::new(), Vec::new());
         let keymap = cx.try_global::<super::keymap::Keymap>();
         let actions = artoo_shell_api::actions(cx);
-        for info in ordered(&self.layout.spaces, &spaces::all(cx)) {
+        // The tree as the pages are open now, and the row being dragged: where it may go is said on each place.
+        let (groups, tabs): (Groups, Tabs) = (self.synced_groups(), self.open_tabs());
+        let dragged = spaces::dragging(cx).and_then(|key| Unit::read(&key));
+        let dragged = dragged.as_ref();
+        for info in ordered(&self.layout.spaces, &self.offered_spaces(cx)) {
             let space = info.space;
             // The key that goes there in force: one changed in Settings → Keyboard shows the new one.
             let key = actions
@@ -465,7 +480,7 @@ impl Workspace {
                 .map(|(a, keymap)| keymap.key_now(a.act.as_ref()))
                 .unwrap_or_default();
             let missing = self.missing(space, cx);
-            let opens = self.open_rows(space, cx);
+            let opens = self.open_rows(space, &groups, cx);
             items.push((space, opens.iter().map(OpenRow::kind).collect()));
             let opens = opens
                 .into_iter()
@@ -493,8 +508,17 @@ impl Workspace {
                         (None, Some(item)) => Unit::Page(item.clone()).key().into(),
                         (None, None) => Default::default(),
                     },
+                    drops: match (&open.head, &open.item) {
+                        (Some((id, _)), _) => {
+                            self.row_drops(&groups, &tabs, dragged, &Unit::Group(*id))
+                        }
+                        (None, Some(item)) => {
+                            self.row_drops(&groups, &tabs, dragged, &Unit::Page(item.clone()))
+                        }
+                        (None, None) => Drops::default(),
+                    },
                     head: open.head.map(|(_, head)| head),
-                    within: open.within,
+                    depth: open.depth,
                     label: open.label,
                     mono: open.mono,
                     tip: open.tip,
@@ -517,6 +541,7 @@ impl Workspace {
                 shut: self.nav.folded.contains(&space),
                 opens,
                 opens_moving: self.motion.recent(&format!("opens-{}", space.id())),
+                drops: self.list_drops(&groups, &tabs, dragged, space),
             });
         }
         // The foot's rows (#176): the app's, the same from every project; what is open under them is their page.
@@ -538,6 +563,7 @@ impl Workspace {
                 shut: true,
                 opens: Vec::new(),
                 opens_moving: false,
+                drops: Drops::default(),
             })
             .collect();
         let host = Rc::new(Glue {
@@ -554,6 +580,10 @@ impl Workspace {
                 here: self.space(),
                 rows,
                 foot,
+                end: match dragged {
+                    Some(Unit::Group(_)) => self.list_drops(&groups, &tabs, dragged, GROUPS),
+                    _ => Drops::default(),
+                },
                 // The projects inside the menu of spaces went (#205).
                 projects: Vec::new(),
                 tabs: self.tabs_host(cx),
@@ -671,15 +701,35 @@ impl SpacesHost for Glue {
         cx: &mut App,
     ) {
         self.tab
-            .update(cx, |this, cx| this.drop_row(space, &from, &to, at, cx))
+            .update(cx, |this, cx| {
+                if let Some(to) = Unit::read(&to) {
+                    let _ = space;
+                    this.drop_unit(&from, super::groups::Target::Row(to, at.into()), cx)
+                }
+            })
+            .ok();
+    }
+
+    fn dropped_on(&self, from: SharedString, space: Space, _: &mut Window, cx: &mut App) {
+        let to = super::groups::Target::List(super::grouping::list_of(space));
+        self.tab
+            .update(cx, |this, cx| this.drop_unit(&from, to, cx))
             .ok();
     }
 
     fn row_menu(&self, space: Space, n: usize, at: Point<Pixels>, _: &mut Window, cx: &mut App) {
-        if let Some(Kind::Page(Some(item))) = self.item(space, n) {
-            self.tab
-                .update(cx, |this, cx| this.item_context(&item, at, cx))
-                .ok();
+        match self.item(space, n) {
+            Some(Kind::Page(Some(item))) => {
+                self.tab
+                    .update(cx, |this, cx| this.item_context(&item, at, cx))
+                    .ok();
+            }
+            Some(Kind::Group(id)) => {
+                self.tab
+                    .update(cx, |this, cx| this.group_context(id, at, cx))
+                    .ok();
+            }
+            _ => {}
         }
     }
 }

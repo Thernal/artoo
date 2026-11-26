@@ -498,7 +498,16 @@ impl Nav {
                 None => Some((item_key(key).filter(|r| drawn.has(r))?, None)),
             })
             .collect::<Vec<_>>();
-        let items: Vec<Route> = open.iter().map(|(item, _)| item.clone()).collect();
+        // Each open page with its tab, as the groups are kept against.
+        let items: Vec<(Route, String)> = (open.iter())
+            .map(|(item, page)| {
+                let tab = drawn.space(page.as_ref().unwrap_or(item));
+                (
+                    item.clone(),
+                    tab.map_or_else(String::new, |s| s.name().to_owned()),
+                )
+            })
+            .collect();
         let mut groups = Groups::default();
         for column in cols {
             if let Some(read) = Groups::read(column, &items) {
@@ -1502,12 +1511,19 @@ impl Workspace {
     /// × on an open item, or ⌘W on the one on screen: it leaves the menu; on screen, its space's
     /// root comes.
     pub(super) fn close_open(&mut self, item: &Route, cx: &mut Context<Self>) {
+        self.sync_groups();
+        let before = self.before_groups();
+        self.close_one(item, cx);
+        // The last page out of a group ends it, said with Undo (#246).
+        self.regrouped(before, cx);
+    }
+
+    /// Open item `item` closed, the groups left to the caller (`regrouped`).
+    pub(super) fn close_one(&mut self, item: &Route, cx: &mut Context<Self>) {
         let drawn = self.drawn();
         let space = self.item_space(item);
-        let before = self.grouping_before(item);
         self.nav.open.retain(|o| &o.item != item);
         self.nav.groups.leave(item);
-        self.groups_left(before, cx);
         self.nav.picked.retain(|o| o != item);
         let shown = space
             .and_then(|space| self.page_of(space))
@@ -1630,14 +1646,9 @@ impl Workspace {
                 seen: 0,
             });
         }
+        // A page that did not come back is in no group; a group stays, kept as it was left.
         self.nav.groups = groups;
-        // A page that did not come back is in no group.
-        for item in self.nav.groups.list.clone().iter().flat_map(|g| &g.items) {
-            if self.nav.opened(item).is_none() {
-                self.nav.groups.leave(item);
-            }
-        }
-        self.nav.groups.ended();
+        self.sync_groups();
         self.gather_open();
         let page = self.nav.pages.get(&space).cloned();
         // Underneath a page that loads nothing of its own, the checked-out branch, as before:

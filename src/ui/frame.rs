@@ -549,6 +549,16 @@ impl Render for Workspace {
                     cx.propagate();
                 }
             }))
+            .on_action(cx.listener(|this, _: &MoveRowUp, _, cx| {
+                if !this.step_row(true, cx) {
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &MoveRowDown, _, cx| {
+                if !this.step_row(false, cx) {
+                    cx.propagate();
+                }
+            }))
             .on_action(cx.listener(|this, _: &SearchActions, _, cx| {
                 this.search(artoo_shell_api::search::ACTIONS, cx)
             }))

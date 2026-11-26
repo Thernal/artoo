@@ -28,6 +28,10 @@ impl Space {
     }
 }
 
+/// The Groups tab (Design round 48): the tab's own, there while it holds a group of pages of any tab — no page of
+/// its own, its tree under its row. The menu's end names it to take a group there (`SpacesHost::dropped_on`).
+pub const GROUPS: Space = Space("groups");
+
 /// A space as its owner offers it: its row in the menu, its place there until the developer drags it, and the
 /// action that goes to it, whose key the row's hover says.
 #[derive(Clone, Copy, Debug)]
@@ -185,8 +189,10 @@ pub struct Open {
     pub editing: Option<AnyElement>,
     /// A group's head rather than a page (#246): `label` its name, folded or not, how many pages it holds.
     pub head: Option<Head>,
-    /// A page in a group: drawn in from its head.
-    pub within: bool,
+    /// How deep in groups it stands (Design round 48): 0 at its tab's top; drawn in by a step for each, three at most.
+    pub depth: usize,
+    /// What a drop of the row being dragged does on it, the tab's say (`dragging`).
+    pub drops: Drops,
     /// What a drag of the row carries and a drop on it names (`SpacesHost::dropped`); empty on a row that is not
     /// moved (Code's file).
     pub key: SharedString,
@@ -197,6 +203,35 @@ pub struct Open {
 pub struct Head {
     pub count: usize,
     pub shut: bool,
+}
+
+/// What a drop of the row being dragged (`dragging`) does on a place of the menu: at its edges, onto it, and the
+/// words said over it while the drag is onto it (`New group`, `Move to Groups`). The tab says it each time the menu
+/// is drawn, which is every frame of a drag; none takes nothing.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct Drops {
+    pub before: bool,
+    pub onto: bool,
+    pub after: bool,
+    pub hint: Option<&'static str>,
+}
+
+/// The row being dragged in the menu, by its key, while the drag lasts.
+#[derive(Default)]
+struct Dragging(Option<SharedString>);
+
+impl gpui::Global for Dragging {}
+
+/// A row of the menu began to be dragged (the frame's): its key.
+pub fn set_dragging(cx: &mut App, key: SharedString) {
+    cx.set_global(Dragging(Some(key)));
+}
+
+/// The key of the row being dragged in the menu; none while nothing is.
+pub fn dragging(cx: &App) -> Option<SharedString> {
+    (cx.has_active_drag())
+        .then(|| cx.try_global::<Dragging>().and_then(|d| d.0.clone()))
+        .flatten()
 }
 
 /// Where a dragged row is dropped on another.
@@ -226,6 +261,8 @@ pub struct SpaceRow {
     pub opens: Vec<Open>,
     /// What is open under it is folding away or back.
     pub opens_moving: bool,
+    /// A row dropped on it (`onto`): to the bottom of its list (`SpacesHost::dropped_on`).
+    pub drops: Drops,
 }
 
 /// The menu as the tab sees it.
@@ -244,6 +281,8 @@ pub struct SpacesMenu<'a> {
     pub rows: Vec<SpaceRow>,
     /// The rows at its foot, under the spaces and apart from them (`Foot`): never dragged, never scrolled away.
     pub foot: Vec<SpaceRow>,
+    /// The place after the last space, while a group dragged there would go to the Groups tab (Design round 48).
+    pub end: Drops,
     /// Menu mode: the window's projects, the spaces under the active one's row (X13).
     pub projects: Vec<(usize, TabInfo)>,
     pub tabs: Rc<dyn TabsHost>,
@@ -283,7 +322,12 @@ pub trait SpacesHost {
     ) {
         let _ = (space, from, to, at, window, cx);
     }
-    /// Row `n`'s right click, at `at`: its link, and a request's number (#162).
+    /// The row of key `from` dropped on the row of `space` (or the menu's end, the Groups tab's): to the bottom of
+    /// that list.
+    fn dropped_on(&self, from: SharedString, space: Space, window: &mut Window, cx: &mut App) {
+        let _ = (from, space, window, cx);
+    }
+    /// Row `n`'s right click, at `at`: its link, and a request's number (#162); a group's head, its menu.
     fn row_menu(
         &self,
         space: Space,
