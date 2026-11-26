@@ -308,6 +308,41 @@ pub fn note(
         )
 }
 
+/// An agent's note: no avatar, the agent's bar at its left is its mark (the owner, 2026-11-26: a face for an agent says
+/// nothing); its name and time over its words.
+pub fn agent_note(name: &str, time: String, body: AnyElement) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .mb(px(12.))
+        .pl(px(10.))
+        .border_l_2()
+        .border_color(Rgba {
+            a: 0.7,
+            ..theme::agent()
+        })
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::agent())
+                        .child(name.to_owned()),
+                )
+                .children((!time.is_empty()).then(|| {
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(format!("· {time}"))
+                })),
+        )
+        .child(div().min_w_0().child(body))
+}
+
 /// How a button stands.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Kind {

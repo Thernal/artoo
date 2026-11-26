@@ -629,7 +629,6 @@ impl Workspace {
             .and_then(|s| s.title.split(" · ").next().map(str::to_owned))
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| "Agent".to_owned());
-        let unnamed = agent_name == "Agent";
         let replies = comment.replies.iter().enumerate().map(|(ix, reply)| {
             let record = reply
                 .form
@@ -646,10 +645,9 @@ impl Workspace {
             div()
                 .flex()
                 .flex_col()
-                .child(discussion::note(
+                // The agent's answer: its bar, no face (the owner, 2026-11-26).
+                .child(discussion::agent_note(
                     &agent_name,
-                    false,
-                    unnamed.then_some("agent"),
                     super::format::short_ago(reply.at),
                     markdown::body(
                         &reply.body,
@@ -659,9 +657,6 @@ impl Workspace {
                         Some(selecting.clone()),
                         cx,
                     ),
-                    ix + 1 == comment.replies.len(),
-                    None,
-                    None,
                 ))
                 .children(record)
         });

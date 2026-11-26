@@ -301,22 +301,18 @@ fn working(these: usize, look: &Look) -> AnyElement {
         .gap(px(8.))
         .text_size(px(12.))
         .text_color(theme::muted())
-        .child(
-            crate::view::chat_badge(look.mark.0, look.mark.1, false)
-                .size(px(20.))
-                .text_size(px(10.)),
-        )
-        .child(dots())
+        // No face: the dots in the chat's colour say who (the owner, 2026-11-26).
+        .child(dots(look.mark.1))
         .child(words)
         .into_any_element()
 }
 
-/// Three quiet dots: it is on it.
-fn dots() -> gpui::Div {
+/// Three dots in the chat's colour: it is on it.
+fn dots(tint: Rgba) -> gpui::Div {
     div()
         .flex()
         .gap(px(3.))
-        .children((0..3).map(|_| div().size(px(5.)).rounded_full().bg(theme::faint())))
+        .children((0..3).map(move |_| div().size(px(5.)).rounded_full().bg(tint)))
 }
 
 fn tail(
@@ -342,12 +338,7 @@ fn tail(
                 .gap(px(8.))
                 .text_size(px(12.))
                 .text_color(theme::muted())
-                .child(
-                    crate::view::chat_badge(look.mark.0, look.mark.1, false)
-                        .size(px(20.))
-                        .text_size(px(10.)),
-                )
-                .child(dots())
+                .child(dots(look.mark.1))
                 .child(words),
         )
         .into_any_element()
@@ -487,8 +478,8 @@ fn you(ix: usize, mine: &[Mine], comments: &[Comment], look: &Look, cx: &App) ->
         .into_any_element()
 }
 
-/// The agent's messages under one name: its mark and `Claude`, then a bubble each with its time under its words, as
-/// yours have theirs (#243).
+/// The agent's messages together: a bubble each with its time under its words, as yours have theirs (#243); no face
+/// and no name over them, the agent's bar at their left is its mark (the owner, 2026-11-26).
 fn claude(ix: usize, says: &[Say], comments: &[Comment], look: &Look, cx: &App) -> AnyElement {
     let bubbles = says
         .iter()
@@ -496,37 +487,18 @@ fn claude(ix: usize, says: &[Say], comments: &[Comment], look: &Look, cx: &App) 
         .map(|(n, s)| bubble(ix * 1000 + n, s, comments, look, cx));
     div()
         .w_full()
+        .min_w_0()
         .flex()
+        .flex_col()
         .items_start()
-        .gap(px(8.))
-        .child(
-            crate::view::chat_badge(look.mark.0, look.mark.1, false)
-                .size(px(24.))
-                .text_size(px(12.)),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .items_start()
-                .gap(px(6.))
-                .child(
-                    div()
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        // `Claude`, as the composer names it (`Message Claude…`).
-                        .child(
-                            look.name
-                                .split_whitespace()
-                                .next()
-                                .unwrap_or("Agent")
-                                .to_owned(),
-                        ),
-                )
-                .children(bubbles),
-        )
+        .gap(px(6.))
+        .pl(px(8.))
+        .border_l_2()
+        .border_color(Rgba {
+            a: 0.7,
+            ..look.mark.1
+        })
+        .children(bubbles)
         .into_any_element()
 }
 

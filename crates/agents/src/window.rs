@@ -591,10 +591,12 @@ impl AgentsWindow {
                    view: View| {
             div()
                 .id(id)
+                .flex_1()
                 .h(px(24.))
                 .px(px(10.))
                 .flex()
                 .items_center()
+                .justify_center()
                 .gap(px(6.))
                 .rounded(px(ROW_RADIUS))
                 .text_size(px(12.))
@@ -627,8 +629,10 @@ impl AgentsWindow {
             .items_center()
             .border_b_1()
             .border_color(theme::island_border())
+            // The switch the column's width, its two halves even (the owner, 2026-11-26).
             .child(
                 artoo_ui_kit::controls::group()
+                    .flex_1()
                     .child(tab(
                         "view-conversation",
                         "Conversation",
