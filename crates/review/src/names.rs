@@ -603,12 +603,14 @@ pub fn peek_card(look: &PeekLook, left: f32, this: WeakEntity<Review>) -> AnyEle
 }
 
 fn hint(key: &'static str, what: &'static str) -> gpui::Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(5.))
-        .child(keys::caps(key, keys::On::Plain))
-        .child(what)
+    keys::hint_row(
+        div()
+            .flex()
+            .items_center()
+            .gap(px(5.))
+            .child(keys::caps_shown(key, keys::On::Plain))
+            .child(what),
+    )
 }
 
 /// The peek as one of the tab's inputs: ↑ ↓ ↵ ⇧F12 esc are its own; one left closes.

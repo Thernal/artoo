@@ -92,12 +92,17 @@ fn zen_strip(
 fn zen_keys(one: bool) -> impl IntoElement {
     // Keys are split by spaces: "[ ]" is two caps.
     let pair = |spec: &'static str, what: &'static str| {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .children(spec.split(' ').map(|key| keys::caps(key, keys::On::Plain)))
-            .child(what)
+        keys::hint_row(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .children(
+                    spec.split(' ')
+                        .map(|key| keys::caps_shown(key, keys::On::Plain)),
+                )
+                .child(what),
+        )
     };
     div()
         .flex_none()

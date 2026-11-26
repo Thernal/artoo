@@ -1416,7 +1416,7 @@ impl Workspace {
                 div()
                     .id(gpui::SharedString::from(format!("key-{name}-{k}")))
                     .p(px(2.))
-                    .child(keys::caps(&keymap::symbols(k), On::Plain))
+                    .child(keys::caps_shown(&keymap::symbols(k), On::Plain))
             });
             let group = gpui::SharedString::from(format!("key-row-{name}"));
             let picked = sel == Some(name);
@@ -1475,7 +1475,7 @@ impl Workspace {
                                         .gap(px(4.))
                                         .text_color(theme::faint())
                                         .child("cancel")
-                                        .child(keys::caps("esc", On::Plain)),
+                                        .child(keys::caps_shown("esc", On::Plain)),
                                 )
                                 .child(
                                     div()
@@ -1484,7 +1484,7 @@ impl Workspace {
                                         .gap(px(4.))
                                         .text_color(theme::faint())
                                         .child("no key")
-                                        .child(keys::caps("⌫", On::Plain)),
+                                        .child(keys::caps_shown("⌫", On::Plain)),
                                 )
                         })
                         .when(!waiting, |s| s.children(also))

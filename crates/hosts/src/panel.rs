@@ -947,12 +947,17 @@ impl Panel {
             }
         }
         let hint = |keys: Vec<&str>, say: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .children(keys.into_iter().map(|k| keys::caps(k, keys::On::Plain)))
-                .child(say)
+            keys::hint_row(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .children(
+                        keys.into_iter()
+                            .map(|k| keys::caps_shown(k, keys::On::Plain)),
+                    )
+                    .child(say),
+            )
         };
         div()
             .flex_1()

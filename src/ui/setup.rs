@@ -160,7 +160,7 @@ impl Workspace {
         let caps = |keys: &[String]| {
             div().flex().gap(px(4.)).children(
                 keys.first()
-                    .map(|k| keys::caps(&super::keymap::symbols(k), On::Plain)),
+                    .map(|k| keys::caps_shown(&super::keymap::symbols(k), On::Plain)),
             )
         };
         let group = |name: &'static str, actions: &[&str]| {

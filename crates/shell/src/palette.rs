@@ -173,7 +173,9 @@ fn rows(
                             aside.aside(ix, window, cx)
                         })
                 }))
-                .children((!item.key.is_empty()).then(|| keys::caps(&item.key, keys::On::Plain)))
+                .children(
+                    (!item.key.is_empty()).then(|| keys::caps_shown(&item.key, keys::On::Plain)),
+                )
                 // The one in force, checked (#204).
                 .children((item.checked || item.swatch.is_some()).then(|| {
                     div()
@@ -467,6 +469,10 @@ fn scopes(
 /// The foot: each key after its words, in a cap — the tab on with its key and how to move (a search), then
 /// open and close. A list without tabs says the last two.
 fn foot(on: Option<String>, verb: &str) -> AnyElement {
+    // Only while ⌘ is held (the owner, 2026-11-26: no keyboard hints in sight): the list ends at its last row.
+    if !keys::showing() {
+        return div().into_any_element();
+    }
     let bare = on.as_ref().is_some_and(|o| !o.contains(" · "));
     let hint = |say: &str, key: &str| {
         div()
@@ -474,7 +480,7 @@ fn foot(on: Option<String>, verb: &str) -> AnyElement {
             .items_center()
             .gap(px(6.))
             .child(say.to_owned())
-            .children((!key.is_empty()).then(|| keys::caps(key, keys::On::Plain)))
+            .children((!key.is_empty()).then(|| keys::caps_shown(key, keys::On::Plain)))
     };
     div()
         .flex()

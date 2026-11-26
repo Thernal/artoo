@@ -189,8 +189,34 @@ pub enum On {
     Filled,
 }
 
-/// The keycaps of `spec`, for the end of a button or a field.
+/// The key of a button or a field (`Approve A`, `Filter ⌘F`), as a hint: hidden, and over the control's corner while ⌘
+/// is held (the keyboard helpers, #193), so nothing moves (the owner, 2026-11-26: no keyboard hints in sight, ⌘ held
+/// shows them). Absolute: it takes no room in the control it is put in.
 pub fn caps(spec: &str, on: On) -> Div {
+    let _ = on;
+    match held_cap(spec, Held::Cmd) {
+        Some(cap) => cap,
+        None => div().absolute().size_0(),
+    }
+}
+
+/// Whether the keyboard's hints show now: ⌘ held a moment, the helpers on. A row of hints (`↑↓ choose ↵ connect`)
+/// keeps its room and shows only then (`hint_row`).
+pub fn showing() -> bool {
+    held() == Some(Held::Cmd)
+}
+
+/// A row of hints, words and their keys (`caps_shown`): drawn while ⌘ is held, its room kept otherwise.
+pub fn hint_row(row: Div) -> Div {
+    match showing() {
+        true => row,
+        false => row.invisible(),
+    }
+}
+
+/// The keycaps of `spec`, always drawn where they stand: where the keys are what is said (Settings → Keyboard, the
+/// hint after the mouse, a command's key in ⌘K's list, a row of hints while ⌘ is held).
+pub fn caps_shown(spec: &str, on: On) -> Div {
     let (ink, border, fill): (Rgba, Rgba, Rgba) = match on {
         On::Plain => (theme::text(), theme::selected(), theme::panel()),
         On::Filled => (
@@ -378,7 +404,7 @@ pub fn hint() -> Option<Div> {
                     .text_size(px(12.))
                     .text_color(theme::muted())
                     .child(what)
-                    .child(caps(&spec, On::Plain)),
+                    .child(caps_shown(&spec, On::Plain)),
             ),
     )
 }
@@ -404,6 +430,11 @@ pub fn held_cap(spec: &str, when: Held) -> Option<Div> {
             .font_weight(FontWeight::MEDIUM)
             .text_color(theme::text())
             .whitespace_nowrap()
-            .child(text(spec).into_owned())
+            // As the caps spell it: a letter in capitals (`A`, `⇧⌘↵`).
+            .child(if platform::MAC {
+                split(spec).concat()
+            } else {
+                pc_split(spec).join("+")
+            })
     })
 }

@@ -383,10 +383,12 @@ pub fn input(review: Entity<Review>) -> Input {
 
 /// A word and its key as a cap, the prompt's hint (Design round 17, K3): `write ↵`.
 fn key_hint(word: &'static str, key: &'static str) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(4.))
-        .child(word)
-        .child(keys::caps(key, keys::On::Plain))
+    keys::hint_row(
+        div()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .child(word)
+            .child(keys::caps_shown(key, keys::On::Plain)),
+    )
 }

@@ -274,18 +274,18 @@ impl Workspace {
                                         })),
                                 )
                                 .child(div().flex_1())
-                                .child(
+                                .child(keys::hint_row(
                                     div()
                                         .flex()
                                         .items_center()
                                         .gap_1()
                                         .text_size(px(11.))
                                         .text_color(theme::faint())
-                                        .child(keys::caps("⇥", On::Plain))
+                                        .child(keys::caps_shown("⇥", On::Plain))
                                         .child("switches")
-                                        .child(keys::caps("Space", On::Plain))
+                                        .child(keys::caps_shown("Space", On::Plain))
                                         .child("remembers"),
-                                ),
+                                )),
                         )
                         .child(
                             div()

@@ -203,7 +203,7 @@ pub fn whole_card(text: &str) -> gpui::Div {
             text.lines()
                 .map(|line| div().child(SharedString::from(line.to_owned()))),
         )
-        .child(
+        .child(keys::hint_row(
             div()
                 .mt(px(4.))
                 .flex()
@@ -211,11 +211,11 @@ pub fn whole_card(text: &str) -> gpui::Div {
                 .gap(px(6.))
                 .text_size(px(11.))
                 .text_color(theme::faint())
-                .child(keys::caps("⌘C", keys::On::Plain))
+                .child(keys::caps_shown("⌘C", keys::On::Plain))
                 .child("copy")
                 .child(div().flex_1())
-                .child(keys::caps("esc", keys::On::Plain)),
-        )
+                .child(keys::caps_shown("esc", keys::On::Plain)),
+        ))
 }
 
 /// A tooltip with nothing to say draws nothing.
