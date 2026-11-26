@@ -59,11 +59,11 @@ impl Missing {
 }
 
 /// What is open under a space, as its row in the menu: what its pages say of it (`Pages::row`) and what the tab adds.
-struct OpenRow {
+pub(super) struct OpenRow {
     /// The request or branch; None for the page the space keeps when it belongs to no item (Code's file).
     item: Option<Route>,
     icon: gpui::AnyElement,
-    label: String,
+    pub(super) label: String,
     mono: bool,
     tip: String,
     /// It is the page on screen.
@@ -198,7 +198,7 @@ impl Workspace {
 
     /// Open page `open`'s row, as its tab's pages say it (`Pages::row`), one they say nothing of by its kind, with
     /// what the tab adds: its dots, the name the reviewer gave it, the agent that gathered it.
-    fn item_row(&self, open: &Opened, cx: &App) -> OpenRow {
+    pub(super) fn item_row(&self, open: &Opened, cx: &App) -> OpenRow {
         let space = self.item_space(&open.item);
         let on = space.is_some() && self.space() == space && self.is_shown(&open.item);
         let pages = space.and_then(|s| self.space_pages(s));
@@ -321,12 +321,8 @@ impl Workspace {
             .min_w_0()
             .flex()
             .items_center()
-            .px_2()
+            // No box of its own: the row it stands in is ringed (the design's rename in place).
             .h(px(24.))
-            .rounded(px(super::ROW_RADIUS))
-            .border_2()
-            .border_color(theme::focus())
-            .bg(theme::base())
             .text_color(theme::text())
             .cursor_text()
             .child(self.field_look(

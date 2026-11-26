@@ -195,7 +195,8 @@ fn group_head(
         .flex_none()
         .h(px(28.))
         .ml(px(if nested { 35. } else { 17. }))
-        .pl(px(8. + indent(open.depth)))
+        // Its chevron nearer the rows in it, as the design's tree stands.
+        .pl(px(14. + indent(open.depth)))
         .pr(px(8.))
         .flex()
         .items_center()
@@ -207,6 +208,13 @@ fn group_head(
         .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
         .when(open.on, |s| {
             s.bg(theme::selected()).text_color(theme::text())
+        })
+        // Renamed in place: the whole row is the field, ringed.
+        .when(open.editing.is_some(), |s| {
+            s.border_1()
+                .border_color(theme::accent())
+                .bg(gpui::transparent_black())
+                .text_color(theme::text())
         })
         .child(
             icons::icon(if head.shut {
@@ -556,7 +564,7 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                 let depth = open.depth;
                 let drag = drag_of(key.clone(), open.label.clone().into());
                 let drops = (!key.is_empty()).then(|| zones(&host, space, &id, n, key, open.drops));
-                let (on, picked) = (open.on, open.picked);
+                let (on, picked, editing) = (open.on, open.picked, open.editing.is_some());
                 let (pick, close, menu_row, rename) =
                     (host.clone(), host.clone(), host.clone(), host.clone());
                 let dot = |color: gpui::Rgba, tip: &'static str| {
@@ -603,6 +611,14 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                             .bg(theme::selected())
                             .text_color(theme::text())
                     })
+                    // Renamed in place: the whole row is the field, ringed, its close and dots away.
+                    .when(editing, |s| {
+                        s.border_1()
+                            .border_color(theme::accent())
+                            .rounded(px(ROW_RADIUS))
+                            .bg(gpui::transparent_black())
+                            .text_color(theme::text())
+                    })
                     .child(open.icon)
                     // The row's long hover holds the whole of it; renamed, the field takes its place.
                     .child(match open.editing {
@@ -641,27 +657,32 @@ fn menu(menu: SpacesMenu, host: Rc<dyn SpacesHost>) -> AnyElement {
                             .bg(theme::warning())
                             .tip(what)
                     }))
-                    .children(open.drafts.then(|| dot(theme::agent(), "Unsent drafts")))
-                    .children(open.news.then(|| dot(theme::accent(), "New activity")))
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("{id}-close-{n}")))
-                            .flex_none()
-                            .size(px(18.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(4.))
-                            .when(!on, |s| s.invisible().group_hover(group, |s| s.visible()))
-                            .hover(|s| s.bg(theme::hover()))
-                            .child(icons::icon("x").size(px(12.)).text_color(theme::faint()))
-                            .tooltip_show_delay(hover::LONG)
-                            .tooltip(|_, cx| cx.new(|_| Tip("Close  ⌘W")).into())
-                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                            .on_click(move |_: &ClickEvent, window, cx| {
-                                close.close(space, n, window, cx)
-                            }),
+                    .children(
+                        (open.drafts && !editing).then(|| dot(theme::agent(), "Unsent drafts")),
                     )
+                    .children((open.news && !editing).then(|| dot(theme::accent(), "New activity")))
+                    .when(!editing, |s| {
+                        s.child(
+                            div()
+                                .id(SharedString::from(format!("{id}-close-{n}")))
+                                .flex_none()
+                                .size(px(18.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(4.))
+                                // Its room only while it shows: a row not on reads to the menu's edge (the design).
+                                .when(!on, |s| s.hidden().group_hover(group, |s| s.flex()))
+                                .hover(|s| s.bg(theme::hover()))
+                                .child(icons::icon("x").size(px(12.)).text_color(theme::faint()))
+                                .tooltip_show_delay(hover::LONG)
+                                .tooltip(|_, cx| cx.new(|_| Tip("Close  ⌘W")).into())
+                                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                                .on_click(move |_: &ClickEvent, window, cx| {
+                                    close.close(space, n, window, cx)
+                                }),
+                        )
+                    })
                     .tooltip_show_delay(hover::LONG)
                     .tooltip({
                         let tip: SharedString = open.tip.into();

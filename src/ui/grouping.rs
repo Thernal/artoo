@@ -89,6 +89,12 @@ impl Workspace {
     /// After a change from `before`: a group no page is left in ends, the order follows the tree, and it is kept.
     /// What changed more than an order is said with Undo: a group gone to Groups, a group ended, the Groups tab gone.
     pub(super) fn regrouped(&mut self, before: Before, cx: &mut Context<Self>) {
+        self.regrouped_moving(before, None, cx);
+    }
+
+    /// `regrouped`, `moved` the row a drop or Move to took: when nothing more is said, its new place is, with
+    /// Undo (`!398 moved to Refunds`).
+    fn regrouped_moving(&mut self, before: Before, moved: Option<&Unit>, cx: &mut Context<Self>) {
         self.sync_groups();
         let ended = self.nav.groups.ended(&before.groups);
         self.gather_open();
@@ -105,7 +111,16 @@ impl Workspace {
             (Some(name), _) => Some(Words::new(format!("{name} moved to Groups"))),
             (None, Some(name)) => Some(Words::new("Group ended").about(name.clone())),
             (None, None) if gone => Some(Words::new("Groups closed")),
-            _ => None,
+            _ => moved.and_then(|unit| {
+                let from = was.find(unit)?.0;
+                let (to, _) = self.nav.groups.find(unit)?;
+                // A group the drop made has its name typed next: that is what is said, not where the row went.
+                let made = matches!(to, List::Group(id) if was.get(id).is_none());
+                (from != to && !made).then(|| {
+                    let name = self.unit_name(unit, cx);
+                    Words::new(format!("{name} moved to {}", self.list_name(&to, cx)))
+                })
+            }),
         };
         if let Some(words) = words {
             let (tab, back) = (cx.weak_entity(), Cell::new(Some(before)));
@@ -150,6 +165,16 @@ impl Workspace {
         cx: &mut Context<Self>,
         change: impl FnOnce(&mut Groups, &Tabs) -> T,
     ) -> T {
+        self.regroup_moving(None, cx, change)
+    }
+
+    /// `regroup`, `moved` the row a drop or Move to takes somewhere: its new place is said with Undo.
+    fn regroup_moving<T>(
+        &mut self,
+        moved: Option<&Unit>,
+        cx: &mut Context<Self>,
+        change: impl FnOnce(&mut Groups, &Tabs) -> T,
+    ) -> T {
         self.sync_groups();
         let before = self.before_groups();
         let tabs = self.open_tabs();
@@ -161,8 +186,33 @@ impl Workspace {
                 open.preview = false;
             }
         }
-        self.regrouped(before, cx);
+        self.regrouped_moving(before, moved, cx);
         out
+    }
+
+    /// What a row is called in a toast: a group by its name, a page by its row's words.
+    fn unit_name(&self, unit: &Unit, cx: &App) -> String {
+        match unit {
+            Unit::Group(id) => {
+                (self.nav.groups.get(*id)).map_or_else(String::new, |g| g.name.clone())
+            }
+            Unit::Page(item) => {
+                (self.nav.opened(item)).map_or_else(String::new, |o| self.item_row(o, cx).label)
+            }
+        }
+    }
+
+    /// What a list is called in a toast: a group by its name, a tab by its space's.
+    fn list_name(&self, list: &List, cx: &App) -> String {
+        match list {
+            List::Group(id) => {
+                (self.nav.groups.get(*id)).map_or_else(String::new, |g| g.name.clone())
+            }
+            List::Groups => "Groups".to_owned(),
+            List::Tab(name) => (self.offered_spaces(cx).into_iter())
+                .find(|s| s.space.name() == name)
+                .map_or_else(|| name.clone(), |s| s.label.to_owned()),
+        }
     }
 
     /// What `from` let go on `to` would do; none where it may not go.
@@ -220,7 +270,7 @@ impl Workspace {
         let Some(plan) = self.drop_plan(&groups, &tabs, &from, to) else {
             return;
         };
-        if let Some(id) = self.regroup(cx, |g, _| g.apply(&from, &plan)) {
+        if let Some(id) = self.regroup_moving(Some(&from), cx, |g, _| g.apply(&from, &plan)) {
             self.start_group_rename(id, cx);
         }
     }
@@ -231,7 +281,8 @@ impl Workspace {
             "Move to",
             Act::new(move |this, _, cx| this.move_menu(unit.clone(), at, cx)),
         )
-        .quiet("▸")
+        .icon("folder")
+        .sub()
     }
 
     /// The tops of the menu in its order: each tab's list, and the Groups tab's, with their names.
@@ -305,12 +356,13 @@ impl Workspace {
                     this.start_group_rename(new, cx);
                 }
             }),
-        );
+        )
+        .icon("plus");
         let rename = Entry::new(
             "Rename\u{2026}",
             Act::new(move |this, _, cx| this.start_group_rename(id, cx)),
         )
-        .key("or double-click");
+        .icon("pencil");
         let ungroup = Entry::new(
             "Ungroup",
             Act::new(move |this, _, cx| {
@@ -320,7 +372,8 @@ impl Workspace {
         let close = Entry::new(
             "Close pages",
             Act::new(move |this, _, cx| this.close_group(id, cx)),
-        );
+        )
+        .icon("x");
         let menu = vec![
             vec![sub, rename, self.move_to_entry(Unit::Group(id), at)],
             vec![ungroup, close],

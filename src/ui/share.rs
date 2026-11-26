@@ -100,6 +100,7 @@ impl Workspace {
                 "Rename\u{2026}",
                 Act::new(move |this, _, cx| this.start_rename(item.clone(), cx)),
             )
+            .icon("pencil")
             .key("or double-click")
         };
         // Move to ▸ beside it (#246, Design round 48).

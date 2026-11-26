@@ -125,6 +125,18 @@ impl<A> Entry<A> {
         self
     }
 
+    /// A chevron at the very end with no tooltip: the entry opens a menu of its own (Move to ▸).
+    pub fn sub(mut self) -> Self {
+        self.go = Some(Some(String::new()));
+        self
+    }
+
+    /// An icon before the label, in the muted colour (the design's menus: Rename's pencil, Move to's folder).
+    pub fn icon(mut self, name: &'static str) -> Self {
+        self.lead = Some(Lead::Icon(name, theme::muted()));
+        self
+    }
+
     /// The chevron's room without a chevron, so the rows' ends line up.
     pub fn go_blank(mut self) -> Self {
         self.go = Some(None);
@@ -251,7 +263,7 @@ fn end<A>(entry: &Entry<A>) -> impl IntoElement {
                             .size(px(14.))
                             .text_color(theme::faint()),
                     )
-                    .tip(tip),
+                    .when(!tip.is_empty(), |s| s.tip(tip)),
                 None => chevron,
             }
         }))
@@ -457,13 +469,17 @@ impl<A: Clone + 'static> Menu<A> {
                             entry.checked.is_some()
                                 || (entry.lead.is_none() && entry.under.is_none()),
                             |s| {
-                                s.child(div().w(px(14.)).text_color(theme::accent()).child(
-                                    if entry.checked == Some(true) {
-                                        "✓"
-                                    } else {
-                                        ""
-                                    },
-                                ))
+                                s.child(
+                                    div()
+                                        .flex_none()
+                                        .w(px(16.))
+                                        .text_color(theme::accent())
+                                        .child(if entry.checked == Some(true) {
+                                            "✓"
+                                        } else {
+                                            ""
+                                        }),
+                                )
                             },
                         )
                         // A gone one's lead is dimmed with its words.
