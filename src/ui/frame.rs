@@ -544,6 +544,11 @@ impl Render for Workspace {
             .on_action(cx.listener(|this, _: &SearchRequests, _, cx| {
                 this.search(artoo_requests_api::SEARCH, cx)
             }))
+            .on_action(cx.listener(|this, _: &MarkReady, _, cx| {
+                if !this.mark_ready_here(cx) {
+                    cx.propagate();
+                }
+            }))
             .on_action(cx.listener(|this, _: &SearchActions, _, cx| {
                 this.search(artoo_shell_api::search::ACTIONS, cx)
             }))

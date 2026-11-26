@@ -140,12 +140,40 @@ impl Workspace {
                 this.send_edits(iid, edits, |_, _| {}, cx);
             }),
         );
+        // On your own draft's Overview ⇧⌘R does it too.
+        let turn = match draft && self.page_section(cx) == Some(super::nav::Section::Overview) {
+            true => turn.key("\u{21e7}\u{2318}R"),
+            false => turn,
+        };
         let edit = Entry::new(
             "Edit title and description\u{2026}",
             Act::new(|this, _, cx| this.start_description_edit(cx)),
         )
         .key("E");
         self.open_menu(at, vec![vec![turn, Entry::off(is)], vec![edit]], cx);
+    }
+
+    /// ⇧⌘R on the Overview of your own request while it is a draft: marked ready (Design round 46, the owner's
+    /// answer). Whether it was one; anywhere else the key is Search requests'.
+    pub(super) fn mark_ready_here(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.page_section(cx) != Some(super::nav::Section::Overview) || self.compose.is_some() {
+            return false;
+        }
+        let Some((iid, _)) = self.editable(cx).filter(|(_, now)| now.draft) else {
+            return false;
+        };
+        let login = self.request_login(cx);
+        let mine = (self.find_request(iid, cx))
+            .is_some_and(|m| login.as_deref().is_some_and(|l| l == m.author_login));
+        if !mine {
+            return false;
+        }
+        let edits = Edits {
+            draft: Some(false),
+            ..Default::default()
+        };
+        self.send_edits(iid, edits, |_, _| {}, cx);
+        true
     }
 
     // ---- the description
@@ -442,10 +470,11 @@ impl Workspace {
                             Some(_) => "Saving\u{2026}".to_owned(),
                             None => format!("Save to {}", self.host_name()),
                         };
+                        // Saved by its button alone (the owner's answer to round 46): no key sends it to the host.
                         discussion::button(
                             "proposal-save",
                             label,
-                            Some("\u{2318}\u{21b5}"),
+                            None,
                             discussion::Kind::Primary(theme::accent()),
                         )
                         .h(px(26.))
@@ -517,19 +546,5 @@ impl Workspace {
             draft: None,
         };
         self.send_edits(iid, edits, move |this, cx| this.drop_proposal(iid, cx), cx);
-    }
-
-    /// ⌘↵ with nothing being typed, on the Overview of a request an agent proposed an edit to: saved. Whether it
-    /// was one.
-    pub(super) fn save_shown_proposal(&mut self, cx: &mut Context<Self>) -> bool {
-        let on_overview = self.page_section(cx) == Some(super::nav::Section::Overview);
-        let Some(iid) = self.current_request(cx).filter(|_| on_overview) else {
-            return false;
-        };
-        if self.proposal(iid).is_none() || self.compose.is_some() || self.editable(cx).is_none() {
-            return false;
-        }
-        self.save_proposal(iid, cx);
-        true
     }
 }

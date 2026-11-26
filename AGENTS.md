@@ -425,8 +425,9 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   toast's button, then the row), ⇧⌘C copies it (else Search commits, which has the key too), ⇧F10 and the menu key
   its menu; their actions share keys on purpose (`keymap::shared`, no clash). Links in a text have no keyboard
   focus. **Its card** on a long hover over a link in a text is the kind's own (`Kind::card`: the requests' in
-  `requests/card.rs`), an issue key's the tracker's (`issues::drawn`), else the default one — the host and the
-  address, no page title: nothing is fetched for a link —; every one has ⧉ and ↗ at its head's end
+  `requests/card.rs`), an issue key's the tracker's (`issues::drawn`), else the default one — the host, the page's
+  title once read (`artoo_core::links::fetch_title`: an http(s) address, no token, no cookie, kept while the app
+  runs) and the address —; every one has ⧉ and ↗ at its head's end
   (`links::glyphs`; ⧉ dispatches `links::CopyLinkOf`) and no foot. A web address written bare in a text is a link
   (`artoo_core::links::addresses`, the first pattern: a number or a key inside it is the address's). Out of the
   tab's reach a right click dispatches `links::ShowLinkMenu`.
@@ -437,7 +438,8 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   tracker's card gives (`artoo_shell_api::issues::url`, `browser_url`: the one definition; `Selecting::browser`
   carries it into the kit's markdown). A request's number has its link's menu on a right click wherever it is drawn
   (`Act::RequestContext`, `InboxEvent::Menu`, `branches_api::Act::RequestMenu`; in a text `Selecting::link_menu`). A plain click is unchanged, except the request's issue key (`requests/why.rs`
-  `issue_click`): it opens in the app when a tracker knows it, else the browser. ⌘K's rows take no ⌘-click: their
+  `issue_click`): it opens in the app when a tracker knows it, else the browser; and a key in the page bar's title
+  opens the issue under its tracker. ⌘K's rows take no ⌘-click: their
   pick runs once the window has closed, with no event. **While ⌘ is held over a link** (`artoo_ui_kit::marked`,
   Design round 46) it is marked and a line at the page's foot says `Open in …` and the address: whatever draws a link
   says so with `Marked::link_mark` (its words), `link_row` (a row whose ⌘-click it is) or `link_over`, a request by
@@ -472,9 +474,10 @@ Feature specs, UI mockups and design decisions: the sibling repo `../Design` —
   kept on this Mac until saved or cancelled, ⌘↵), and its state chip `Draft ▾` marks it ready or back. Saved by
   `Requests::edit_request` (GitLab one `PUT`, a draft said in the title; GitHub `PATCH` and the draft mutations).
   `edit_request` (MCP) only proposes (`What::EditRequest`): the bar over the description — Compare (marked words,
-  or as it would read), Discard, Save (⌘↵) — and nothing reaches the host without the reviewer's press. Tests read
-  the requests at `http::with_transport` (`crates/hosts/src/editing_tests.rs`). No key marks ready: ⇧⌘R finds a
-  request.
+  or as it would read), Discard, Save — and nothing reaches the host without the reviewer's press on Save (no key
+  saves it). Tests read the requests at `http::with_transport` (`crates/hosts/src/editing_tests.rs`). ⇧⌘R marks
+  your own draft ready on its Overview (`mark_ready_here`, `MarkReady` sharing the key with Search requests, which
+  it falls through to anywhere else).
 - **Keyboard**: focus zones (branches, commits, files, diff, the open tool window; `ui/zones.rs`) — the one with the keyboard has an
   outlined island. Tab / ⇧Tab or ⌃2…4 move between them (⌃1 is the branch quick switch); ↑ ↓ (j k) act in the zone, ← → (h l) step files (in the file
   tree they close and open folders), ↵ goes one step in, Space / PageUp / PageDown / Home / End move the diff. A new

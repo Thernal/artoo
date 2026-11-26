@@ -77,12 +77,14 @@ impl Workspace {
         if let Some(card) = issues::key_of(address).and_then(|key| issues::card(cx, key)) {
             return Some(cx.new(|_| super::hover::KeyCard::new(card)).into());
         }
+        let url = linked.claim.url.clone()?;
         let card = WebCard {
-            url: linked.claim.url.clone()?,
+            title: titles::known(&url),
+            url,
             address: linked.address,
             claim: linked.claim,
         };
-        Some(cx.new(|_| card).into())
+        Some(cx.new(|cx| card.asking(cx)).into())
     }
 
     /// A card's ⧉: the link at `address` copied.
@@ -316,11 +318,68 @@ impl Workspace {
     }
 }
 
-/// The default card of a link nobody draws one for: the host, ⧉ and ↗ at its head's end, and the address.
+/// The default card of a link nobody draws one for: the host, ⧉ and ↗ at its head's end, the page's title once it
+/// is read (`artoo_core::links::fetch_title`, no token and no cookie: the owner's answer to round 46), and the address.
 struct WebCard {
     address: String,
     claim: Claim,
     url: String,
+    title: Option<String>,
+}
+
+/// The titles of the pages read for their cards, while the app runs: none for one being read or that has none.
+mod titles {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    thread_local! {
+        static READ: RefCell<HashMap<String, Option<String>>> = RefCell::default();
+    }
+
+    /// The title read for `url`; none, or not read yet.
+    pub fn known(url: &str) -> Option<String> {
+        READ.with(|r| r.borrow().get(url).cloned().flatten())
+    }
+
+    /// Whether `url` is to be read: the first card of it asks, the others wait for that answer.
+    pub fn ask(url: &str) -> bool {
+        READ.with(|r| {
+            let mut read = r.borrow_mut();
+            let first = !read.contains_key(url);
+            if first {
+                read.insert(url.to_owned(), None);
+            }
+            first
+        })
+    }
+
+    pub fn keep(url: &str, title: Option<String>) {
+        READ.with(|r| r.borrow_mut().insert(url.to_owned(), title));
+    }
+}
+
+impl WebCard {
+    /// The card, its page's title asked once in the background when it is not known yet.
+    fn asking(self, cx: &mut Context<Self>) -> Self {
+        if self.title.is_none() && titles::ask(&self.url) {
+            let url = self.url.clone();
+            let read = cx
+                .background_executor()
+                .spawn(async move { artoo_core::links::fetch_title(&url) });
+            let url = self.url.clone();
+            cx.spawn(async move |this, cx| {
+                let title = read.await;
+                titles::keep(&url, title.clone());
+                this.update(cx, |card, cx| {
+                    card.title = title;
+                    cx.notify();
+                })
+                .ok();
+            })
+            .detach();
+        }
+        self
+    }
 }
 
 impl Render for WebCard {
@@ -342,8 +401,14 @@ impl Render for WebCard {
                     .min_w_0(),
             )
             .child(links::glyphs(&self.address, &self.claim));
+        let title = self.title.clone().map(|title| {
+            div()
+                .text_color(theme::text())
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title)
+        });
         super::motion::appear(
-            card_frame().w(px(340.)).child(head).child(
+            card_frame().w(px(340.)).child(head).children(title).child(
                 cut("web-card-address", self.url.clone())
                     .font_family(theme::code_font())
                     .text_color(theme::muted()),

@@ -255,9 +255,105 @@ pub fn addresses(text: &str) -> Vec<std::ops::Range<usize>> {
     found
 }
 
+/// A web page's title from its HTML, for the card of a link no kind claims (Design round 46, the owner's answer):
+/// its `og:title` when it says one, else its `<title>`, character references read, spaces joined, at most 200
+/// characters; none for a page with neither.
+pub fn page_title(html: &str) -> Option<String> {
+    // ASCII lower case keeps every byte where it was: found in `low`, read in `html`.
+    let low = html.to_ascii_lowercase();
+    let og = low.match_indices("<meta").find_map(|(at, _)| {
+        let tag = &low[at..at + low[at..].find('>')?];
+        if !tag.contains("og:title") {
+            return None;
+        }
+        let from = at + tag.find("content=")? + "content=".len();
+        let quote = html[from..]
+            .chars()
+            .next()
+            .filter(|q| matches!(q, '"' | '\''))?;
+        let start = from + 1;
+        Some(&html[start..start + html[start..].find(quote)?])
+    });
+    let title = og.or_else(|| {
+        let open = low.find("<title")?;
+        let start = open + low[open..].find('>')? + 1;
+        Some(&html[start..start + low[start..].find("</title")?])
+    })?;
+    let words = crate::mdhtml::entities(title);
+    let words: String = words.split_whitespace().collect::<Vec<_>>().join(" ");
+    let words: String = words.chars().take(200).collect();
+    (!words.is_empty()).then_some(words)
+}
+
+/// The title of the web page at `url` (`page_title`), asked with no token and no cookie: an `http(s)` address only,
+/// redirects followed, an HTML answer of at most 4 MB. None otherwise.
+pub fn fetch_title(url: &str) -> Option<String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) {
+        return None;
+    }
+    let request = crate::http::Request::get(url)
+        .header("Accept", "text/html")
+        .follow()
+        .max_filesize(4 << 20)
+        .timeout(8);
+    let answer = crate::http::send(&request).ok()?;
+    let html = answer.ok()
+        && answer
+            .header("content-type")
+            .is_some_and(|t| t.contains("html"));
+    html.then(|| page_title(&answer.text())).flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pages_title_is_its_og_title_else_its_title() {
+        let og = r#"<html><head><TITLE>Site</TITLE><meta property="og:title" content="Incident 88 &amp; after"></head>"#;
+        assert_eq!(page_title(og).as_deref(), Some("Incident 88 & after"));
+        assert_eq!(
+            page_title("<title>\n  Status  page\n</title>").as_deref(),
+            Some("Status page")
+        );
+        assert_eq!(page_title("<p>no title</p>"), None);
+        assert_eq!(page_title("<title>   </title>"), None);
+    }
+
+    #[test]
+    fn a_title_is_asked_with_no_token_and_only_of_an_html_answer() {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let _g = crate::http::with_transport(move |r| {
+            log.lock().unwrap().push((r.url.clone(), r.headers.clone()));
+            let html = r.url.ends_with("/page");
+            Ok(crate::http::Response {
+                status: 200,
+                headers: vec![(
+                    "content-type".into(),
+                    if html {
+                        "text/html; charset=utf-8"
+                    } else {
+                        "application/json"
+                    }
+                    .into(),
+                )],
+                body: b"<title>Status</title>".to_vec(),
+            })
+        });
+        assert_eq!(
+            fetch_title("https://status.example.com/page").as_deref(),
+            Some("Status")
+        );
+        assert_eq!(fetch_title("https://status.example.com/api"), None);
+        assert_eq!(fetch_title("file:///etc/passwd"), None);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(
+            seen.iter()
+                .all(|(_, h)| h.iter().all(|(n, _)| n != "Authorization" && n != "Cookie"))
+        );
+    }
 
     #[test]
     fn bare_addresses_end_before_the_sentences_punctuation() {

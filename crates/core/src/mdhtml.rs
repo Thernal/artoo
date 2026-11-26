@@ -222,7 +222,7 @@ fn attributes(mut s: &str) -> Vec<(String, String)> {
 }
 
 /// The common character references read: `&amp;`, `&lt;`, `&#39;`, `&#x1F600;`…
-fn entities(s: &str) -> String {
+pub(crate) fn entities(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
     while let Some(at) = rest.find('&') {

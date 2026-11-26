@@ -624,6 +624,14 @@ pub(super) fn own() -> Vec<Action> {
         Action::new("shell.search-requests", SearchRequests)
             .heading(Heading::Find)
             .key("cmd-shift-r", TAB),
+        // On your own draft's Overview ⇧⌘R marks it ready (Design round 46, the owner's answer); anywhere else the key
+        // goes on to Search requests. After it, so asked first.
+        Action::new("requests.mark-ready", MarkReady)
+            .heading(Heading::Requests)
+            .words("Mark your request as ready")
+            .icon("check")
+            .order(at(48) + 1)
+            .key("cmd-shift-r", TAB),
         // In a comment box ⌘⇧P previews the markdown.
         Action::new("shell.search-actions", SearchActions)
             .heading(Heading::Find)

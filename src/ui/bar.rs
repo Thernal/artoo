@@ -978,14 +978,17 @@ fn title(
                         .flex_none()
                         .whitespace_nowrap()
                         .underline()
+                        .cursor_pointer()
                         .child(key.clone()),
                 )
                 .link_mark("bar-title-key", address.clone())
-                // ⌘/Ctrl-click: the issue in the browser; a plain click does nothing here.
+                // A plain click opens the issue under its tracker (the owner's answer to round 46); ⌘/Ctrl-click in
+                // the browser.
                 .on_click(move |e: &gpui::ClickEvent, _, cx| {
-                    if e.modifiers().secondary()
-                        && let Some(url) = artoo_shell_api::issues::url(cx, &key)
-                    {
+                    cx.stop_propagation();
+                    if !e.modifiers().secondary() {
+                        artoo_shell_api::issues::open(cx, &key);
+                    } else if let Some(url) = artoo_shell_api::issues::url(cx, &key) {
                         cx.open_url(&url);
                     }
                 })

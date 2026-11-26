@@ -433,9 +433,10 @@ fn keystrokes(b: &KeyBinding) -> String {
 /// none), counts as overlapping; two different refinements are taken to be meant apart.
 /// Whether two actions share a key on purpose: a focused link's, which goes on to the other when none is focused.
 fn shared(a: &str, b: &str) -> bool {
-    const SHARED: [[&str; 2]; 2] = [
+    const SHARED: [[&str; 2]; 3] = [
         ["OpenLinkInBrowser", "OpenToast"],
         ["CopyFocusedLink", "SearchCommits"],
+        ["MarkReady", "SearchRequests"],
     ];
     (SHARED.iter()).any(|pair| *pair == [a, b] || *pair == [b, a])
 }
@@ -617,6 +618,8 @@ mod tests {
             "OpenToast",
             "CopyFocusedLink",
             "SearchCommits",
+            "MarkReady",
+            "SearchRequests",
         ] {
             let entry = entries.iter().find(|e| e.name == name).unwrap();
             assert!(!entry.keys.is_empty() && entry.clash.is_none(), "{name}");

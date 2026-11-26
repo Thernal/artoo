@@ -252,6 +252,7 @@ actions!(
         SearchCommits,
         SearchBranches,
         SearchRequests,
+        MarkReady,
         SearchActions,
         Compare,
         PaletteUp,
