@@ -21,7 +21,8 @@ use std::time::Instant;
 /// Details' column beside the cards, and the widest the cards' column grows (round 41, P1: headed cards as on
 /// the Tasks issue page).
 const SIDE: f32 = 264.;
-const MAIN_MAX: f32 = 760.;
+/// The widest the cards grow, Details beside them.
+const MAIN_MAX: f32 = 960.;
 /// A card's header, as the Tasks page draws its sections.
 const CARD_HEAD: f32 = 40.;
 
@@ -161,18 +162,20 @@ impl Requests {
                     .child(div().h(px(1.)).bg(theme::island_border()))
                     // The page scrolls as a whole: Description and Discussions as headed cards in the main
                     // column, Details beside them (round 41, P1).
+                    // Details right beside the cards, never across an empty strip (the owner, 2026-11-26): the
+                    // cards take the room up to the side's, the two together no wider than they read well.
                     .child(
                         div()
                             .flex()
                             .items_start()
                             .gap(px(24.))
+                            .max_w(px(MAIN_MAX + 24. + SIDE + 48.))
                             .px(px(24.))
                             .pt(px(20.))
                             .pb(px(24.))
                             .child(
                                 div().flex_1().min_w_0().child(
                                     div()
-                                        .max_w(px(MAIN_MAX))
                                         .flex()
                                         .flex_col()
                                         .gap(px(16.))

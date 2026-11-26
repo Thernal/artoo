@@ -594,7 +594,7 @@ pub fn issue_card(card: &IssueCard, actions: Option<gpui::Div>) -> gpui::Div {
             .gap(px(10.))
             .child(
                 div()
-                    .w(px(56.))
+                    .w(px(64.))
                     .flex_none()
                     .text_color(theme::muted())
                     .child(label.to_owned()),
@@ -683,7 +683,7 @@ pub fn issue_card(card: &IssueCard, actions: Option<gpui::Div>) -> gpui::Div {
                         .gap(px(10.))
                         .child(
                             div()
-                                .w(px(56.))
+                                .w(px(64.))
                                 .flex_none()
                                 .text_color(theme::muted())
                                 .child("State"),
@@ -714,7 +714,7 @@ pub fn issue_card(card: &IssueCard, actions: Option<gpui::Div>) -> gpui::Div {
                         .gap(px(10.))
                         .child(
                             div()
-                                .w(px(56.))
+                                .w(px(64.))
                                 .flex_none()
                                 .text_color(theme::muted())
                                 .child("Epic"),

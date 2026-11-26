@@ -4,7 +4,7 @@
 //! (`IssueCard`, which also says when the tracker could not be reached, and what was read last) and how to open it.
 //! With no tracker offered a key stays plain text; nothing else changes.
 
-use gpui::{App, Global};
+use gpui::{App, Global, prelude::*};
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -134,7 +134,24 @@ pub fn drawn(card: &IssueCard) -> gpui::Div {
     };
     let address = format!("{SCHEME}{}", card.key);
     let glyphs = (card.url.is_some()).then(|| crate::links::glyphs(&address, &claim));
-    artoo_ui_kit::hover::issue_card(card, glyphs)
+    // Its foot (the design's key card): Open, the issue under its tracker, as a click on the key does.
+    let key = card.key.clone();
+    let open_here = artoo_ui_kit::discussion::button(
+        "issue-card-open",
+        "Open",
+        Some("↵"),
+        artoo_ui_kit::discussion::Kind::Primary(artoo_ui_kit::theme::accent()),
+    )
+    .on_click(move |_, _, cx| {
+        open(cx, &key);
+    });
+    artoo_ui_kit::hover::issue_card(card, glyphs).child(
+        gpui::div()
+            .mt(artoo_ui_kit::px(4.))
+            .flex()
+            .items_center()
+            .child(open_here),
+    )
 }
 
 /// The browser address of issue `key`, from the first tracker whose card has one (`IssueCard::url`); none when no

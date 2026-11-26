@@ -17,12 +17,23 @@ use std::rc::Rc;
 /// The file the reactions used are counted in, on this Mac.
 pub const USED: &str = "reactions-used.txt";
 /// The picker's cells to a row, and a row's height.
-const COLS: usize = 12;
-const ROW: f32 = 30.;
+const COLS: usize = 8;
+const ROW: f32 = 34.;
+/// A cell's width: eight to a row in a picker 316 px wide (the design's).
+const CELL: f32 = 36.;
 /// How many rows show before it scrolls.
 const ROWS_SHOWN: usize = 8;
-/// Until there is a history: the five most people reach for.
-const DEFAULT_FIVE: [&str; 5] = ["thumbsup", "heart", "tada", "eyes", "rocket"];
+/// Until there is a history: the eight most people reach for, the reactions' five first.
+const DEFAULT_EIGHT: [&str; 8] = [
+    "thumbsup",
+    "heart",
+    "tada",
+    "eyes",
+    "rocket",
+    "smile",
+    "pray",
+    "white_check_mark",
+];
 
 /// The picker open: its search with its caret and sideways offset, the emoji picked, the list's scroll.
 #[derive(Default)]
@@ -130,16 +141,30 @@ impl Picker {
                 .child(search_field(g, change))
         });
         let foot = match names.get(at) {
-            Some(name) => hover::cut(
-                "reaction-name",
-                match emoji::get(name) {
-                    Some(_) => format!(":{name}:"),
-                    None => format!(":{name}: — by name, if GitLab has it"),
-                },
-            )
-            .flex_1()
-            .text_color(theme::muted())
-            .into_any_element(),
+            // The one picked, drawn, then its name (the design's foot).
+            Some(name) => div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .children(
+                    emoji::get(name)
+                        .map(|glyph| div().flex_none().text_size(px(16.)).child(glyph.to_owned())),
+                )
+                .child(
+                    hover::cut(
+                        "reaction-name",
+                        match emoji::get(name) {
+                            Some(_) => format!(":{name}:"),
+                            None => format!(":{name}: — by name, if GitLab has it"),
+                        },
+                    )
+                    .flex_1()
+                    .font_family(theme::code_font())
+                    .text_color(theme::muted()),
+                )
+                .into_any_element(),
             None => div()
                 .flex_1()
                 .child("No emoji by that name")
@@ -147,7 +172,12 @@ impl Picker {
         };
         let foot = div()
             .mt(px(4.))
+            .pt(px(6.))
+            .px(px(2.))
+            .border_t_1()
+            .border_color(theme::island_border())
             .flex()
+            .items_center()
             .gap_3()
             .text_size(px(11.))
             .text_color(theme::faint())
@@ -191,7 +221,7 @@ impl Picker {
             .id(("reaction-popup", note as usize))
             .occlude()
             .p(px(6.))
-            .w(px(COLS as f32 * ROW + 14.))
+            .w(px(COLS as f32 * (CELL + 2.) + 14.))
             .rounded(px(8.))
             .border_1()
             .border_color(theme::island_border())
@@ -215,6 +245,11 @@ impl Picker {
 
 /// Your five most used reactions (GitHub: from its eight).
 pub fn frequent(github: bool) -> Vec<&'static str> {
+    frequent_n(github, 5)
+}
+
+/// Your `n` most used, the defaults after them.
+fn frequent_n(github: bool, n: usize) -> Vec<&'static str> {
     let mut counts: Vec<(String, usize)> = storage::read(USED)
         .lines()
         .filter_map(|l| {
@@ -228,12 +263,12 @@ pub fn frequent(github: bool) -> Vec<&'static str> {
         .filter_map(|(name, _)| emoji::all().iter().find(|e| e.name == name).map(|e| e.name))
         .filter(|n| !github || emoji::github_name(n).is_some())
         .collect();
-    for d in DEFAULT_FIVE {
-        if !out.contains(&d) {
+    for d in DEFAULT_EIGHT {
+        if !out.contains(&d) && (!github || emoji::github_name(d).is_some()) {
             out.push(d);
         }
     }
-    out.truncate(5);
+    out.truncate(n);
     out
 }
 
@@ -273,7 +308,7 @@ fn grid(query: &str, github: bool) -> (Vec<Cow<'static, str>>, Vec<GridRow>) {
         rows.push(GridRow::Group(title));
         rows.extend(cell_rows(from..names.len()));
     };
-    group("Frequently used", &mut frequent(github).into_iter());
+    group("Frequent", &mut frequent_n(github, COLS).into_iter());
     let all = emoji::all();
     let mut at = 0;
     while let Some(first) = all[at..].iter().position(|e| !e.group.is_empty()) {
@@ -380,8 +415,9 @@ fn grid_cell(i: usize, name: &str, picked: bool, pick: Pick) -> AnyElement {
     let glyph = emoji::get(name);
     div()
         .id(("grid-react", i))
-        .h(px(28.))
-        .min_w(px(28.))
+        .h(px(32.))
+        .min_w(px(CELL))
+        .text_size(px(18.))
         .when(glyph.is_none(), |s| s.px(px(6.)).text_size(px(12.)))
         .flex()
         .items_center()
@@ -406,16 +442,16 @@ mod tests {
 
     #[test]
     fn up_and_down_keep_the_column_across_groups() {
-        // A group of 5, then one of 14: rows 0..5 · 5..17 · 17..19, names between.
+        // A group of 5, then one of 14: rows 0..5 · 5..13 · 13..19, names between.
         let mut rows = vec![GridRow::Group("a")];
         rows.extend(cell_rows(0..5));
         rows.push(GridRow::Group("b"));
         rows.extend(cell_rows(5..19));
-        assert_eq!(row_of(&rows, 16), Some(3));
+        assert_eq!(row_of(&rows, 16), Some(4));
         // Down from the short row's fourth: the next group's fourth.
         assert_eq!(row_step(&rows, 3, true), 8);
         // Down into a shorter row: its last.
-        assert_eq!(row_step(&rows, 15, true), 18);
+        assert_eq!(row_step(&rows, 12, true), 18);
         // Up over a group's name: the short row, as far as it goes.
         assert_eq!(row_step(&rows, 11, false), 4);
         // The first and the last row stay.
