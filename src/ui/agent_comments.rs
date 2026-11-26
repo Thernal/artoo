@@ -532,9 +532,11 @@ impl Workspace {
                 "you",
                 true,
                 None,
-                (comment.written > 0)
-                    .then(|| super::format::short_ago(comment.written))
-                    .unwrap_or_default(),
+                if comment.written > 0 {
+                    super::format::short_ago(comment.written)
+                } else {
+                    String::new()
+                },
                 markdown::body(
                     &comment.body,
                     self.settings.rich_comments,
