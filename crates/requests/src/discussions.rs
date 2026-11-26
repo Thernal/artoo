@@ -10,9 +10,7 @@ use artoo_branches_api::Branches;
 use artoo_hosts_api::{Draft, Thread};
 use artoo_requests_api::{DISCUSSIONS, DiscussionsHost};
 use artoo_shell_api::{Badge, ListKey, Services, Tool};
-use artoo_ui_kit::controls::{
-    comment_item, comment_item_glyph, group_heading, skeleton, tool_foot,
-};
+use artoo_ui_kit::controls::{comment_item, group_heading, skeleton, tool_foot};
 use artoo_ui_kit::format::one_line;
 use artoo_ui_kit::hover::{self, Hover, Tip};
 use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme, words};
@@ -129,6 +127,146 @@ fn heading(word: &'static str, count: usize, chevron: Option<&'static str>) -> g
         )
 }
 
+/// One note on a discussion's card: the avatar, who and when on a line, the words under it, cut to `lines`.
+fn card_note(
+    id: (&'static str, usize),
+    author: &str,
+    me: bool,
+    when: String,
+    body: String,
+    lines: usize,
+) -> gpui::Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(4.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(artoo_ui_kit::discussion::avatar(author, me, 18.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_size(px(12.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::text())
+                        .child(if me {
+                            "You".to_owned()
+                        } else {
+                            author.to_owned()
+                        }),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(theme::faint())
+                        .child(when),
+                ),
+        )
+        .child(
+            hover::cut_to(id, body, lines)
+                .text_size(px(12.))
+                .line_height(px(18.))
+                .text_color(theme::muted()),
+        )
+}
+
+/// A discussion as the design's card (the owner, 2026-11-26): its notes (`card_note`), framed; a pending one with the
+/// warning's bar at its left. `foot` is where it is, its count and whose turn.
+fn card(
+    id: (&'static str, usize),
+    pending: bool,
+    notes: Vec<gpui::Div>,
+    foot: gpui::Div,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .mx(px(8.))
+        .mb(px(8.))
+        .px(px(10.))
+        .py(px(8.))
+        .flex()
+        .flex_col()
+        .gap(px(8.))
+        .rounded(px(8.))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::panel())
+        .overflow_hidden()
+        .relative()
+        .when(pending, |s| {
+            s.child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .top_0()
+                    .bottom_0()
+                    .w(px(2.))
+                    .bg(theme::warning()),
+            )
+        })
+        .cursor_pointer()
+        .hover(|s| s.bg(theme::hover()))
+        .children(notes)
+        .child(foot)
+}
+
+/// A card's foot: the file's glyph and `LoginScreen.kt:31` (or General), then `end` at the right.
+fn card_foot(general: bool, where_: String, end: Vec<AnyElement>) -> gpui::Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .child(
+            icons::icon(if general { "message" } else { "file" })
+                .flex_none()
+                .size(px(12.))
+                .text_color(theme::faint()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .font_family(theme::code_font())
+                .text_size(px(11.))
+                .text_color(theme::faint())
+                .child(where_),
+        )
+        .children(end)
+}
+
+/// The window's tabs: `Open 5`, `Outdated 3`, `Resolved 4` in one group, the one shown lit.
+fn tabs(shown: Tab, counts: [usize; 3], on_fold: &OnFold) -> gpui::Div {
+    let tab = |id: &'static str, word: &'static str, tab: Tab, n: usize| {
+        let on_fold = on_fold.clone();
+        artoo_ui_kit::controls::chip(id, format!("{word} {n}"), shown == tab)
+            .flex_1()
+            .flex()
+            .justify_center()
+            .on_click(move |_: &ClickEvent, _, cx| on_fold(Fold::Tab(tab), cx))
+    };
+    div().px(px(8.)).pt(px(4.)).pb(px(6.)).child(
+        artoo_ui_kit::controls::group()
+            .w_full()
+            .child(tab("discussions-open", "Open", Tab::Open, counts[0]))
+            .child(tab(
+                "discussions-outdated",
+                "Outdated",
+                Tab::Outdated,
+                counts[1],
+            ))
+            .child(tab(
+                "discussions-resolved",
+                "Resolved",
+                Tab::Resolved,
+                counts[2],
+            )),
+    )
+}
+
 /// What the window draws: the list, and Submit review under it while comments are pending.
 struct DiscussionsView {
     requests: Entity<Requests>,
@@ -140,18 +278,27 @@ struct DiscussionsView {
     folds: Rc<RefCell<Folds>>,
 }
 
+/// The window's tabs, as the design has them (the owner, 2026-11-26): Open (the pending with it), Outdated, Resolved.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub enum Tab {
+    #[default]
+    Open,
+    Outdated,
+    Resolved,
+}
+
 /// What the window has unfolded (#199).
 #[derive(Default)]
 pub struct Folds {
-    /// The resolved discussions, folded under `Resolved · N` until opened.
-    pub resolved: bool,
+    /// The tab shown.
+    pub tab: Tab,
     /// The general discussions read whole, by their ids.
     pub general: HashSet<String>,
 }
 
-/// One fold of the window opened or closed.
+/// One fold of the window opened or closed; a tab picked.
 pub enum Fold {
-    Resolved,
+    Tab(Tab),
     General(String),
 }
 
@@ -171,7 +318,7 @@ impl Render for DiscussionsView {
             {
                 let mut folds = folds.borrow_mut();
                 match fold {
-                    Fold::Resolved => folds.resolved = !folds.resolved,
+                    Fold::Tab(tab) => folds.tab = tab,
                     Fold::General(id) => {
                         if !folds.general.remove(&id) {
                             folds.general.insert(id);
@@ -322,19 +469,8 @@ impl Requests {
             // Faded while a change to it waits on the host (#139).
             let waits = self.thread_waits(&t.id).is_some()
                 || t.notes.iter().any(|n| self.note_time(n.id, n.created).1);
-            let tone = if t.resolved {
-                theme::faint()
-            } else {
-                theme::warning()
-            };
             let waiting = waiting_on(t, me);
             let id = t.id.clone();
-            // Read whole, the row is its heading: who began it; the notes follow in full.
-            let line = if whole {
-                String::new()
-            } else {
-                format!("{}: {}", first.author, one_line(&first.body, look.rich))
-            };
             // At the first line's end (Design D2): how many notes, and whose turn as a glyph, its words the tooltip.
             let mut end: Vec<AnyElement> = Vec::new();
             if t.notes.len() > 1 {
@@ -380,16 +516,44 @@ impl Requests {
                         .into_any_element(),
                 );
             }
-            let item = comment_item_glyph(
+            // Its card (the owner, 2026-11-26): who began it and their words, `N more` between, the last word; read
+            // whole (a general one opened), every note.
+            let note = |k: usize, n: &artoo_hosts_api::Note, lines: usize| {
+                card_note(
+                    ("comment-mr-note", ix * 1000 + k),
+                    &n.author,
+                    me.is_some_and(|m| m == n.login),
+                    artoo_ui_kit::format::short_ago(n.created),
+                    one_line(&n.body, look.rich),
+                    lines,
+                )
+            };
+            let last = t.notes.len() - 1;
+            let shown: Vec<gpui::Div> = if whole {
+                (t.notes.iter().enumerate())
+                    .map(|(k, n)| note(k, n, 40))
+                    .collect()
+            } else {
+                let more = (last > 1).then(|| {
+                    div()
+                        .flex()
+                        .justify_center()
+                        .text_size(px(11.))
+                        .text_color(theme::faint())
+                        .child(format!("{} more", last - 1))
+                });
+                std::iter::once(note(0, first, 4))
+                    .chain(more)
+                    .chain((last > 0).then(|| note(last, &t.notes[last], 3)))
+                    .collect()
+            };
+            let item = card(
                 ("comment-mr", ix),
-                tone,
-                Some(if general { "message" } else { "file" }),
-                where_,
-                line,
-                end,
                 false,
+                shown,
+                card_foot(general, where_, end),
             )
-            .when(whole, |s| s.bg(theme::selected()))
+            .when(whole, |s| s.border_color(theme::focus()))
             .when(waits, |s| s.opacity(FADED))
             .on_click({
                 let (acts, on_fold) = (acts.clone(), on_fold.clone());
@@ -404,47 +568,8 @@ impl Requests {
             if !whole {
                 return item.into_any_element();
             }
-            // A general discussion read whole: every note with its avatar and short time, then a Reply field with
-            // Resolve, or its composer (#199, Design D2).
-            let note_row = |n: &artoo_hosts_api::Note, ix2: usize| {
-                div()
-                    .id(("general-note", ix * 1000 + ix2))
-                    .px(px(14.))
-                    .py(px(4.))
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .child(artoo_ui_kit::discussion::avatar(&n.author, false, 18.))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .text_size(px(12.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(theme::text())
-                                    .child(n.author.clone()),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(theme::faint())
-                                    .child(artoo_ui_kit::format::short_ago(n.created)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .pl(px(26.))
-                            .text_size(px(12.))
-                            .text_color(theme::muted())
-                            .child(n.body.trim().to_owned()),
-                    )
-            };
-            let notes = t.notes.iter().enumerate().map(|(i, n)| note_row(n, i));
+            // A general discussion read whole: its card holds every note, a Reply field with Resolve under it, or its
+            // composer (#199, Design D2).
             let replying = reply_box.as_ref().is_some_and(|(r, _)| *r == ix);
             let composer = replying.then(|| reply_box.take().map(|(_, e)| e)).flatten();
             let buttons = (!replying).then(|| {
@@ -490,28 +615,29 @@ impl Requests {
                 .flex_col()
                 .pb(px(4.))
                 .child(item)
-                .children(notes)
                 .children(buttons)
                 .children(composer.map(|c| div().px(px(8.)).py(px(4.)).child(c)))
                 .into_any_element()
         };
         let open_items: Vec<AnyElement> = open.iter().map(|(ix, t)| row(*ix, t)).collect();
-        let resolved_items: Vec<AnyElement> = if folds.resolved {
-            resolved.iter().map(|(ix, t)| row(*ix, t)).collect()
-        } else {
-            Vec::new()
-        };
+        let resolved_items: Vec<AnyElement> = resolved.iter().map(|(ix, t)| row(*ix, t)).collect();
         let draft_items = drafts.iter().enumerate().map(|(ix, d)| {
             let (where_, target, old) = self.draft_where(d);
             let id = d.id;
-            comment_item_glyph(
+            let words = draft_line(d, look.rich, look.agents.get(&d.id).map(String::as_str));
+            let general = target.is_none();
+            card(
                 ("comment-draft", ix),
-                theme::warning(),
-                Some("file"),
-                where_,
-                draft_line(d, look.rich, look.agents.get(&d.id).map(String::as_str)),
-                Vec::new(),
                 true,
+                vec![card_note(
+                    ("comment-draft-note", ix),
+                    me.unwrap_or("You"),
+                    true,
+                    String::new(),
+                    words,
+                    4,
+                )],
+                card_foot(general, where_, Vec::new()),
             )
             .relative()
             .group("pending-row")
@@ -610,7 +736,15 @@ impl Requests {
                     .into_any_element(),
             ),
         };
-        let resolved_count = resolved.len();
+        let (resolved_count, open_count) = (resolved.len(), open.len());
+        let empty = |words: &'static str| {
+            div()
+                .px(px(14.))
+                .py(px(10.))
+                .text_size(px(12.))
+                .text_color(theme::muted())
+                .child(words)
+        };
         DiscussionsWindow {
             body: div()
                 .id("comments-list")
@@ -618,44 +752,28 @@ impl Requests {
                 .min_h_0()
                 .overflow_y_scroll()
                 .py(px(6.))
-                .children((pending > 0).then(|| heading("Pending", pending, None)))
-                .children(draft_items)
-                .children(open_items)
-                .children((resolved_count > 0).then(|| {
-                    let on_fold = on_fold.clone();
-                    div()
-                        .id("resolved-fold")
-                        .cursor_pointer()
-                        .child(heading(
-                            "Resolved",
-                            resolved_count,
-                            Some(if folds.resolved {
-                                "chevron-down"
-                            } else {
-                                "chevron-right"
-                            }),
-                        ))
-                        .on_click(move |_: &ClickEvent, _, cx| on_fold(Fold::Resolved, cx))
-                }))
-                .children(resolved_items)
-                .children((!old.is_empty()).then(|| {
-                    div()
-                        .px(px(14.))
-                        .pt(px(14.))
-                        .pb(px(2.))
-                        .text_size(px(12.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::text())
-                        .child("Outdated")
-                        .child(
-                            div()
-                                .text_size(px(11.))
-                                .font_weight(FontWeight::NORMAL)
-                                .text_color(theme::faint())
-                                .child("by the version they were written on"),
-                        )
-                }))
-                .children(outdated_items)
+                // Open · Outdated · Resolved, as the design has them (the owner, 2026-11-26): the pending and the open
+                // under Open.
+                .children(
+                    (total > 0).then(|| {
+                        tabs(folds.tab, [open_count, old.len(), resolved_count], &on_fold)
+                    }),
+                )
+                .when(total > 0 && folds.tab == Tab::Open, |s| {
+                    s.children((pending > 0).then(|| heading("Pending", pending, None)))
+                        .children(draft_items)
+                        .children((open_count > 0).then(|| heading("Open", open_count, None)))
+                        .children(open_items)
+                        .children((pending == 0 && open_count == 0).then(|| empty("Nothing open")))
+                })
+                .when(total > 0 && folds.tab == Tab::Outdated, |s| {
+                    s.children(outdated_items)
+                        .children(old.is_empty().then(|| empty("Nothing outdated")))
+                })
+                .when(total > 0 && folds.tab == Tab::Resolved, |s| {
+                    s.children(resolved_items)
+                        .children((resolved_count == 0).then(|| empty("Nothing resolved")))
+                })
                 .children((total == 0 && self.reading).then(|| {
                     div()
                         .px(px(14.))
