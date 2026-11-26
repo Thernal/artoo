@@ -231,18 +231,24 @@ pub fn source_picker(
             .cursor_pointer()
             .when(n == pick.at, |s| s.bg(theme::hover()))
             .hover(|s| s.bg(theme::hover()))
+            // The source chosen is lit, not checked: no column of marks before the rows (the design).
+            .when(shown.source == id, |s| s.bg(theme::selected()))
             .when(id.is_some() && new == 0, |s| s.text_color(theme::muted()))
-            .child(
-                div()
+            .child(match id {
+                Some(_) => lead(Face::Mark(mark, name.clone()), None, 16.).into_any_element(),
+                None => div()
                     .flex_none()
-                    .w(px(14.))
-                    .children((shown.source == id).then(|| {
-                        icons::icon("check")
-                            .size(px(13.))
-                            .text_color(theme::accent())
-                    })),
-            )
-            .children(id.map(|_| lead(Face::Mark(mark, name.clone()), None, 16.)))
+                    .size(px(16.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .child(
+                        icons::icon("inbox")
+                            .size(px(14.))
+                            .text_color(theme::muted()),
+                    )
+                    .into_any_element(),
+            })
             .child(div().flex_1().min_w_0().cut_in_tip().child(name))
             .children((new > 0).then(|| {
                 div()
@@ -695,15 +701,14 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         cut.push((Some(gist_cut.clone()), gist.clone().into()));
     }
     cut.push((None, tip.into()));
+    // The list's whole width, lit edge to edge as the design's rows are; its words where they stood.
     div()
         .id(id)
-        .mx(px(6.))
-        .px(px(10.))
+        .px(px(16.))
         .py(px(10.))
         .flex()
         .items_start()
         .gap(px(10.))
-        .rounded(px(ROW_RADIUS))
         .cursor_pointer()
         .when(on, |s| s.bg(theme::selected()))
         .hover(|s| s.bg(theme::hover()))

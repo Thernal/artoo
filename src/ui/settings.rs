@@ -1415,8 +1415,7 @@ impl Workspace {
             let keys = e.keys.iter().map(|k| {
                 div()
                     .id(gpui::SharedString::from(format!("key-{name}-{k}")))
-                    .p(px(2.))
-                    .child(keys::caps_shown(&keymap::symbols(k), On::Plain))
+                    .child(keys::cap_one(&keymap::symbols(k)))
             });
             let group = gpui::SharedString::from(format!("key-row-{name}"));
             let picked = sel == Some(name);
@@ -1426,7 +1425,7 @@ impl Workspace {
                 .flex()
                 .items_center()
                 .gap_3()
-                .min_h(px(36.))
+                .min_h(px(32.))
                 .px(px(10.))
                 .rounded(px(6.))
                 .when(waiting, |s| s.border_1().border_color(theme::focus()))
@@ -1507,10 +1506,10 @@ impl Workspace {
                             )
                         }),
                 )
+                // Reset and Change after the keys, as narrow as they are: the keys stand near the row's end.
                 .child(
                     div()
                         .flex_none()
-                        .w(px(168.))
                         .flex()
                         .justify_end()
                         .gap(px(6.))

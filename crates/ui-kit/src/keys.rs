@@ -214,6 +214,31 @@ pub fn hint_row(row: Div) -> Div {
     }
 }
 
+/// A shortcut as one cap, its keys side by side in it (`⌘[`, `⇧⌘↵`): a list of shortcuts (Settings → Keyboard).
+pub fn cap_one(spec: &str) -> Div {
+    let shown = if platform::MAC {
+        split(spec).concat()
+    } else {
+        pc_split(spec).join("+")
+    };
+    div()
+        .flex_none()
+        .min_w(px(20.))
+        .h(px(20.))
+        .px(px(6.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.))
+        .border_1()
+        .border_color(theme::selected())
+        .bg(theme::panel())
+        .text_size(px(11.))
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(theme::muted())
+        .child(shown)
+}
+
 /// The keycaps of `spec`, always drawn where they stand: where the keys are what is said (Settings → Keyboard, the
 /// hint after the mouse, a command's key in ⌘K's list, a row of hints while ⌘ is held).
 pub fn caps_shown(spec: &str, on: On) -> Div {
