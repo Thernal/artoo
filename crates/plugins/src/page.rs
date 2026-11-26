@@ -1981,7 +1981,9 @@ fn bar(page: &Entity<Page>, cx: &mut App) -> BarParts {
                 on.clone().any(|s| matches!(s.found, Found::Failed(_))),
             )
         };
-        if !cx.global::<Market>().team.is_empty() {
+        // Always there (the owner, 2026-11-26): without a host of your team, its menu says GitHub is searched and offers
+        // to sign in to another host.
+        {
             actions.push(BarAction::new(
                 "plugins-sources",
                 div()
