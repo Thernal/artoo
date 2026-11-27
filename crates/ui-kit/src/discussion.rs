@@ -171,7 +171,7 @@ pub fn state(resolved: bool) -> Div {
         })
 }
 
-/// A round avatar with the name's first letter, coloured by the name.
+/// A round avatar with the name's first letter in the name's colour, on its tint (`monogram::tint`).
 pub fn avatar(name: &str, me: bool, size: f32) -> Div {
     // Their picture once it is in (#89).
     if let Some(picture) = crate::people::picture(name) {
@@ -205,10 +205,10 @@ pub fn avatar(name: &str, me: bool, size: f32) -> Div {
         .items_center()
         .justify_center()
         .rounded_full()
-        .bg(color)
+        .bg(crate::monogram::tint(color))
         .text_size(px((size * 0.42).round()))
         .font_weight(FontWeight::BOLD)
-        .text_color(theme::base())
+        .text_color(color)
         .child(letter)
 }
 

@@ -56,18 +56,6 @@ pub fn next_message(
     })
 }
 
-/// The composer's Send: `text` kept as the reviewer's message to `session`, alone — the drafts stay in
-/// Drafts. Whether there was anything to send.
-pub fn send_message(root: &Path, session: &str, text: &str, at: i64) -> bool {
-    let mut kept = load_messages(root);
-    let Some(message) = next_message(&kept, session, text, at) else {
-        return false;
-    };
-    kept.push(message);
-    save_messages(root, &kept);
-    true
-}
-
 /// Send all's message: `text` to go with `carried`, the comments sent together with it, kept as the reviewer's
 /// message to `session`. Blank words keep no message, the comments go as they are.
 pub fn send_all_message(root: &Path, session: &str, text: &str, carried: &[u64], at: i64) -> bool {

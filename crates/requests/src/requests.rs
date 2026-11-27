@@ -160,6 +160,8 @@ pub struct Requests {
     pub files: Option<(u64, usize)>,
     /// Discussions written on an earlier version: what became of their line, by thread id (#46).
     pub histories: std::collections::HashMap<String, crate::outdated::LineHistory>,
+    /// The history notes whose code is folded, by the thread's id and the version (`thread:v3`, `thread:same`).
+    pub history_folded: std::collections::HashSet<String>,
     pub history_task: Option<Task<()>>,
     /// The reactions on its notes, by note id (#9).
     pub awards: crate::reactions::Awards,
@@ -362,6 +364,18 @@ pub(crate) fn acts(requests: &Entity<Requests>, tab: artoo_requests_api::TabActs
                     if !rq.page.folded.remove(&id) {
                         rq.page.folded.insert(id);
                     }
+                    cx.notify();
+                });
+            }
+        }
+        // A history note's code folded: the diff lays its rows out again (`Event::Histories`).
+        Act::FoldHistory(key) => {
+            if let Some(requests) = requests.upgrade() {
+                requests.update(cx, |rq, cx| {
+                    if !rq.history_folded.remove(&key) {
+                        rq.history_folded.insert(key);
+                    }
+                    cx.emit(Event::Histories);
                     cx.notify();
                 });
             }

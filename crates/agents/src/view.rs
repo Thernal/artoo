@@ -12,7 +12,7 @@ use gpui::{AnyElement, App, FontWeight, Rgba, div, prelude::*};
 /// What a note is drawn with and a click on it asks, the contract's.
 pub use artoo_agents_api::view::{NoteEvent, NoteLook, OnNote};
 
-/// A chat's mark: its letter on its hue, hollow when it is gone.
+/// A chat's mark: its letter in its hue on its tint (`monogram::tint`), hollow when it is gone.
 pub fn chat_badge(letter: char, hue: Rgba, gone: bool) -> gpui::Div {
     div()
         .flex_none()
@@ -25,8 +25,11 @@ pub fn chat_badge(letter: char, hue: Rgba, gone: bool) -> gpui::Div {
         .font_weight(FontWeight::BOLD)
         .border_1()
         .border_color(hue)
-        .when(!gone, |s| s.bg(hue).text_color(theme::base()))
-        .when(gone, |s| s.text_color(hue))
+        .text_color(hue)
+        .when(!gone, |s| {
+            s.bg(artoo_ui_kit::monogram::tint(hue))
+                .border_color(gpui::transparent_black())
+        })
         .child(letter.to_string())
 }
 

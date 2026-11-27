@@ -1,16 +1,17 @@
 //! The Agents tab (#76, #77, #94, #220): a tool window on the right in Code, Branches and Merge requests, in two
-//! levels as a messenger has them — this project's sessions, each with what it is doing in words, those waiting for
-//! you first; and one session's conversation, under a head with `‹` back to the list and the switch between the
-//! conversation and the drafts (#243: the comments written for the agent, not sent yet). Its level and the view are its own; what a click does to a comment is
-//! the tab's (`AgentsHost`).
+//! levels — this project's sessions, each with what it is doing in words, those waiting for you first, each row a way
+//! in (its chevron at the far end); and one session's discussions under a head with `‹` back to the list (the owner,
+//! 2026-11-27: no chat — each comment for the agent a discussion of its own, as a request's Discussions window draws
+//! them, `threads`): what needs you first, your drafts with a message to go with them and Send all at the foot. Its
+//! level and what is folded are its own; what a click does to a comment is the tab's (`AgentsHost`).
 
 use crate::agents::Chat;
 use crate::chats::Chats;
 use crate::comments::AgentComments;
 use crate::drafts as drafts_view;
-use crate::review::{self, Kind, kind_of};
+use crate::review::{self, Kind, State, kind_of};
 use crate::sessions::{self, Session};
-use crate::talk;
+use crate::threads::{self, Group, Own};
 use crate::view::chat_badge;
 use artoo_agents_api::view::WINDOW;
 /// What the window asks of the tab, the contract's.
@@ -38,38 +39,22 @@ enum Level {
     Chat(String),
 }
 
-/// What a conversation's body shows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum View {
-    Conversation,
-    Drafts,
-}
-
 /// The Agents tab.
 pub struct AgentsWindow {
     chats: Entity<Chats>,
     comments: Entity<AgentComments>,
     frame: Rc<dyn Frame>,
     level: Level,
-    view: View,
     /// The session picked in the list (↑ ↓, ↵ opens it).
     row: Option<String>,
-    /// The conversation's scroll: it opens at its end, where the newest message is.
-    scroll: gpui::ScrollHandle,
-    /// How many blocks it showed last, so a new one scrolls it to the end.
-    shown: Cell<usize>,
-    /// The message being written to the open session, and its field's caret and layout.
-    draft: String,
-    area: Area,
+    /// The groups of a session's discussions whose fold was flipped (Done starts folded, the rest open).
+    flipped: std::collections::HashSet<Group>,
     /// The message to go with the drafts, and its field.
     note: String,
     note_area: Area,
-    /// Whether the composer takes typed keys: a conversation is open on its Conversation view.
+    /// Whether the field at the foot takes typed keys: a session is open with drafts to send.
     typing: Rc<Cell<bool>>,
-    /// The Drafts rows whose place is open.
-    peeked: std::collections::HashSet<u64>,
-    /// A snapshot run's first act (`ARTOO_SNAPSHOT_AGENTS`: `drafts`, `send-all`, `peek`, `jump`),
-    /// done once.
+    /// A snapshot run's first act (`ARTOO_SNAPSHOT_AGENTS`: `send-all`, `jump`), done once.
     snapshot: Cell<Option<&'static str>>,
 }
 
@@ -109,9 +94,7 @@ fn snapshot_act() -> Option<&'static str> {
         return None;
     }
     match std::env::var("ARTOO_SNAPSHOT_AGENTS").ok()?.as_str() {
-        "drafts" => Some("drafts"),
         "send-all" => Some("send-all"),
-        "peek" => Some("peek"),
         "jump" => Some("jump"),
         _ => None,
     }
@@ -132,16 +115,11 @@ pub fn tool(
             comments: comments.clone(),
             frame,
             level: Level::Auto,
-            view: View::Conversation,
             row: None,
-            scroll: gpui::ScrollHandle::new(),
-            shown: Cell::new(0),
-            draft: String::new(),
-            area: Area::default(),
+            flipped: Default::default(),
             note: String::new(),
             note_area: Area::default(),
             typing: Rc::new(Cell::new(false)),
-            peeked: Default::default(),
             snapshot: Cell::new(snapshot_act()),
         }
     });
@@ -420,6 +398,13 @@ impl AgentsWindow {
                             .child(hover::cut(("session-line", ix), s.line())),
                     ),
             )
+            // A way in: its chevron at the far end (the owner, 2026-11-27).
+            .child(
+                icons::icon("chevron-right")
+                    .flex_none()
+                    .size(px(14.))
+                    .text_color(theme::faint()),
+            )
             .into_any_element()
     }
 
@@ -497,22 +482,16 @@ impl AgentsWindow {
             .into_any_element()
     }
 
-    /// A session's conversation: its head, the switch, and (until the conversation is drawn) a placeholder.
-    fn conversation(
+    /// A session: its head, then its discussions (`threads`) — what needs you first —, and while there are drafts the
+    /// field for a message to go with them and Send all at the foot, as a request's Discussions window has Submit
+    /// review (the owner, 2026-11-27: no chat).
+    fn session_view(
         &self,
         s: &Session,
         total: usize,
         others_wait: usize,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let drafts = sessions::drafts(&self.comments.read(cx).list, &s.chat);
-        let chats = self.chats.read(cx);
-        let talk = artoo_agents_api::conversation::conversation(
-            &self.comments.read(cx).list,
-            &chats.messages,
-            &chats.spoken,
-            &s.chat.session,
-        );
         let back_tip: gpui::SharedString = if others_wait > 0 {
             format!("This project's sessions \u{b7} {total} \u{b7} {others_wait} wait for you")
         } else {
@@ -558,6 +537,8 @@ impl AgentsWindow {
             .flex()
             .items_center()
             .gap(px(8.))
+            .border_b_1()
+            .border_color(theme::island_border())
             .child(back)
             .child(self.avatar(&s.chat, s.ended(), 28., cx))
             .child(
@@ -583,151 +564,148 @@ impl AgentsWindow {
                             .child(s.head_line()),
                     ),
             );
-        // No Conversation | Drafts switch (the owner, 2026-11-27): `Drafts 5 ›` over the composer opens them, and
-        // `‹ Conversation` in its place over theirs goes back.
-        let body = match self.view {
-            View::Conversation => self.talk(s, &talk, cx),
-            View::Drafts => self.drafts(s, cx),
+        let chats = self.chats.read(cx);
+        let listening = chats.listening();
+        let mark = chats.mark(&s.chat.session);
+        let comments = self.comments.read(cx).list.clone();
+        let groups = threads::grouped(&comments, &s.chat, &|x: &str| listening.contains(x));
+        let drafts = groups
+            .iter()
+            .find(|(g, _)| *g == Group::Drafts)
+            .map_or(0, |(_, l)| l.len());
+        let host = self.host();
+        let this = cx.entity().downgrade();
+        let (fold_this, own_this) = (this.clone(), this);
+        let look = Rc::new(threads::Look {
+            agent: s.chat.agent.clone(),
+            mark,
+            rich: host.as_ref().is_none_or(|h| h.rich(cx)),
+            host,
+            folder: s.chat.repo.clone(),
+            session: s.chat.session.clone(),
+            title: s.chat.title.clone(),
+            folded: [
+                Group::NeedsYou,
+                Group::Drafts,
+                Group::WithAgent,
+                Group::Done,
+            ]
+            .into_iter()
+            .filter(|g| self.flipped.contains(g) != (*g == Group::Done))
+            .collect(),
+            fold: Rc::new(move |group, cx| {
+                fold_this
+                    .update(cx, |w, cx| {
+                        if !w.flipped.remove(&group) {
+                            w.flipped.insert(group);
+                        }
+                        cx.notify();
+                    })
+                    .ok();
+            }),
+            own: Rc::new(move |own, cx| {
+                own_this.update(cx, |w, cx| w.own(own, cx)).ok();
+            }),
+        });
+        let body = if groups.is_empty() {
+            div()
+                .flex_1()
+                .min_h_0()
+                .flex()
+                .flex_col()
+                .items_center()
+                .justify_center()
+                .gap(px(4.))
+                .px(px(24.))
+                .text_center()
+                .child(
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Nothing between you yet"),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(theme::muted())
+                        .child(format!(
+                            "A comment you write for {} on a line comes here; so does each thing it asks you.",
+                            s.chat.agent.trim_end_matches(" Code")
+                        )),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .id("agents-threads")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .pt(px(4.))
+                .pb(px(8.))
+                .flex()
+                .flex_col()
+                .children(threads::view(&groups, &look, cx))
+                .into_any_element()
         };
-        let conversation = self.view == View::Conversation;
+        let foot = (drafts > 0).then(|| {
+            let all = discussion::button(
+                "agents-send-all",
+                format!("Send all · {drafts}"),
+                None,
+                Button::Primary(mark.1),
+            )
+            .h(px(28.))
+            .px(px(10.))
+            .tooltip_show_delay(hover::LONG)
+            .tooltip(move |_, cx| {
+                cx.new(|_| {
+                    hover::TipOwned(
+                        format!("{}  \u{21b5}", drafts_view::send_all_tip(drafts)).into(),
+                    )
+                })
+                .into()
+            })
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send_all(cx)));
+            div()
+                .flex_none()
+                .border_t_1()
+                .border_color(theme::island_border())
+                .pt(px(4.))
+                .child(field_row(
+                    self.note_area.field_of(
+                        &self.note,
+                        true,
+                        "A message to go with them\u{2026}",
+                        true,
+                        |w: &mut AgentsWindow| Some(&mut w.note_area),
+                        cx.entity().downgrade(),
+                    ),
+                    all,
+                ))
+        });
         div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
             .child(head)
-            .child(div().flex_1().min_h_0().flex().flex_col().child(body))
-            .children(
-                (conversation && drafts > 0).then(|| self.view_link(View::Drafts, drafts, cx)),
-            )
-            .children(conversation.then(|| self.composer(&s.chat, cx)))
+            .child(body)
+            .children(foot)
             .into_any_element()
     }
 
-    /// The way between the conversation and its drafts, over the composer: `Drafts 5 ›`, or `‹ Conversation` back.
-    fn view_link(&self, to: View, drafts: usize, cx: &mut Context<Self>) -> AnyElement {
-        let to_drafts = to == View::Drafts;
-        let tip: gpui::SharedString = if to_drafts {
-            "Your drafts: comments you wrote for Claude on lines, to send".into()
-        } else {
-            "Back to your conversation with Claude".into()
-        };
-        let chevron =
-            |name: &'static str| icons::icon(name).size(px(14.)).text_color(theme::faint());
-        div()
-            .flex_none()
-            .px(px(10.))
-            .pt(px(4.))
-            .flex()
-            .child(
-                div()
-                    .id(if to_drafts {
-                        "agents-to-drafts"
-                    } else {
-                        "agents-to-talk"
-                    })
-                    .h(px(24.))
-                    .px(px(12.))
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .rounded(px(ROW_RADIUS))
-                    .text_size(px(12.))
-                    .text_color(theme::muted())
-                    .cursor_pointer()
-                    .hover(|d| d.bg(theme::hover()).text_color(theme::text()))
-                    .tooltip_show_delay(hover::LONG)
-                    .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(tip.clone())).into())
-                    .children((!to_drafts).then(|| chevron("chevron-left")))
-                    .child(if to_drafts { "Drafts" } else { "Conversation" })
-                    .children(to_drafts.then(|| {
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child(drafts.to_string())
-                    }))
-                    .children(to_drafts.then(|| chevron("chevron-right")))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.view = to;
-                        cx.notify();
-                    })),
-            )
-            .into_any_element()
-    }
-
-    /// The Drafts view: the comments in the order written, under them the message to go with them and Send all.
-    fn drafts(&self, s: &Session, cx: &mut Context<Self>) -> AnyElement {
-        let comments: Vec<_> = sessions::drafts_of(&self.comments.read(cx).list, &s.chat)
-            .into_iter()
-            .cloned()
-            .collect();
-        let host = self.host();
-        let n = comments.len();
-        let this = cx.entity().downgrade();
-        let to = drafts_view::To {
-            peeked: self.peeked.clone(),
-            peek: Rc::new(move |id, cx| {
-                this.update(cx, |t, cx| {
-                    if !t.peeked.remove(&id) {
-                        t.peeked.insert(id);
-                    }
-                    cx.notify();
-                })
-                .ok();
-            }),
-            session: s.chat.session.clone(),
-            title: s.chat.title.clone(),
-            folder: s.chat.repo.clone(),
-            rich: host.as_ref().is_none_or(|h| h.rich(cx)),
-            host,
-        };
-        let rows = drafts_view::view(&comments, &to, cx);
-        let tone = self.chats.read(cx).mark(&s.chat.session).1;
-        let all = discussion::button("agents-send-all", "Send all", None, Button::Primary(tone))
-            .h(px(28.))
-            .px(px(10.))
-            .tooltip_show_delay(hover::LONG)
-            .tooltip(move |_, cx| {
-                cx.new(|_| {
-                    hover::TipOwned(format!("{}  \u{21b5}", drafts_view::send_all_tip(n)).into())
-                })
-                .into()
-            })
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send_all(cx)));
-        let field = field_row(
-            self.note_area.field_of(
-                &self.note,
-                true,
-                "A message to go with them\u{2026}",
-                true,
-                |w: &mut AgentsWindow| Some(&mut w.note_area),
-                cx.entity().downgrade(),
-            ),
-            all,
-        );
-        div()
-            .flex_1()
-            .min_h_0()
-            .flex()
-            .flex_col()
-            .child(
-                div()
-                    .id("agents-drafts")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .py(px(6.))
-                    .flex()
-                    .flex_col()
-                    .children(rows),
-            )
-            .child(self.view_link(View::Conversation, n, cx))
-            .children((n > 0).then_some(field))
-            .into_any_element()
+    /// What the window does to a comment itself: closed, opened again as a draft, taken back from a chat that has
+    /// not taken it.
+    fn own(&mut self, own: Own, cx: &mut Context<Self>) {
+        crate::comments::change(&self.comments, cx, |c| match own {
+            Own::Close(id) => c.change(id, |c| c.state = State::Resolved),
+            Own::Reopen(id) => c.change(id, |c| c.state = State::Draft),
+            Own::TakeBack(id) => c.withdraw(id),
+        });
+        cx.notify();
     }
 
     /// Send all: your message first when there is one, then each comment as a message of its own, to the open
-    /// session; the tab then shows the conversation.
+    /// session.
     fn send_all(&mut self, cx: &mut Context<Self>) {
         let list = self.sessions(cx);
         let Some(chat) = self.open_session(&list).map(|s| s.chat.clone()) else {
@@ -754,143 +732,44 @@ impl AgentsWindow {
         );
         self.note.clear();
         self.note_area = Area::default();
-        self.view = View::Conversation;
         self.refresh_chats(cx);
         cx.notify();
     }
 
-    /// The session a message written now goes to: the open conversation's.
-    fn writing_to(&self, cx: &App) -> Option<Chat> {
-        let list = self.sessions(cx);
-        self.open_session(&list).map(|s| s.chat.clone())
-    }
-
-    /// A typed key while the tab has the keyboard: the open view's field. ↵ sends it (Send on the conversation,
-    /// Send all on Drafts), ⇧↵ breaks the line.
+    /// A typed key while the tab has the keyboard: the message to go with the drafts. ↵ sends them all, ⇧↵ breaks
+    /// the line.
     fn key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let key = &event.keystroke;
-        if self.writing_to(cx).is_none() {
+        if !self.typing.get() {
             return;
         }
-        let drafts = self.view == View::Drafts;
-        let (text, area) = if drafts {
-            (&mut self.note, &mut self.note_area)
-        } else {
-            (&mut self.draft, &mut self.area)
-        };
         if key.key == "enter" {
             if key.modifiers.shift {
-                input::sync(text, &mut area.edit);
-                area.edit.insert("\n");
-                *text = area.edit.text().to_owned();
+                input::sync(&self.note, &mut self.note_area.edit);
+                self.note_area.edit.insert("\n");
+                self.note = self.note_area.edit.text().to_owned();
                 return cx.notify();
             }
-            return if drafts {
-                self.send_all(cx)
-            } else {
-                self.send_message(cx)
-            };
+            return self.send_all(cx);
         }
-        input::edit_area(text, &mut area.edit, key, cx);
+        input::edit_area(&mut self.note, &mut self.note_area.edit, key, cx);
         cx.notify();
-    }
-
-    /// Send: the message alone to the open session; the drafts stay in Drafts.
-    fn send_message(&mut self, cx: &mut Context<Self>) {
-        let (Some(chat), Some(main)) = (self.writing_to(cx), self.main(cx)) else {
-            return;
-        };
-        if review::send_message(&main, &chat.session, &self.draft, format::now()) {
-            self.draft.clear();
-            self.area = Area::default();
-            self.refresh_chats(cx);
-        }
-        cx.notify();
-    }
-
-    /// The composer under the conversation: `Message Claude…` and Send.
-    fn composer(&self, chat: &Chat, cx: &mut Context<Self>) -> AnyElement {
-        let name = chat.agent.split_whitespace().next().unwrap_or("your agent");
-        let ready = !self.draft.trim().is_empty();
-        let send = discussion::button("agents-send", "Send", None, Button::Plain)
-            .h(px(28.))
-            .px(px(10.))
-            .when(!ready, |s| s.opacity(0.5).cursor_default())
-            .tooltip_show_delay(hover::LONG)
-            .tooltip(|_, cx| {
-                cx.new(|_| {
-                    hover::TipOwned(
-                        "Send your message to Claude; your drafts stay in Drafts  \u{21b5}".into(),
-                    )
-                })
-                .into()
-            })
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.send_message(cx)));
-        let field = self.area.field_of(
-            &self.draft,
-            true,
-            &format!("Message {name}…"),
-            true,
-            |w: &mut AgentsWindow| Some(&mut w.area),
-            cx.entity().downgrade(),
-        );
-        field_row(field, send).into_any_element()
-    }
-
-    /// The conversation: its blocks in a scrolling column, the newest at the foot.
-    fn talk(
-        &self,
-        s: &Session,
-        talk: &[artoo_agents_api::conversation::Entry],
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let comments = self.comments.read(cx).list.clone();
-        let working = artoo_agents_api::conversation::working_on(&comments, &s.chat.session);
-        let blocks = talk::blocks(talk, &comments, &working, format::now());
-        let host = self.host();
-        let look = talk::Look {
-            name: s.chat.agent.clone(),
-            mark: self.chats.read(cx).mark(&s.chat.session),
-            rich: host.as_ref().is_none_or(|h| h.rich(cx)),
-            host,
-            folder: s.chat.repo.clone(),
-        };
-        let items = talk::view(&blocks, &comments, &look, cx);
-        // A new block takes the view to the end, as a messenger does.
-        if blocks.len() != self.shown.replace(blocks.len()) {
-            let scroll = self.scroll.clone();
-            cx.defer(move |_| scroll.scroll_to_bottom());
-        }
-        div()
-            .id("agents-talk")
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .track_scroll(&self.scroll)
-            .px(px(14.))
-            .py(px(12.))
-            .flex()
-            .flex_col()
-            .gap(px(20.))
-            .children(items)
-            .into_any_element()
     }
 }
 
 impl Render for AgentsWindow {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let list = self.sessions(cx);
-        self.typing.set(self.open_session(&list).is_some());
+        let drafts = (self.open_session(&list)).map_or(0, |s| {
+            sessions::drafts(&self.comments.read(cx).list, &s.chat)
+        });
+        self.typing.set(drafts > 0);
         if let Some(open_chat) = self.open_session(&list).map(|s| s.chat.clone())
             && let Some(act) = self.snapshot.take()
         {
-            self.view = View::Drafts;
             let first = sessions::drafts_of(&self.comments.read(cx).list, &open_chat)
                 .first()
                 .map(|c| c.id);
-            if act == "peek" {
-                self.peeked.extend(first);
-            }
             if act == "jump"
                 && let (Some(host), Some(id)) = (self.host(), first)
             {
@@ -910,7 +789,7 @@ impl Render for AgentsWindow {
                 .iter()
                 .filter(|s| s.waits() && s.chat.session != open.chat.session)
                 .count();
-            self.conversation(open, list.len(), others, cx)
+            self.session_view(open, list.len(), others, cx)
         } else {
             self.list(&list, cx)
         };

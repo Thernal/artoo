@@ -1374,7 +1374,7 @@ pub(super) fn acts_of(this: WeakEntity<Workspace>) -> Acts {
             Act::EditDescription => this.start_description_edit(cx),
             Act::StateMenu(at) => this.state_menu(at, cx),
             // The requests' own: answered before the tab is asked.
-            Act::FoldCard(_) => {}
+            Act::FoldCard(_) | Act::FoldHistory(_) => {}
             Act::CompareSince(ix) => this.compare_since(ix, cx),
             Act::JumpToLine { path, line, old } => this.jump_to_line(&path, line, old, cx),
             Act::StepThread { down } => this.step_thread(down, cx),

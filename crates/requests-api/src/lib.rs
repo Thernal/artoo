@@ -341,6 +341,9 @@ pub enum Act {
     },
     /// Outdated discussion `ix`'s version compared with the latest.
     CompareSince(usize),
+    /// A note of what became of a discussion's line folded, or opened again: `0` names it (the thread's id and the
+    /// version), the requests' own.
+    FoldHistory(String),
     /// Discussion `ix` shown where it is: Changes at its line with it open, or the version it was written on when
     /// its line is not in the diff shown (#242).
     ShowThread(usize),

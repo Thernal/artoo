@@ -17,7 +17,7 @@ use gpui::{AnyElement, App, ClickEvent, Entity, FontWeight, SharedString, div, p
 pub use artoo_requests_api::{DraftEvent, DraftLook, OnDraft, OnThread, ThreadEvent, ThreadLook};
 
 /// Where an open discussion's notes start, right of the fold chevron.
-const GUTTER: f32 = 20.;
+pub(crate) const GUTTER: f32 = 20.;
 /// Where the notes' text starts: the gutter, the avatar and the gap after it.
 const TEXT_COLUMN: f32 = GUTTER + 40.;
 

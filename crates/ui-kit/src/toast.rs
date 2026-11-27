@@ -647,7 +647,7 @@ fn mark_slot(words: &Words, tone: Tone) -> gpui::Div {
         .items_center()
         .justify_center()
         .rounded(px(6.))
-        .bg(Rgba { a: 0.22, ..ink })
+        .bg(crate::monogram::tint(ink))
         .text_color(ink)
         .text_size(px(12.))
         .font_weight(gpui::FontWeight::SEMIBOLD);

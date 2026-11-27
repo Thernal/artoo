@@ -342,10 +342,7 @@ impl Workspace {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .bg(gpui::Rgba {
-                        a: 0.18,
-                        ..theme::agent()
-                    })
+                    .bg(artoo_ui_kit::monogram::tint(theme::agent()))
                     .child(
                         super::icons::icon("bot")
                             .size(px(13.))

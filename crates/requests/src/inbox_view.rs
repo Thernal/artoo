@@ -596,7 +596,7 @@ pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
             .items_center()
             .justify_center()
             .rounded_full()
-            .bg(gpui::Rgba { a: 0.22, ..color })
+            .bg(monogram::tint(color))
             .child(icons::icon(name).size(px(12.)).text_color(color)),
         Face::Mark(_, name, Some(icon)) => {
             let hue = monogram::hue(&name);
@@ -607,12 +607,8 @@ pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
                 .items_center()
                 .justify_center()
                 .rounded_full()
-                .bg(gpui::Rgba { a: 0.3, ..hue })
-                .child(
-                    icons::icon(icon)
-                        .size(px(size_px * 0.6))
-                        .text_color(theme::text()),
-                )
+                .bg(monogram::tint(hue))
+                .child(icons::icon(icon).size(px(size_px * 0.6)).text_color(hue))
         }
         Face::Mark(mark, name, None) => {
             let hue = monogram::hue(&name);
@@ -623,8 +619,8 @@ pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
                 .items_center()
                 .justify_center()
                 .rounded_full()
-                .bg(gpui::Rgba { a: 0.3, ..hue })
-                .text_color(theme::text())
+                .bg(monogram::tint(hue))
+                .text_color(hue)
                 .text_size(px(if mark.chars().count() > 1 { 8. } else { 10. }))
                 .font_weight(FontWeight::BOLD)
                 .child(mark)

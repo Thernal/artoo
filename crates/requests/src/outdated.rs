@@ -2,6 +2,7 @@
 //! background, and the comparison opened from one to step through them, its bar over the diff (`since_piece`).
 
 use crate::requests::{Act, Acts, Event, Requests};
+use crate::thread::GUTTER;
 use artoo_core::git::{Fate, Repo};
 use artoo_core::route::Place;
 use artoo_core::worddiff::{self, Piece};
@@ -11,9 +12,10 @@ use artoo_review_api::Review;
 use artoo_review_api::diff::Header;
 use artoo_shell_api::{Services, Slot};
 use artoo_ui_kit::controls::{chip, group};
+use artoo_ui_kit::hover::Hover as _;
 use artoo_ui_kit::{discussion, hover, px, theme};
 use gpui::{
-    AnyElement, ClickEvent, Context, Entity, HighlightStyle, StrikethroughStyle, StyledText, div,
+    AnyElement, ClickEvent, Context, Entity, HighlightStyle, SharedString, StyledText, div,
     prelude::*,
 };
 use std::collections::HashMap;
@@ -259,37 +261,34 @@ impl Requests {
         !me.is_empty() && t.notes.first().is_some_and(|n| n.login == me)
     }
 
-    /// "Changed since your comment" (or this comment, another's), or not, for thread `ix`; None
-    /// while it is not known.
+    /// What became of thread `ix`'s line, as the Outdated list says it under the comment: `No changes since v1`,
+    /// `Changed since v1`, `Line removed since v1`; None while it is not known.
     pub fn since_comment(&self, ix: usize) -> Option<String> {
         let t = self.threads.get(ix)?;
         let h = self.histories.get(&t.id)?;
-        let whose = if self.yours(t) {
-            "your comment"
-        } else {
-            "this comment"
-        };
+        let since = h.written;
         Some(match (h.changed(), h.line_now) {
-            (_, None) => format!("Line removed since {whose}"),
-            (true, _) => format!("Changed since {whose}"),
-            (false, _) => format!("Unchanged since {whose}"),
+            (_, None) => format!("Line removed since v{since}"),
+            (true, _) => format!("Changed since v{since}"),
+            (false, _) => format!("No changes since v{since}"),
         })
     }
 
     /// The button that compares thread `ix`'s version with the latest (`latest`, the timeline's
-    /// last): "Compare v1 → v3".
+    /// last): "Compare v1 → v3"; none while they are one version.
     pub fn compare_label(&self, ix: usize, latest: Option<usize>) -> Option<String> {
         let t = self.threads.get(ix)?;
         let written = self.histories.get(&t.id)?.written;
-        let latest = latest?;
+        let latest = latest.filter(|l| *l > written)?;
         Some(format!("Compare v{written} → v{latest}"))
     }
 
     /// What became of an outdated discussion's line, as notes of its thread after its own (the owner, 2026-11-27: a
-    /// comment saying what the code became, not a box over it): one for each version that changed the line — who, in
-    /// which version and commit, the line then with the words that changed marked — or one saying it is unchanged
-    /// since the comment. The last has Compare with the new version (`latest`, the timeline's last), which asks the
-    /// tab, and ends the thread's line.
+    /// comment saying what the code became, not a box over it), their faces on the thread's line: one for each version
+    /// that changed the line — who, in which version and commit, and the line before and after, the changed words
+    /// marked — or one under a plain heading saying it is unchanged, the line as it is now. Each note's code folds
+    /// with its chevron; the last has Compare with the new version (`latest`, the timeline's last), which asks the
+    /// tab, and ends the thread's line (the owner, 2026-11-27).
     pub fn render_history(&self, ix: usize, latest: Option<usize>, acts: Acts) -> Vec<AnyElement> {
         let Some(t) = self.threads.get(ix) else {
             return Vec::new();
@@ -297,100 +296,150 @@ impl Requests {
         let Some(h) = self.histories.get(&t.id).cloned() else {
             return Vec::new();
         };
-        // The line as it read, in the code's face: its plain text measured and its marked words shown, cut with an
-        // ellipsis, the whole line on a long hover (#184).
-        let code = |tag: &str, plain: String, shown: AnyElement, tint: gpui::Rgba| {
-            let id = gpui::SharedString::from(format!("outdated-{ix}-{tag}"));
+        let written = h.written;
+        // Compare, then the chevron that folds the note's code: at the end of its heading.
+        let compare = |acts: &Acts| {
+            self.compare_label(ix, latest).map(|label| {
+                let acts = acts.clone();
+                div()
+                    .id(("compare-since", ix))
+                    .px(px(8.))
+                    .h(px(22.))
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .rounded(px(6.))
+                    .border_1()
+                    .border_color(theme::island_border())
+                    .text_size(px(12.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::hover()))
+                    .child(
+                        artoo_ui_kit::icons::icon("git-compare")
+                            .size(px(12.))
+                            .text_color(theme::muted()),
+                    )
+                    .child(label)
+                    .on_click(move |_, _, cx| {
+                        cx.stop_propagation();
+                        acts(Act::CompareSince(ix), cx)
+                    })
+                    .into_any_element()
+            })
+        };
+        let fold = |key: &str, open: bool, acts: &Acts| {
+            let (acts, key) = (acts.clone(), key.to_owned());
             div()
-                .self_start()
-                .max_w_full()
-                .px(px(8.))
-                .py(px(2.))
-                .rounded(px(4.))
-                .bg(tint)
-                .font_family(theme::code_font())
-                .text_size(px(12.))
-                .text_color(theme::text())
-                .child(hover::cut_with(id, plain, shown))
+                .id(SharedString::from(format!("history-fold-{key}")))
+                .size(px(22.))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .child(discussion::fold_chevron(open))
+                .tip(if open {
+                    "Fold the code"
+                } else {
+                    "Show the code"
+                })
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    acts(Act::FoldHistory(key.clone()), cx)
+                })
                 .into_any_element()
         };
-        let whose = if self.yours(t) {
-            "your comment"
-        } else {
-            "this comment"
+        let end = |key: &str, open: bool, last: bool| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .children(if last { compare(&acts) } else { None })
+                .child(fold(key, open, &acts))
+                .into_any_element()
         };
-        let written = h.written;
+        // Each note on the thread's line: as far in as the notes over it, its face under theirs.
+        let on_line = |note: gpui::Div| div().pl(px(GUTTER)).child(note).into_any_element();
         if !h.changed() {
+            let key = format!("{}:same", t.id);
+            let open = !self.history_folded.contains(&key);
             let span = match latest {
                 Some(latest) if latest > written => format!("v{written} → v{latest}"),
                 _ => format!("written on v{written}"),
             };
-            return vec![
-                discussion::change_note(
-                    format!("outdated-{ix}-same"),
-                    format!("Unchanged since {whose}"),
-                    span,
-                    Some(code(
-                        "same",
-                        h.then.clone(),
-                        h.then.clone().into_any_element(),
-                        theme::hover(),
-                    )),
-                    true,
-                    None,
+            let now = h.line_now.or(t.new_line);
+            let line = h.then.trim_start().to_owned();
+            let body = open.then(|| {
+                code_block(
+                    &key,
+                    vec![CodeRow {
+                        number: now,
+                        sign: None,
+                        plain: line.clone(),
+                        shown: line.into_any_element(),
+                    }],
                 )
-                .into_any_element(),
-            ];
+            });
+            return vec![on_line(discussion::change_note(
+                format!("outdated-{ix}-same"),
+                "No changes to this line".to_owned(),
+                span,
+                body,
+                true,
+                Some(end(&key, open, true)),
+            ))];
         }
-        let compare = self.compare_label(ix, latest).map(|label| {
-            div()
-                .id(("compare-since", ix))
-                .px(px(8.))
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .rounded(px(6.))
-                .border_1()
-                .border_color(theme::island_border())
-                .text_size(px(12.))
-                .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
-                .child(label)
-                .on_click(move |_, _, cx| acts(Act::CompareSince(ix), cx))
-                .into_any_element()
-        });
-        let mut compare = compare;
         let last = h.steps.len() - 1;
-        let mut before = h.then.clone();
-        // Each version's line against the one before it, the changed words marked (#46 B).
+        let mut before = (h.then.clone(), t.new_line);
+        // Each version's line against the one before it: the old line and the new, the changed words marked (#46 B).
         h.steps
             .iter()
             .enumerate()
             .map(|(k, s)| {
                 let tag = format!("v{}", s.version);
-                let body = match &s.now {
+                let key = format!("{}:{tag}", t.id);
+                let open = !self.history_folded.contains(&key);
+                let (old, old_line) = before.clone();
+                let rows = match &s.now {
                     Some(now) => {
-                        let marked = word_line(&before, now);
-                        before = now.clone();
-                        code(&tag, now.clone(), marked, theme::hover())
+                        before = (now.clone(), s.line);
+                        // The indent both share left out: the code starts by its sign.
+                        let cut = indent(&old).min(indent(now));
+                        let (old, now) = (&old[cut..], &now[cut..]);
+                        let pieces = worddiff::pieces(old, now);
+                        vec![
+                            CodeRow {
+                                number: old_line,
+                                sign: Some(false),
+                                plain: old.to_owned(),
+                                shown: side_marked(old, pieces.as_deref(), true),
+                            },
+                            CodeRow {
+                                number: s.line,
+                                sign: Some(true),
+                                plain: now.to_owned(),
+                                shown: side_marked(now, pieces.as_deref(), false),
+                            },
+                        ]
                     }
-                    None => code(
-                        &tag,
-                        before.clone(),
-                        before.clone().into_any_element(),
-                        theme::removed_line(),
-                    ),
+                    None => vec![CodeRow {
+                        number: old_line,
+                        sign: Some(false),
+                        plain: old.trim_start().to_owned(),
+                        shown: old.trim_start().to_owned().into_any_element(),
+                    }],
                 };
                 let did = match s.now {
-                    Some(_) => format!("changed this line in v{}", s.version),
-                    None => format!("removed this line in v{}", s.version),
+                    Some(_) => format!("changed it in v{}", s.version),
+                    None => format!("removed it in v{}", s.version),
                 };
                 let what = if s.sha.is_empty() {
                     did
                 } else {
                     format!("{did} · {} {}", s.sha, s.summary)
                 };
-                discussion::change_note(
+                on_line(discussion::change_note(
                     format!("outdated-{ix}-{tag}"),
                     if s.who.is_empty() {
                         "The line".to_owned()
@@ -398,14 +447,121 @@ impl Requests {
                         s.who.clone()
                     },
                     what,
-                    Some(body),
+                    open.then(|| code_block(&key, rows)),
                     k == last,
-                    if k == last { compare.take() } else { None },
-                )
-                .into_any_element()
+                    Some(end(&key, open, k == last)),
+                ))
             })
             .collect()
     }
+}
+
+/// A line of a history note's code: its number, `−` (`Some(false)`) or `+` (`Some(true)`) or none, its text measured
+/// and as shown.
+struct CodeRow {
+    number: Option<u32>,
+    sign: Option<bool>,
+    plain: String,
+    shown: AnyElement,
+}
+
+/// A history note's code as a diff draws it: a framed block, each line with its number and sign on its side's tint.
+fn code_block(key: &str, rows: Vec<CodeRow>) -> AnyElement {
+    div()
+        .max_w_full()
+        .py(px(2.))
+        .flex()
+        .flex_col()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(theme::island_border())
+        .bg(theme::editor())
+        .overflow_hidden()
+        .font_family(theme::code_font())
+        .text_size(px(12.))
+        .line_height(px(20.))
+        .children(rows.into_iter().enumerate().map(|(n, row)| {
+            let (sign, tint, ink) = match row.sign {
+                Some(false) => ("−", Some(theme::removed_line()), theme::removed()),
+                Some(true) => ("+", Some(theme::added_line()), theme::added()),
+                None => ("", None, theme::faint()),
+            };
+            div()
+                .flex()
+                .items_center()
+                .min_w_0()
+                .when_some(tint, |s, t| s.bg(t))
+                .child(
+                    div()
+                        .w(px(36.))
+                        .flex_none()
+                        .pr(px(6.))
+                        .flex()
+                        .justify_end()
+                        .text_color(theme::faint())
+                        .child(row.number.map(|l| l.to_string()).unwrap_or_default()),
+                )
+                .child(div().w(px(16.)).flex_none().text_color(ink).child(sign))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .pr(px(8.))
+                        .text_color(theme::text())
+                        .child(hover::cut_with(
+                            SharedString::from(format!("history-{key}-{n}")),
+                            row.plain,
+                            row.shown,
+                        )),
+                )
+        }))
+        .into_any_element()
+}
+
+/// One side of a changed line with what changed on it marked: the old side's removed words, the new side's added ones;
+/// a line rewritten past recognition (no `pieces`) reads whole.
+fn side_marked(text: &str, pieces: Option<&[Piece]>, old: bool) -> AnyElement {
+    let Some(pieces) = pieces else {
+        return text.to_owned().into_any_element();
+    };
+    let tint = if old {
+        theme::removed_word()
+    } else {
+        theme::added_word()
+    };
+    let runs: Vec<_> = changed(pieces, old)
+        .into_iter()
+        .filter(|r| r.end <= text.len())
+        .map(|r| {
+            (
+                r,
+                HighlightStyle {
+                    background_color: Some(tint.into()),
+                    ..Default::default()
+                },
+            )
+        })
+        .collect();
+    StyledText::new(text.to_owned())
+        .with_highlights(runs)
+        .into_any_element()
+}
+
+/// How far `line` is indented, in bytes of its leading spaces and tabs.
+fn indent(line: &str) -> usize {
+    line.len() - line.trim_start_matches([' ', '\t']).len()
+}
+
+/// Where one side of a changed line changed: the old side's ranges (`old`), else the new side's.
+fn changed(pieces: &[Piece], old: bool) -> Vec<std::ops::Range<usize>> {
+    pieces
+        .iter()
+        .filter_map(|p| match p {
+            Piece::Change(o, n) => Some(if old { o.clone() } else { n.clone() }),
+            Piece::Same(..) => None,
+        })
+        .filter(|r| !r.is_empty())
+        .collect()
 }
 
 /// Follows `line` of `path` from version `at` to the last of `versions`.
@@ -471,52 +627,6 @@ fn history(
     }
 }
 
-/// `new` with what changed from `old` marked: removed words struck, added ones tinted, both in
-/// place; a line rewritten past recognition reads whole.
-fn word_line(old: &str, new: &str) -> AnyElement {
-    let Some(pieces) = worddiff::pieces(old, new) else {
-        return new.to_owned().into_any_element();
-    };
-    let (text, runs) = joined(old, new, &pieces);
-    let style = |gone: bool| HighlightStyle {
-        background_color: Some(if gone {
-            theme::removed_word().into()
-        } else {
-            theme::added_word().into()
-        }),
-        strikethrough: gone.then_some(StrikethroughStyle {
-            thickness: px(1.),
-            color: Some(theme::removed().into()),
-        }),
-        ..Default::default()
-    };
-    StyledText::new(text)
-        .with_highlights(runs.into_iter().map(move |(r, gone)| (r, style(gone))))
-        .into_any_element()
-}
-
-/// One text from `old` and `new` read together: what stayed, then for each change what went and
-/// what came. The ranges of what went (`true`) and what came (`false`) in it.
-fn joined(old: &str, new: &str, pieces: &[Piece]) -> (String, Vec<(std::ops::Range<usize>, bool)>) {
-    let mut text = String::new();
-    let mut runs = Vec::new();
-    for piece in pieces {
-        match piece {
-            Piece::Same(_, n) => text.push_str(&new[n.clone()]),
-            Piece::Change(o, n) => {
-                for (part, gone) in [(&old[o.clone()], true), (&new[n.clone()], false)] {
-                    if !part.is_empty() {
-                        let at = text.len();
-                        text.push_str(part);
-                        runs.push((at..text.len(), gone));
-                    }
-                }
-            }
-        }
-    }
-    (text, runs)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,16 +659,18 @@ mod tests {
     }
 
     #[test]
-    fn a_changed_line_reads_once_with_both_sides_of_each_change() {
+    fn a_changed_line_marks_what_went_on_the_old_side_and_what_came_on_the_new() {
         let (old, new) = (
             "val result = api.login(form)",
             "val result = runCatching { api.login(form) }",
         );
         let pieces = worddiff::pieces(old, new).expect("alike lines");
-        let (text, runs) = joined(old, new, &pieces);
-        assert!(text.contains("runCatching"));
-        assert!(runs.iter().all(|(_, gone)| !gone));
-        let added: Vec<&str> = runs.iter().map(|(r, _)| &text[r.clone()]).collect();
-        assert!(added.iter().any(|a| a.contains("runCatching")));
+        let came: Vec<&str> = changed(&pieces, false)
+            .into_iter()
+            .map(|r| &new[r])
+            .collect();
+        assert!(came.iter().any(|c| c.contains("runCatching")));
+        // Nothing of the old line went: only words came.
+        assert!(changed(&pieces, true).is_empty());
     }
 }
