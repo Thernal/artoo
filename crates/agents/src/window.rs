@@ -2,7 +2,7 @@
 //! levels — this project's sessions, each with what it is doing in words, those waiting for you first, each row a way
 //! in (its chevron at the far end); and one session's discussions under a head with `‹` back to the list (the owner,
 //! 2026-11-27: no chat — each comment for the agent a discussion of its own, as a request's Discussions window draws
-//! them, `threads`): what needs you first, your drafts with a message to go with them and Send all at the foot. Its
+//! them, `threads`): what needs you first, your drafts with an additional message and Send all at the foot. Its
 //! level and what is folded are its own; what a click does to a comment is the tab's (`AgentsHost`).
 
 use crate::agents::Chat;
@@ -157,7 +157,7 @@ pub fn tool(
 }
 
 /// The stripe's icon: what needs you — the questions an agent asks, the drafts, the notes a gone chat never took —
-/// (#201), a dot for each chat listening on its own hue (#77).
+/// (#201). Nothing under it (the owner, 2026-11-27: a dot per listening chat swelled the stripe once there were many).
 fn badge(chats: &Entity<Chats>, comments: &Entity<AgentComments>, cx: &App) -> Badge {
     let chats = chats.read(cx);
     let listening = chats.listening();
@@ -180,22 +180,11 @@ fn badge(chats: &Entity<Chats>, comments: &Entity<AgentComments>, cx: &App) -> B
     .flatten()
     .collect::<Vec<_>>()
     .join(" · ");
-    let dots: Vec<_> = chats
-        .list
-        .iter()
-        .filter(|c| c.listening())
-        .map(|c| {
-            div()
-                .size(px(5.))
-                .rounded_full()
-                .bg(chats.mark(&c.session).1)
-        })
-        .collect();
     Badge {
         count: asks + drafts + waiting,
         color: theme::agent(),
         what,
-        under: Some(div().flex().gap(px(3.)).children(dots).into_any_element()),
+        under: None,
     }
 }
 
@@ -674,7 +663,7 @@ impl AgentsWindow {
                     self.note_area.field_of(
                         &self.note,
                         true,
-                        "A message to go with them\u{2026}",
+                        "Additional message\u{2026}",
                         true,
                         |w: &mut AgentsWindow| Some(&mut w.note_area),
                         cx.entity().downgrade(),

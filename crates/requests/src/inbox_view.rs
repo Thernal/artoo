@@ -597,7 +597,11 @@ pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
             .justify_center()
             .rounded_full()
             .bg(monogram::tint(color))
-            .child(icons::icon(name).size(px(12.)).text_color(color)),
+            .child(
+                icons::icon(name)
+                    .size(px((size_px * 0.5).round()))
+                    .text_color(color),
+            ),
         Face::Mark(_, name, Some(icon)) => {
             let hue = monogram::hue(&name);
             div()
@@ -621,7 +625,9 @@ pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
                 .rounded_full()
                 .bg(monogram::tint(hue))
                 .text_color(hue)
-                .text_size(px(if mark.chars().count() > 1 { 8. } else { 10. }))
+                .text_size(px((size_px
+                    * if mark.chars().count() > 1 { 0.36 } else { 0.42 })
+                .round()))
                 .font_weight(FontWeight::BOLD)
                 .child(mark)
         }
@@ -631,18 +637,21 @@ pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
         .flex_none()
         .size(px(size_px))
         .child(body)
+        // What they did, at the face's corner: big enough to be read at a glance (the owner, 2026-11-27).
         .children(badge.map(|icon| {
             div()
                 .absolute()
-                .right(px(-4.))
-                .bottom(px(-4.))
-                .size(px(12.))
+                .right(px(-3.))
+                .bottom(px(-3.))
+                .size(px(16.))
                 .flex()
                 .items_center()
                 .justify_center()
                 .rounded_full()
+                .border_1()
+                .border_color(theme::island_border())
                 .bg(theme::base())
-                .child(icons::icon(icon).size(px(9.)).text_color(theme::muted()))
+                .child(icons::icon(icon).size(px(10.)).text_color(theme::text()))
         }))
 }
 
@@ -667,29 +676,45 @@ fn head_box() -> Div {
         .text_color(theme::faint())
 }
 
-/// What a row says besides its title: the tooltip (#202) names what happened, its source and exactly when, and,
-/// while the list is narrow, what was written, which the row then leaves out.
+/// What a row says besides its title: the tooltip (#202) names what happened, unless the row says it under its title
+/// (nothing was written), its source and exactly when, and, while the list is narrow, what was written, which the row
+/// then leaves out.
 fn tip_words(says: &str, source: &str, at: i64, text: &str, wide: bool) -> String {
-    let mut tip = vec![
-        says.to_owned(),
-        format!("{source} · {}", hover::full_date(at)),
-    ];
+    let mut tip = Vec::new();
+    if !wide || !text.is_empty() {
+        tip.push(says.to_owned());
+    }
+    tip.push(format!("{source} · {}", hover::full_date(at)));
     if !wide && !text.is_empty() {
         tip.push(text.to_owned());
     }
     tip.join("\n")
 }
 
+/// The face at a row's start, as wide as its two lines are tall (the owner, 2026-11-27: the small marks were not
+/// read).
+pub const ROW_FACE: f32 = 32.;
+
+/// A row's second line: the first line of what was written, else what happened (`Juniper Hale assigned it to you`),
+/// as the design's read rows say it.
+fn second_line<'a>(text: &'a str, says: &'a str) -> &'a str {
+    let gist = text
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    if gist.is_empty() { says.trim() } else { gist }
+}
+
 /// One row of the Inbox, two lines: its face at the start, the title and the short time at the end, what was written
-/// under it; unread is a dot and a heavier title, read the same row with neither, in its place (Design round 10, U4).
+/// (or what happened) under it; unread is a dot and a heavier title, read the same row with neither, in its place
+/// (Design round 10, U4). Its source is the tooltip's and the preview's: no mark at the row's end (the owner,
+/// 2026-11-27: a row clean of small marks).
 struct RowDraw<'a> {
     id: gpui::ElementId,
     /// The notice's key: what its motion to read is known by.
     key: &'a str,
     lead: Div,
-    /// Its source's mark, name and icon (`GL`, `GitLab`): the small mark before the time, the icon in its letters'
-    /// place when there is one.
-    from: (String, &'a str, Option<&'static str>),
     /// What it is about; what happened when it is about nothing.
     title: String,
     at: i64,
@@ -706,7 +731,6 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         id,
         key,
         lead,
-        from: (mark, source, glyph),
         title,
         at,
         gist,
@@ -714,13 +738,6 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         project,
         look,
     } = row;
-    let from = monogram::source_badge(
-        SharedString::from(format!("inbox-from-{key}")),
-        &mark,
-        glyph,
-        monogram::source_hue(source),
-        source,
-    );
     let RowLook { fresh, on, wide } = look;
     let [title_cut, gist_cut, project_cut] = [(); 3].map(|_| WasCut::default());
     let mut cut: Vec<(Option<WasCut>, SharedString)> =
@@ -738,7 +755,7 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         .px(px(16.))
         .py(px(10.))
         .flex()
-        .items_start()
+        .items_center()
         .gap(px(10.))
         .cursor_pointer()
         .when(on, |s| s.bg(theme::selected()))
@@ -747,7 +764,6 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         .child(motion::toward(
             div()
                 .flex_none()
-                .mt(px(6.5))
                 .size(px(7.))
                 .rounded_full()
                 .bg(theme::accent()),
@@ -786,7 +802,6 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
                                 .text_size(px(11.))
                                 .text_color(theme::muted())
                         }))
-                        .child(from.mr(px(2.)))
                         .child(
                             format::time_cell(at)
                                 .text_size(px(11.))
@@ -838,20 +853,16 @@ pub fn notice_row(
     on: &OnInbox,
 ) -> Stateful<Div> {
     let text = plain(&n.text);
-    let gist = text
-        .lines()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("")
-        .trim();
+    let says = n.says();
+    let gist = second_line(&text, &says);
     let (face, badge) = notice_face(n);
-    let tip = tip_words(&n.says(), source, n.created, text.trim(), look.wide);
+    let tip = tip_words(&says, source, n.created, text.trim(), look.wide);
     let iid = n.iid;
     let (menu, pick) = (on.clone(), on.clone());
     draw_row(RowDraw {
         id: ("inbox-row", ix).into(),
         key: &n.key,
-        lead: lead(face, badge, 20.),
-        from: (source_mark(source, None), source, None),
+        lead: lead(face, badge, ROW_FACE),
         title: format!("{} {}", words::number(n.iid), n.title),
         at: n.created,
         gist,
@@ -932,12 +943,7 @@ pub fn part_row(
     on: &OnInbox,
 ) -> Stateful<Div> {
     let id = artoo_shell_api::notices::row_id(&r.key);
-    let gist = r
-        .text
-        .lines()
-        .find(|l| !l.trim().is_empty())
-        .unwrap_or("")
-        .trim();
+    let gist = second_line(&r.text, &r.says);
     let tip = tip_words(&r.says, source, r.at, r.text.trim(), look.wide);
     let face = if r.who.trim().is_empty() {
         Face::Mark(mark.to_owned(), source.to_owned(), icon)
@@ -948,8 +954,7 @@ pub fn part_row(
     draw_row(RowDraw {
         id: ("inbox-part", id).into(),
         key: &r.key,
-        lead: lead(face, r.badge.or(badge), 20.),
-        from: (mark.to_owned(), source, icon),
+        lead: lead(face, r.badge.or(badge), ROW_FACE),
         title: if r.about.is_empty() {
             r.says.clone()
         } else {
@@ -1034,10 +1039,19 @@ pub fn part_preview(
                 .when(!r.tag.is_empty(), |d| {
                     d.child(div().text_color(theme::accent()).child(r.tag.clone()))
                 })
+                // Who did it, their face and name as a request's head has them (the owner, 2026-11-27: no lone small
+                // mark); the source's mark alone when nobody is named.
                 .child(
                     div()
                         .id(("inbox-part-source", id))
-                        .child(lead(face, None, 16.))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(lead(face, None, 20.))
+                        .children(
+                            (!r.who.trim().is_empty())
+                                .then(|| div().flex_none().child(r.who.clone())),
+                        )
                         .tip(whence),
                 )
                 .child(div().flex_1())
@@ -1153,7 +1167,7 @@ pub fn notice_preview(n: &Notice, look: NoticeLook, on: &OnInbox, cx: &App) -> D
                 .min_w_0()
                 .items_center()
                 .gap(px(6.))
-                .child(discussion::avatar(&m.author, false, 16.))
+                .child(discussion::avatar(&m.author, false, 20.))
                 .child(div().flex_none().child(m.author.clone()))
         }))
         // When, short, its full date in a tooltip; what happened is the row's (#202).

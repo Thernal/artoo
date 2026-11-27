@@ -261,7 +261,7 @@ impl Requests {
         !me.is_empty() && t.notes.first().is_some_and(|n| n.login == me)
     }
 
-    /// What became of thread `ix`'s line, as the Outdated list says it under the comment: `No changes since v1`,
+    /// What became of thread `ix`'s line, as an Outdated card's chip says it in its tooltip: `No changes since v1`,
     /// `Changed since v1`, `Line removed since v1`; None while it is not known.
     pub fn since_comment(&self, ix: usize) -> Option<String> {
         let t = self.threads.get(ix)?;

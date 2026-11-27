@@ -10,7 +10,7 @@ use artoo_branches_api::Branches;
 use artoo_hosts_api::{Draft, Thread};
 use artoo_requests_api::{DISCUSSIONS, DiscussionsHost};
 use artoo_shell_api::{Badge, ListKey, Services, Tool};
-use artoo_ui_kit::controls::{comment_item, edge, group_heading, skeleton, tool_foot};
+use artoo_ui_kit::controls::{edge, skeleton, tool_foot};
 use artoo_ui_kit::format::one_line;
 use artoo_ui_kit::hover::{self, Hover, Tip};
 use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme, words};
@@ -428,26 +428,11 @@ impl Requests {
             None => {}
         }
         let me = self.login.as_deref();
-        let mut outdated_items = Vec::new();
-        for (version, list) in outdated {
-            let items: Vec<gpui::AnyElement> = list
-                .iter()
-                .map(|&ix| self.outdated_item(ix, &look, latest, &acts))
-                .collect();
-            outdated_items.push(
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(group_heading(
-                        match version {
-                            Some(v) => format!("Written on v{v} · {}", list.len()),
-                            None => format!("An earlier version · {}", list.len()),
-                        },
-                        None,
-                    ))
-                    .children(items),
-            );
-        }
+        // Each a card as Open's (the owner, 2026-11-27), the newest version first; the version it was written on is
+        // the card's chip, so no heading per version.
+        let outdated_items: Vec<AnyElement> = (old.iter())
+            .map(|&ix| self.outdated_item(ix, &look, latest, &acts))
+            .collect();
         let mut row = |ix: usize, t: &Thread| -> AnyElement {
             let target = t.path.clone().zip(t.new_line.or(t.old_line));
             let general = target.is_none();
@@ -456,7 +441,6 @@ impl Requests {
                 Some((p, n)) => format!("{}:{n}", p.rsplit('/').next().unwrap_or(p)),
                 None => "General".to_owned(),
             };
-            let first = &t.notes[0];
             // Faded while a change to it waits on the host (#139).
             let waits = self.thread_waits(&t.id).is_some()
                 || t.notes.iter().any(|n| self.note_time(n.id, n.created).1);
@@ -464,26 +448,7 @@ impl Requests {
             let id = t.id.clone();
             // At the first line's end (Design D2): how many notes, and whose turn as a glyph, its words the tooltip.
             let mut end: Vec<AnyElement> = Vec::new();
-            if t.notes.len() > 1 {
-                end.push(
-                    div()
-                        .id(("comment-mr-count", ix))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .gap(px(3.))
-                        .text_size(px(11.))
-                        .text_color(theme::muted())
-                        .child(
-                            icons::icon("message")
-                                .size(px(13.))
-                                .text_color(theme::muted()),
-                        )
-                        .child(t.notes.len().to_string())
-                        .tip(format!("{} notes", t.notes.len()))
-                        .into_any_element(),
-                );
-            }
+            end.extend(note_count(ix, t.notes.len()));
             if let Some(w) = &waiting {
                 let you = w == "waiting on you";
                 end.push(
@@ -507,37 +472,7 @@ impl Requests {
                         .into_any_element(),
                 );
             }
-            // Its card (the owner, 2026-11-26): who began it and their words, `N more` between, the last word; read
-            // whole (a general one opened), every note.
-            let note = |k: usize, n: &artoo_hosts_api::Note, lines: usize| {
-                card_note(
-                    ("comment-mr-note", ix * 1000 + k),
-                    &n.author,
-                    me.is_some_and(|m| m == n.login),
-                    artoo_ui_kit::format::short_ago(n.created),
-                    one_line(&n.body, look.rich),
-                    lines,
-                )
-            };
-            let last = t.notes.len() - 1;
-            let shown: Vec<gpui::Div> = if whole {
-                (t.notes.iter().enumerate())
-                    .map(|(k, n)| note(k, n, 40))
-                    .collect()
-            } else {
-                let more = (last > 1).then(|| {
-                    div()
-                        .flex()
-                        .justify_center()
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(format!("{} more", last - 1))
-                });
-                std::iter::once(note(0, first, 4))
-                    .chain(more)
-                    .chain((last > 0).then(|| note(last, &t.notes[last], 3)))
-                    .collect()
-            };
+            let shown = card_notes(ix, t, me, look.rich, whole);
             let item = card(
                 ("comment-mr", ix),
                 false,
@@ -784,10 +719,11 @@ impl Requests {
         }
     }
 
-    /// An outdated discussion in the Discussions window: where, its first words, whether its line
-    /// changed. A click shows it — its line where it is now, else the versions compared since —,
-    /// and it is resolved or reopened there, where it is read (the developer, 2026-10-23: no Show
-    /// or Reopen on the row).
+    /// An outdated discussion in the Discussions window, as the open ones' card (the owner, 2026-11-27): its notes,
+    /// and at its foot where it is, the version it was written on as a chip and what became of its line since —
+    /// `Changed` or `Line gone` as the design's chips, nothing when unchanged —, its count. A click shows it — its
+    /// line where it is now, else the versions compared since —, and it is resolved or reopened there, where it is
+    /// read (the developer, 2026-10-23: no Show or Reopen on the card).
     fn outdated_item(
         &self,
         ix: usize,
@@ -796,61 +732,154 @@ impl Requests {
         acts: &Acts,
     ) -> AnyElement {
         let t = &self.threads[ix];
-        let line_now = self.histories.get(&t.id).and_then(|h| h.line_now);
+        let history = self.histories.get(&t.id);
+        let line_now = history.and_then(|h| h.line_now);
         let path = t.path.clone().unwrap_or_default();
         let place = format!(
             "{}:{}",
             path.rsplit('/').next().unwrap_or(&path),
             t.new_line.or(t.old_line).unwrap_or(0)
         );
-        let first = &t.notes[0];
-        let written = self.histories.get(&t.id).map(|h| h.written);
+        let written = history.map(|h| h.written);
         // What a click does: the line where it is now, or (gone) the versions compared.
         let shows = match (line_now, self.compare_label(ix, latest)) {
             (Some(_), _) => "Show its line now".to_owned(),
             (None, Some(compare)) => compare,
             (None, None) => String::new(),
         };
-        div()
-            .id(("comment-old-item", ix))
-            .flex()
-            .flex_col()
-            .cursor_pointer()
-            .child(comment_item(
-                ("comment-old", ix),
-                place,
-                format!("{}: {}", first.author, one_line(&first.body, look.rich)),
-            ))
-            .child(
-                div()
-                    .pl(px(14.))
-                    .pr(px(14.))
-                    .pb(px(6.))
-                    .text_size(px(11.))
-                    .text_color(theme::warning())
-                    .child(
-                        self.since_comment(ix)
-                            .unwrap_or_else(|| "Written on an earlier version".to_owned()),
-                    ),
+        let mut end: Vec<AnyElement> = Vec::new();
+        end.push(
+            line_chip(
+                ("comment-old-version", ix),
+                written.map_or_else(|| "Earlier".to_owned(), |v| format!("v{v}")),
+                None,
             )
-            .when(!shows.is_empty(), |s| s.tip(shows))
-            .on_click({
-                let acts = acts.clone();
-                move |_: &ClickEvent, _, cx| match line_now {
-                    Some(line) => acts(
-                        Act::JumpToLine {
-                            path: path.clone(),
-                            line,
-                            old: false,
-                        },
-                        cx,
-                    ),
-                    None if written.is_some() => acts(Act::CompareSince(ix), cx),
-                    None => {}
-                }
-            })
-            .into_any_element()
+            .tip(written.map_or_else(
+                || "Written on an earlier version".to_owned(),
+                |v| format!("Written on v{v}"),
+            ))
+            .into_any_element(),
+        );
+        let became = history.and_then(|h| match (h.changed(), h.line_now) {
+            (_, None) => Some(("Line gone", None)),
+            (true, _) => Some(("Changed", Some(theme::warning()))),
+            (false, _) => None,
+        });
+        if let Some((word, dot)) = became {
+            end.push(
+                line_chip(("comment-old-line", ix), word.to_owned(), dot)
+                    .tip(self.since_comment(ix).unwrap_or_default())
+                    .into_any_element(),
+            );
+        }
+        end.extend(note_count(ix, t.notes.len()));
+        let me = self.login.as_deref();
+        card(
+            ("comment-old", ix),
+            false,
+            card_notes(ix, t, me, look.rich, false),
+            card_foot(false, place, end),
+        )
+        .when(!shows.is_empty(), |s| s.tip(shows))
+        .on_click({
+            let acts = acts.clone();
+            move |_: &ClickEvent, _, cx| match line_now {
+                Some(line) => acts(
+                    Act::JumpToLine {
+                        path: path.clone(),
+                        line,
+                        old: false,
+                    },
+                    cx,
+                ),
+                None if written.is_some() => acts(Act::CompareSince(ix), cx),
+                None => {}
+            }
+        })
+        .into_any_element()
     }
+}
+
+/// A card's notes (the owner, 2026-11-26): who began it and their words, `N more` between, the last word; read
+/// `whole` (a general one opened), every note.
+fn card_notes(ix: usize, t: &Thread, me: Option<&str>, rich: bool, whole: bool) -> Vec<gpui::Div> {
+    let note = |k: usize, n: &artoo_hosts_api::Note, lines: usize| {
+        card_note(
+            ("comment-mr-note", ix * 1000 + k),
+            &n.author,
+            me.is_some_and(|m| m == n.login),
+            artoo_ui_kit::format::short_ago(n.created),
+            one_line(&n.body, rich),
+            lines,
+        )
+    };
+    let last = t.notes.len() - 1;
+    if whole {
+        return (t.notes.iter().enumerate())
+            .map(|(k, n)| note(k, n, 40))
+            .collect();
+    }
+    let more = (last > 1).then(|| {
+        div()
+            .flex()
+            .justify_center()
+            .text_size(px(11.))
+            .text_color(theme::faint())
+            .child(format!("{} more", last - 1))
+    });
+    std::iter::once(note(0, &t.notes[0], 4))
+        .chain(more)
+        .chain((last > 0).then(|| note(last, &t.notes[last], 3)))
+        .collect()
+}
+
+/// At a card's foot: how many notes, when more than one, its words the tooltip.
+fn note_count(ix: usize, n: usize) -> Option<AnyElement> {
+    (n > 1).then(|| {
+        div()
+            .id(("comment-mr-count", ix))
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(px(3.))
+            .text_size(px(11.))
+            .text_color(theme::muted())
+            .child(
+                icons::icon("message")
+                    .size(px(13.))
+                    .text_color(theme::muted()),
+            )
+            .child(n.to_string())
+            .tip(format!("{n} notes"))
+            .into_any_element()
+    })
+}
+
+/// A small chip at an outdated card's foot, as the design's (`d44-line`): the version it was written on, quiet; what
+/// became of its line, `dot` its colour on that colour's faint ground (Changed), else quiet (Line gone).
+fn line_chip(
+    id: (&'static str, usize),
+    word: String,
+    dot: Option<gpui::Rgba>,
+) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .flex_none()
+        .h(px(18.))
+        .px(px(6.))
+        .flex()
+        .items_center()
+        .gap(px(4.))
+        .rounded(px(4.))
+        .text_size(px(11.))
+        .map(|s| match dot {
+            Some(color) => s
+                .bg(artoo_ui_kit::monogram::tint(color))
+                .text_color(theme::text())
+                .child(div().size(px(6.)).rounded_full().bg(color)),
+            None => s.bg(theme::selected()).text_color(theme::muted()),
+        })
+        .child(word)
 }
 
 /// A small bordered button in the window: Reply…, Resolve, Comment on the request.

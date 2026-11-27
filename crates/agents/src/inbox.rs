@@ -8,7 +8,7 @@ use artoo_core::markdown::plain;
 use artoo_ui_kit::controls::bar_button;
 use artoo_ui_kit::excerpt::{Excerpt, ExcerptLine, excerpt_view};
 use artoo_ui_kit::hover::{self, CutInTip, Hover as _, RowTip};
-use artoo_ui_kit::{ROW_RADIUS, discussion, format, icons, monogram, motion, px, theme, words};
+use artoo_ui_kit::{ROW_RADIUS, discussion, format, icons, motion, px, theme, words};
 use gpui::{AnyElement, ClickEvent, Div, FontWeight, Stateful, div, prelude::*};
 
 /// What an answer is drawn with and a click on it asks, the contract's.
@@ -51,6 +51,12 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
     let place = note_place(c);
     let verb = verb(c);
     let title = about_title(c, about.as_ref());
+    // Under the title what the agent wrote, else what it did, as the requests' rows say it.
+    let line = if gist.is_empty() {
+        format!("{agent} {verb}")
+    } else {
+        gist
+    };
     let mut tip = vec![format!("{agent} {verb}"), place];
     if !chat.is_empty() {
         tip.push(format!("chat “{chat}”"));
@@ -67,7 +73,7 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
         .px(px(10.))
         .py(px(10.))
         .flex()
-        .items_start()
+        .items_center()
         .gap(px(10.))
         .rounded(px(ROW_RADIUS))
         .cursor_pointer()
@@ -77,7 +83,6 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
         .child(motion::toward(
             div()
                 .flex_none()
-                .mt(px(6.5))
                 .size(px(7.))
                 .rounded_full()
                 .bg(theme::agent()),
@@ -87,11 +92,12 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
             motion::FAST,
             |dot, v| dot.opacity(v),
         ))
-        // Claude's mark: the bot in the agent's colour.
+        // Claude's mark: the bot in the agent's colour, as big as the requests' rows' faces (`ROW_FACE`); no source
+        // mark at the row's end (the owner, 2026-11-27: a row clean of small marks).
         .child(
             div()
                 .flex_none()
-                .size(px(20.))
+                .size(px(32.))
                 .flex()
                 .items_center()
                 .justify_center()
@@ -100,7 +106,7 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                     a: 0.22,
                     ..theme::agent()
                 })
-                .child(icons::icon("bot").size(px(12.)).text_color(theme::agent())),
+                .child(icons::icon("bot").size(px(16.)).text_color(theme::agent())),
         )
         .child(
             div()
@@ -127,28 +133,18 @@ pub fn answer_row(c: &Comment, from: From, look: AnswerLook, on: &OnAnswer) -> S
                             discussion::unread_title,
                         ))
                         .child(
-                            monogram::source_badge(
-                                ("inbox-agent-from", id as usize),
-                                "",
-                                Some("bot"),
-                                theme::agent(),
-                                "Agents",
-                            )
-                            .mr(px(2.)),
-                        )
-                        .child(
                             format::time_cell(at)
                                 .text_size(px(11.))
                                 .text_color(theme::faint()),
                         ),
                 )
-                .children((wide && !gist.is_empty()).then(|| {
+                .children(wide.then(|| {
                     div()
                         .cut_in_tip()
                         .text_size(px(12.))
                         .line_height(px(16.))
                         .text_color(theme::muted())
-                        .child(gist)
+                        .child(line)
                 })),
         )
         .row_tip(picked, tip.join("\n"))
@@ -188,7 +184,7 @@ pub fn answer_preview(c: &Comment, from: From, thread: AnyElement, on: &OnAnswer
                     .min_w_0()
                     .items_center()
                     .gap(px(6.))
-                    .child(discussion::avatar(&a.author, false, 16.))
+                    .child(discussion::avatar(&a.author, false, 20.))
                     .child(div().flex_none().child(a.author.clone())),
             )
             .child(when),
