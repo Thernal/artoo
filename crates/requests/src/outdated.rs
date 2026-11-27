@@ -385,6 +385,7 @@ impl Requests {
                 format!("outdated-{ix}-same"),
                 "No changes to this line".to_owned(),
                 span,
+                None,
                 body,
                 true,
                 Some(end(&key, open, true)),
@@ -434,11 +435,9 @@ impl Requests {
                     Some(_) => format!("changed it in v{}", s.version),
                     None => format!("removed it in v{}", s.version),
                 };
-                let what = if s.sha.is_empty() {
-                    did
-                } else {
-                    format!("{did} · {} {}", s.sha, s.summary)
-                };
+                // The commit on a line of its own, whole: the heading is never cut (the owner, 2026-11-27).
+                let commit = (!s.sha.is_empty())
+                    .then(|| format!("{} {}", s.sha, s.summary).trim_end().to_owned());
                 on_line(discussion::change_note(
                     format!("outdated-{ix}-{tag}"),
                     if s.who.is_empty() {
@@ -446,7 +445,8 @@ impl Requests {
                     } else {
                         s.who.clone()
                     },
-                    what,
+                    did,
+                    commit,
                     open.then(|| code_block(&key, rows)),
                     k == last,
                     Some(end(&key, open, k == last)),

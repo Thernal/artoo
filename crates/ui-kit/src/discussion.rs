@@ -323,12 +323,14 @@ pub fn note(
 
 /// What became of the line a discussion is on, told as one of its notes (the owner, 2026-11-27: the history a comment
 /// saying what the code became, not a box of its own): a ring with the commit's glyph for its face, `title` and the
-/// quieter `what` on the name's line (cut, whole on a long hover), `action` at its end, the line's text under them;
-/// the thread's line runs on from its face unless it is the `last`.
+/// quieter `what` on the name's line, the commit (`detail`) under them — each whole, going on to the next line where
+/// the column is narrow (the owner, 2026-11-27: never cut) —, `action` at the top of its end, the line's text under
+/// them; the thread's line runs on from its face unless it is the `last`.
 pub fn change_note(
     key: impl Into<SharedString>,
     title: String,
     what: String,
+    detail: Option<String>,
     body: Option<AnyElement>,
     last: bool,
     action: Option<AnyElement>,
@@ -372,25 +374,40 @@ pub fn change_note(
                 .gap(px(4.))
                 .child(
                     div()
-                        .min_h(px(20.))
+                        .id(SharedString::from(format!("{key}-head")))
                         .flex()
-                        .items_center()
+                        .items_start()
                         .gap(px(6.))
                         .min_w_0()
                         .child(
                             div()
-                                .flex_none()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child(title),
-                        )
-                        .children((!what.is_empty()).then(|| {
-                            crate::hover::cut(SharedString::from(format!("{key}-what")), what)
                                 .flex_1()
                                 .min_w_0()
-                                .text_size(px(12.))
-                                .text_color(theme::muted())
-                        }))
-                        .children(action.map(|a| div().ml_auto().flex_none().child(a))),
+                                .flex()
+                                .flex_col()
+                                .gap(px(2.))
+                                .child(
+                                    // As tall as the buttons at its end, their middle its own; a narrow column takes
+                                    // `what` to the line under the name.
+                                    div()
+                                        .min_h(px(24.))
+                                        .flex()
+                                        .flex_wrap()
+                                        .items_center()
+                                        .gap_x(px(6.))
+                                        .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                                        .children((!what.is_empty()).then(|| {
+                                            div()
+                                                .text_size(px(12.))
+                                                .text_color(theme::muted())
+                                                .child(what)
+                                        })),
+                                )
+                                .children(detail.map(|d| {
+                                    div().text_size(px(12.)).text_color(theme::muted()).child(d)
+                                })),
+                        )
+                        .children(action.map(|a| div().flex_none().child(a))),
                 )
                 .children(body.map(|b| div().min_w_0().child(b))),
         )
