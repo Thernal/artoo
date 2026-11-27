@@ -583,90 +583,75 @@ impl AgentsWindow {
                             .child(s.head_line()),
                     ),
             );
-        let tab = |id: &'static str,
-                   label: &'static str,
-                   tip: gpui::SharedString,
-                   count: usize,
-                   on: bool,
-                   view: View| {
-            div()
-                .id(id)
-                .flex_1()
-                .h(px(24.))
-                .px(px(10.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .gap(px(6.))
-                .rounded(px(ROW_RADIUS))
-                .text_size(px(12.))
-                .cursor_pointer()
-                .when(on, |d| {
-                    d.bg(theme::selected()).font_weight(FontWeight::SEMIBOLD)
-                })
-                .when(!on, |d| {
-                    d.text_color(theme::muted()).hover(|d| d.bg(theme::hover()))
-                })
-                .tooltip_show_delay(hover::LONG)
-                .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(tip.clone())).into())
-                .child(label)
-                .children((count > 0).then(|| {
-                    div()
-                        .text_size(px(11.))
-                        .text_color(theme::faint())
-                        .child(count.to_string())
-                }))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.view = view;
-                    cx.notify();
-                }))
-        };
-        let switch = div()
-            .flex_none()
-            .h(px(44.))
-            .px(px(12.))
-            .flex()
-            .items_center()
-            .border_b_1()
-            .border_color(theme::island_border())
-            // The switch the column's width, its two halves even (the owner, 2026-11-26).
-            .child(
-                artoo_ui_kit::controls::group()
-                    .flex_1()
-                    .child(tab(
-                        "view-conversation",
-                        "Conversation",
-                        "Your conversation with Claude".into(),
-                        0,
-                        self.view == View::Conversation,
-                        View::Conversation,
-                    ))
-                    .child(tab(
-                        "view-drafts",
-                        "Drafts",
-                        if drafts > 0 {
-                            "Your drafts: comments you wrote for Claude on lines, to send".into()
-                        } else {
-                            "No drafts: comments you write for Claude on lines gather here".into()
-                        },
-                        drafts,
-                        self.view == View::Drafts,
-                        View::Drafts,
-                    )),
-            );
+        // No Conversation | Drafts switch (the owner, 2026-11-27): `Drafts 5 ›` over the composer opens them, and
+        // `‹ Conversation` in its place over theirs goes back.
         let body = match self.view {
             View::Conversation => self.talk(s, &talk, cx),
             View::Drafts => self.drafts(s, cx),
         };
+        let conversation = self.view == View::Conversation;
         div()
             .flex_1()
             .min_h_0()
             .flex()
             .flex_col()
             .child(head)
-            .child(switch)
             .child(div().flex_1().min_h_0().flex().flex_col().child(body))
-            .children((self.view == View::Conversation).then(|| self.composer(&s.chat, cx)))
+            .children(
+                (conversation && drafts > 0).then(|| self.view_link(View::Drafts, drafts, cx)),
+            )
+            .children(conversation.then(|| self.composer(&s.chat, cx)))
+            .into_any_element()
+    }
+
+    /// The way between the conversation and its drafts, over the composer: `Drafts 5 ›`, or `‹ Conversation` back.
+    fn view_link(&self, to: View, drafts: usize, cx: &mut Context<Self>) -> AnyElement {
+        let to_drafts = to == View::Drafts;
+        let tip: gpui::SharedString = if to_drafts {
+            "Your drafts: comments you wrote for Claude on lines, to send".into()
+        } else {
+            "Back to your conversation with Claude".into()
+        };
+        let chevron =
+            |name: &'static str| icons::icon(name).size(px(14.)).text_color(theme::faint());
+        div()
+            .flex_none()
+            .px(px(10.))
+            .pt(px(4.))
+            .flex()
+            .child(
+                div()
+                    .id(if to_drafts {
+                        "agents-to-drafts"
+                    } else {
+                        "agents-to-talk"
+                    })
+                    .h(px(24.))
+                    .px(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .rounded(px(ROW_RADIUS))
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .cursor_pointer()
+                    .hover(|d| d.bg(theme::hover()).text_color(theme::text()))
+                    .tooltip_show_delay(hover::LONG)
+                    .tooltip(move |_, cx| cx.new(|_| hover::TipOwned(tip.clone())).into())
+                    .children((!to_drafts).then(|| chevron("chevron-left")))
+                    .child(if to_drafts { "Drafts" } else { "Conversation" })
+                    .children(to_drafts.then(|| {
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme::faint())
+                            .child(drafts.to_string())
+                    }))
+                    .children(to_drafts.then(|| chevron("chevron-right")))
+                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.view = to;
+                        cx.notify();
+                    })),
+            )
             .into_any_element()
     }
 
@@ -736,6 +721,7 @@ impl AgentsWindow {
                     .flex_col()
                     .children(rows),
             )
+            .child(self.view_link(View::Conversation, n, cx))
             .children((n > 0).then_some(field))
             .into_any_element()
     }

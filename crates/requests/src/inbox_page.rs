@@ -269,10 +269,10 @@ impl InboxPage {
         let source = |r: &artoo_shell_api::notices::Listed| {
             artoo_shell_api::notices::kind(cx, r.kind).map_or("", |(_, s)| s.name)
         };
-        // Its mark and its kind's badge, for a row with no face of its own.
+        // Its mark, its icon (a plugin's tab's) and its kind's badge, for a row with no face of its own.
         let marked = |r: &artoo_shell_api::notices::Listed| {
             artoo_shell_api::notices::kind(cx, r.kind)
-                .map(|(k, s)| (inbox_view::source_mark(s.name, s.mark), k.badge))
+                .map(|(k, s)| (inbox_view::source_mark(s.name, s.mark), s.icon, k.badge))
                 .unwrap_or_default()
         };
         let wide = self.widths.room("inbox").second();
@@ -348,8 +348,8 @@ impl InboxPage {
                             on: picked,
                             wide,
                         };
-                        let (mark, badge) = marked(r);
-                        inbox_view::part_row(r, source(r), &mark, badge, look, on)
+                        let (mark, icon, badge) = marked(r);
+                        inbox_view::part_row(r, source(r), (&mark, icon), badge, look, on)
                             .into_any_element()
                     }
                     None => div().into_any_element(),
@@ -382,9 +382,10 @@ impl InboxPage {
                     Some(notice_preview(n, look, on, cx).into_any_element())
                 }
                 InboxRow::Agent(id) => host.answer_preview(id, cx),
-                InboxRow::Part(id) => {
-                    part(id).map(|r| inbox_view::part_preview(r, source(r), &marked(r).0, on))
-                }
+                InboxRow::Part(id) => part(id).map(|r| {
+                    let (mark, icon, _) = marked(r);
+                    inbox_view::part_preview(r, source(r), (&mark, icon), on)
+                }),
             })
             .unwrap_or_else(|| {
                 div()

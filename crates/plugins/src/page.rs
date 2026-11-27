@@ -18,7 +18,7 @@ use artoo_shell_api::{
     BarParts, Frame, Input, Link, ListKeys, MenuItem, Pages, Parts, Screen, Snap, Typed, input_box,
 };
 use artoo_ui_kit::controls::{
-    bar_button, chip, empty_state, group, outline_button, skeleton, switch, tag,
+    bar_button, chip, danger_button, empty_state, group, outline_button, skeleton, switch, tag,
 };
 use artoo_ui_kit::hover::{self, Hover};
 use artoo_ui_kit::input::{self, Area, Edit};
@@ -657,7 +657,7 @@ impl Page {
                     }
                 }),
             ));
-            first.push(MenuItem::new("Remove", on(item, |_, i, cx| remove(i, cx))));
+            first.push(MenuItem::new("Remove", on(item, |_, i, cx| remove(i, cx))).icon("trash"));
         }
         let mut groups = vec![first];
         if let Some(url) = repository_url(item) {
@@ -1640,7 +1640,7 @@ impl Page {
                         },
                     )
                     .child(
-                        outline_button("Remove")
+                        danger_button("Remove")
                             .id("plugin-remove")
                             .on_click(move |_: &ClickEvent, _, cx| remove(&item, cx)),
                     )

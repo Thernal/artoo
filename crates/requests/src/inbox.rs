@@ -179,6 +179,8 @@ pub struct SourceRow {
     pub name: String,
     /// Its mark, a letter or two.
     pub mark: String,
+    /// Its icon in the mark's place: a plugin's tab's.
+    pub icon: Option<&'static str>,
     /// Its rows not read yet.
     pub new: usize,
 }
@@ -191,6 +193,7 @@ pub fn sources(host: Option<&'static str>, counts: &Counts, cx: &App) -> Vec<Sou
             id: s.id,
             name: source_name(&s, host),
             mark: crate::inbox_view::source_mark(&source_name(&s, host), s.mark),
+            icon: s.icon,
             new: counts.source(s.id),
         })
         .collect()
@@ -906,6 +909,7 @@ mod tests {
             id,
             name: name.into(),
             mark: name.chars().take(1).collect(),
+            icon: None,
             new,
         };
         let sources = [

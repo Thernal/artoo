@@ -582,12 +582,38 @@ fn bar(percent: f32, height: f32) -> Div {
         .bg(theme::hover())
 }
 
+/// `chip` with `icon` before its words, when there is one (the Inbox's Source: with its source's icon).
+pub fn chip_lead(
+    id: impl Into<gpui::ElementId>,
+    icon: Option<&'static str>,
+    label: impl Into<SharedString>,
+    active: bool,
+) -> gpui::Stateful<gpui::Div> {
+    let Some(icon) = icon else {
+        return chip(id, label, active);
+    };
+    chip_frame(id, active)
+        .flex()
+        .items_center()
+        .gap(px(5.))
+        .child(
+            crate::icons::icon(icon)
+                .size(px(13.))
+                .text_color(theme::muted()),
+        )
+        .child(label.into())
+}
+
 /// A small toggle in the diff toolbar.
 pub fn chip(
     id: impl Into<gpui::ElementId>,
     label: impl Into<SharedString>,
     active: bool,
 ) -> gpui::Stateful<gpui::Div> {
+    chip_frame(id, active).child(label.into())
+}
+
+fn chip_frame(id: impl Into<gpui::ElementId>, active: bool) -> gpui::Stateful<gpui::Div> {
     div()
         .id(id)
         .px_2()
@@ -602,7 +628,6 @@ pub fn chip(
             s.text_color(theme::muted())
                 .hover(|s| s.bg(theme::hover()).text_color(theme::text()))
         })
-        .child(label.into())
 }
 
 /// A line on one side of a row or a card, its ends round as the top bar's line is (the owner, 2026-11-26: a line on
@@ -617,6 +642,21 @@ pub fn rail(color: impl Into<gpui::Hsla>, width: f32, inset: f32) -> gpui::Div {
         .w(px(width))
         .rounded_full()
         .bg(color.into())
+}
+
+/// A card's left border in `color`, `width` wide, running its whole height and bending with its corners (`radius`,
+/// the card's): a pending discussion's line (the owner, 2026-11-27: start to end, never cut short). Drawn over a
+/// `relative` card, its other borders left as they are.
+pub fn edge(color: impl Into<gpui::Hsla>, width: f32, radius: f32) -> gpui::Div {
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .right_0()
+        .bottom_0()
+        .rounded(px(radius))
+        .border_l(px(width))
+        .border_color(color.into())
 }
 
 /// Chips that belong together, on a shared rounded track.
@@ -782,6 +822,29 @@ pub fn outline_button(label: &str) -> Div {
         .cursor_pointer()
         .text_size(px(13.))
         .hover(|s| s.bg(theme::hover()))
+        .child(words::say(label).into_owned())
+}
+
+/// `outline_button` for what cannot be undone (Delete the draft, Remove): the danger's colour on its tint (the owner,
+/// 2026-11-27: every Delete is the danger's).
+pub fn danger_button(label: &str) -> Div {
+    div()
+        .flex_none()
+        .h(px(28.))
+        .px(px(10.))
+        .flex()
+        .items_center()
+        .rounded(px(ROW_RADIUS))
+        .bg(theme::danger_bg())
+        .text_color(theme::removed())
+        .cursor_pointer()
+        .text_size(px(13.))
+        .hover(|s| {
+            s.bg(gpui::Rgba {
+                a: 0.26,
+                ..theme::removed()
+            })
+        })
         .child(words::say(label).into_owned())
 }
 

@@ -11,10 +11,10 @@ use artoo_review_api::Review;
 use artoo_review_api::diff::Header;
 use artoo_shell_api::{Services, Slot};
 use artoo_ui_kit::controls::{chip, group};
-use artoo_ui_kit::{px, theme};
+use artoo_ui_kit::{discussion, hover, px, theme};
 use gpui::{
-    AnyElement, ClickEvent, Context, Entity, FontWeight, HighlightStyle, StrikethroughStyle,
-    StyledText, div, prelude::*,
+    AnyElement, ClickEvent, Context, Entity, HighlightStyle, StrikethroughStyle, StyledText, div,
+    prelude::*,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -285,155 +285,126 @@ impl Requests {
         Some(format!("Compare v{written} → v{latest}"))
     }
 
-    /// Under an outdated discussion: the line's history and Compare with the new version (`latest`,
-    /// the timeline's last), which asks the tab.
-    pub fn render_history(
-        &self,
-        ix: usize,
-        latest: Option<usize>,
-        acts: Acts,
-    ) -> Option<AnyElement> {
-        let t = self.threads.get(ix)?;
-        let h = self.histories.get(&t.id)?.clone();
-        let changed = h.changed();
-        // A version's line, its plain text measured and its marked words shown: cut with an ellipsis, the
-        // whole line on a long hover (#184).
-        let row = |tag: String, who: String, text: Option<(String, AnyElement)>, struck: bool| {
+    /// What became of an outdated discussion's line, as notes of its thread after its own (the owner, 2026-11-27: a
+    /// comment saying what the code became, not a box over it): one for each version that changed the line — who, in
+    /// which version and commit, the line then with the words that changed marked — or one saying it is unchanged
+    /// since the comment. The last has Compare with the new version (`latest`, the timeline's last), which asks the
+    /// tab, and ends the thread's line.
+    pub fn render_history(&self, ix: usize, latest: Option<usize>, acts: Acts) -> Vec<AnyElement> {
+        let Some(t) = self.threads.get(ix) else {
+            return Vec::new();
+        };
+        let Some(h) = self.histories.get(&t.id).cloned() else {
+            return Vec::new();
+        };
+        // The line as it read, in the code's face: its plain text measured and its marked words shown, cut with an
+        // ellipsis, the whole line on a long hover (#184).
+        let code = |tag: &str, plain: String, shown: AnyElement, tint: gpui::Rgba| {
             let id = gpui::SharedString::from(format!("outdated-{ix}-{tag}"));
             div()
-                .flex()
-                .items_start()
-                .gap(px(10.))
-                .child(
-                    div()
-                        .w(px(28.))
-                        .flex_none()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(theme::accent())
-                        .child(tag),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap(px(2.))
-                        .child(div().text_color(theme::muted()).child(who))
-                        .children(text.map(|(plain, shown)| {
-                            div()
-                                .px(px(8.))
-                                .py(px(2.))
-                                .rounded(px(4.))
-                                .bg(if struck {
-                                    theme::removed_line()
-                                } else {
-                                    theme::added_line()
-                                })
-                                .font_family(theme::code_font())
-                                .text_size(px(12.))
-                                .text_color(theme::text())
-                                .child(artoo_ui_kit::hover::cut_with(id.clone(), plain, shown))
-                        })),
-                )
-        };
-        // Who wrote the comment, named unless it is you.
-        let who = if self.yours(t) {
-            "you commented on".to_owned()
-        } else {
-            let author = t.notes.first().map_or("", |n| n.author.as_str());
-            format!("{author} commented on")
-        };
-        let compare = self.compare_label(ix, latest).unwrap_or_default();
-        let mut rows: Vec<AnyElement> = vec![
-            row(
-                format!("v{}", h.written),
-                who,
-                Some((h.then.clone(), h.then.clone().into_any_element())),
-                changed,
-            )
-            .into_any_element(),
-        ];
-        // Each version's line against the one before it, the changed words marked (#46 B).
-        let mut before = h.then.clone();
-        for s in &h.steps {
-            let text = match &s.now {
-                Some(now) => {
-                    let marked = word_line(&before, now);
-                    before = now.clone();
-                    (now.clone(), marked)
-                }
-                None => ("(removed)".to_owned(), "(removed)".into_any_element()),
-            };
-            rows.push(
-                row(
-                    format!("v{}", s.version),
-                    if s.summary.is_empty() {
-                        "changed".to_owned()
-                    } else {
-                        format!("{} · {} {}", s.who, s.sha, s.summary)
-                    },
-                    Some(text),
-                    s.now.is_none(),
-                )
-                .into_any_element(),
-            );
-        }
-        let written = h.written;
-        Some(
-            div()
-                .mx(px(12.))
-                .mb(px(8.))
-                .px(px(12.))
-                .py(px(10.))
-                .rounded(px(8.))
-                .bg(theme::base())
-                .flex()
-                .flex_col()
-                .gap(px(8.))
+                .self_start()
+                .max_w_full()
+                .px(px(8.))
+                .py(px(2.))
+                .rounded(px(4.))
+                .bg(tint)
+                .font_family(theme::code_font())
                 .text_size(px(12.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .px(px(8.))
-                                .h(px(20.))
-                                .flex()
-                                .items_center()
-                                .rounded_full()
-                                .bg(theme::warning_bg())
-                                .text_color(theme::warning())
-                                .child(self.since_comment(ix).unwrap_or_default()),
-                        )
-                        .child(
-                            div()
-                                .text_color(theme::faint())
-                                .child(format!("written on v{written}")),
-                        )
-                        .child(div().flex_1())
-                        .children(changed.then(|| {
-                            div()
-                                .id(("compare-since", ix))
-                                .px(px(8.))
-                                .h(px(24.))
-                                .flex()
-                                .items_center()
-                                .rounded(px(6.))
-                                .border_1()
-                                .border_color(theme::island_border())
-                                .cursor_pointer()
-                                .hover(|s| s.bg(theme::hover()))
-                                .flex_none()
-                                .child(compare)
-                                .on_click(move |_, _, cx| acts(Act::CompareSince(ix), cx))
-                        })),
+                .text_color(theme::text())
+                .child(hover::cut_with(id, plain, shown))
+                .into_any_element()
+        };
+        let whose = if self.yours(t) {
+            "your comment"
+        } else {
+            "this comment"
+        };
+        let written = h.written;
+        if !h.changed() {
+            let span = match latest {
+                Some(latest) if latest > written => format!("v{written} → v{latest}"),
+                _ => format!("written on v{written}"),
+            };
+            return vec![
+                discussion::change_note(
+                    format!("outdated-{ix}-same"),
+                    format!("Unchanged since {whose}"),
+                    span,
+                    Some(code(
+                        "same",
+                        h.then.clone(),
+                        h.then.clone().into_any_element(),
+                        theme::hover(),
+                    )),
+                    true,
+                    None,
                 )
-                .children(rows)
                 .into_any_element(),
-        )
+            ];
+        }
+        let compare = self.compare_label(ix, latest).map(|label| {
+            div()
+                .id(("compare-since", ix))
+                .px(px(8.))
+                .h(px(22.))
+                .flex()
+                .items_center()
+                .rounded(px(6.))
+                .border_1()
+                .border_color(theme::island_border())
+                .text_size(px(12.))
+                .cursor_pointer()
+                .hover(|s| s.bg(theme::hover()))
+                .child(label)
+                .on_click(move |_, _, cx| acts(Act::CompareSince(ix), cx))
+                .into_any_element()
+        });
+        let mut compare = compare;
+        let last = h.steps.len() - 1;
+        let mut before = h.then.clone();
+        // Each version's line against the one before it, the changed words marked (#46 B).
+        h.steps
+            .iter()
+            .enumerate()
+            .map(|(k, s)| {
+                let tag = format!("v{}", s.version);
+                let body = match &s.now {
+                    Some(now) => {
+                        let marked = word_line(&before, now);
+                        before = now.clone();
+                        code(&tag, now.clone(), marked, theme::hover())
+                    }
+                    None => code(
+                        &tag,
+                        before.clone(),
+                        before.clone().into_any_element(),
+                        theme::removed_line(),
+                    ),
+                };
+                let did = match s.now {
+                    Some(_) => format!("changed this line in v{}", s.version),
+                    None => format!("removed this line in v{}", s.version),
+                };
+                let what = if s.sha.is_empty() {
+                    did
+                } else {
+                    format!("{did} · {} {}", s.sha, s.summary)
+                };
+                discussion::change_note(
+                    format!("outdated-{ix}-{tag}"),
+                    if s.who.is_empty() {
+                        "The line".to_owned()
+                    } else {
+                        s.who.clone()
+                    },
+                    what,
+                    Some(body),
+                    k == last,
+                    if k == last { compare.take() } else { None },
+                )
+                .into_any_element()
+            })
+            .collect()
     }
 }
 

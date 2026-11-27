@@ -321,6 +321,81 @@ pub fn note(
         )
 }
 
+/// What became of the line a discussion is on, told as one of its notes (the owner, 2026-11-27: the history a comment
+/// saying what the code became, not a box of its own): a ring with the commit's glyph for its face, `title` and the
+/// quieter `what` on the name's line (cut, whole on a long hover), `action` at its end, the line's text under them;
+/// the thread's line runs on from its face unless it is the `last`.
+pub fn change_note(
+    key: impl Into<SharedString>,
+    title: String,
+    what: String,
+    body: Option<AnyElement>,
+    last: bool,
+    action: Option<AnyElement>,
+) -> Div {
+    let key: SharedString = key.into();
+    div()
+        .relative()
+        .flex()
+        .gap(px(12.))
+        .pb(px(16.))
+        .children((!last).then(|| {
+            div()
+                .absolute()
+                .left(px(13.5))
+                .top(px(32.))
+                .bottom(px(2.))
+                .w(px(1.))
+                .bg(theme::selected())
+        }))
+        .child(
+            div()
+                .size(px(28.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(theme::hover())
+                .child(
+                    crate::icons::icon("git-commit")
+                        .size(px(14.))
+                        .text_color(theme::muted()),
+                ),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(
+                    div()
+                        .min_h(px(20.))
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .min_w_0()
+                        .child(
+                            div()
+                                .flex_none()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(title),
+                        )
+                        .children((!what.is_empty()).then(|| {
+                            crate::hover::cut(SharedString::from(format!("{key}-what")), what)
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(px(12.))
+                                .text_color(theme::muted())
+                        }))
+                        .children(action.map(|a| div().ml_auto().flex_none().child(a))),
+                )
+                .children(body.map(|b| div().min_w_0().child(b))),
+        )
+}
+
 /// A note with no face: its author's name and time over its words (the owner, 2026-11-26: yours to an agent wears no
 /// avatar; the card's rail says whose it is).
 pub fn faceless_note(name: &str, time: String, body: AnyElement) -> Div {
@@ -395,7 +470,7 @@ pub enum Kind {
     Plain,
     /// Text only, for Cancel.
     Quiet,
-    /// Something that cannot be undone (Delete): the danger colour, a red tint under the pointer.
+    /// Something that cannot be undone (Delete, a trash): the danger colour on its tint, deeper under the pointer.
     Danger,
     /// Filled with the source's colour: the one action the box is for.
     Primary(Rgba),
@@ -518,11 +593,16 @@ fn shell(id: impl Into<ElementId>, kind: Kind) -> Stateful<Div> {
             Kind::Quiet => s
                 .text_color(theme::muted())
                 .hover(|s| s.bg(theme::hover()).text_color(theme::text())),
+            // On the danger's tint, every Delete and trash alike (the owner, 2026-11-27).
             Kind::Danger => s
-                .border_1()
-                .border_color(theme::removed_line())
+                .bg(theme::danger_bg())
                 .text_color(theme::removed())
-                .hover(|s| s.bg(theme::removed_line())),
+                .hover(|s| {
+                    s.bg(Rgba {
+                        a: 0.26,
+                        ..theme::removed()
+                    })
+                }),
             Kind::Primary(color) => s
                 .bg(color)
                 .text_color(theme::base())

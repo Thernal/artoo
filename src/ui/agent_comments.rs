@@ -332,13 +332,13 @@ impl Workspace {
             .gap(px(8.))
             .h(px(28.))
             .cursor_pointer()
-            // The agent's mark, a tinted square, as the design draws it (the owner, 2026-11-26).
+            // The agent's mark, a round face as a person's is (the owner, 2026-11-27).
             .child(
                 div()
                     .id(gpui::SharedString::from(format!("agent-for-{id}")))
                     .flex_none()
                     .size(px(22.))
-                    .rounded(px(6.))
+                    .rounded_full()
                     .flex()
                     .items_center()
                     .justify_center()
@@ -352,24 +352,27 @@ impl Workspace {
                             .text_color(theme::agent()),
                     ),
             )
-            // A draft: a dashed circle, not sent yet; once sent, to whom.
+            // A draft is yours: You beside the agent's face, when after it (its dashed circle, at the far end, says
+            // it is not sent); once sent, to whom.
             .child(if draft && !answer {
                 div()
-                    .id(("agent-draft-mark", id))
                     .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
                     .child(
-                        super::icons::icon("circle-dashed")
-                            .size(px(14.))
-                            .text_color(theme::faint()),
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(theme::text())
+                            .child("You"),
                     )
-                    .tooltip_show_delay(super::hover::LONG)
-                    .tooltip({
-                        let tip = format!("A draft for {to}, not sent yet");
-                        move |_, cx| {
-                            cx.new(|_| super::hover::TipOwned(tip.clone().into()))
-                                .into()
-                        }
-                    })
+                    .children((open && comment.written > 0).then(|| {
+                        div()
+                            .text_size(px(12.))
+                            .text_color(theme::muted())
+                            .child(format!("· {}", super::format::short_ago(comment.written)))
+                    }))
                     .into_any_element()
             } else {
                 div()
@@ -445,7 +448,8 @@ impl Workspace {
                             },
                             None,
                             None,
-                            Kind::Quiet,
+                            // A trash is the danger's, everywhere (the owner, 2026-11-27).
+                            Kind::Danger,
                             true,
                         )
                         .h(px(22.))
@@ -459,7 +463,7 @@ impl Workspace {
                     ),
             )
             .child(if draft && open {
-                div().into_any_element()
+                draft_mark(id, &to).into_any_element()
             } else if draft {
                 div()
                     .flex_none()
@@ -490,6 +494,7 @@ impl Workspace {
                                 .ok();
                         }),
                     )
+                    .child(draft_mark(id, &to))
                     .into_any_element()
             } else if answer {
                 // The preview's head already says when.
@@ -527,25 +532,8 @@ impl Workspace {
         let editing_now = edit_box.is_some();
         let body = div().pb(px(6.)).child(match edit_box {
             Some(edit_box) => edit_box.into_any_element(),
-            // A draft is yours: who and when over its words, no face — the card's purple rail says it is for the agent
-            // (the owner, 2026-11-26).
-            None if draft => discussion::faceless_note(
-                "You",
-                if comment.written > 0 {
-                    super::format::short_ago(comment.written)
-                } else {
-                    String::new()
-                },
-                markdown::body(
-                    &comment.body,
-                    self.settings.rich_comments,
-                    format!("md-agent-{id}"),
-                    None,
-                    Some(selecting.clone()),
-                    cx,
-                ),
-            )
-            .into_any_element(),
+            // A draft's words alone: You and when are on its head's line, beside the agent's face (the owner,
+            // 2026-11-27).
             None => markdown::body(
                 &comment.body,
                 self.settings.rich_comments,
@@ -555,15 +543,15 @@ impl Workspace {
                 cx,
             ),
         });
-        // A draft's foot: Edit at the left, Delete and Send at the right (the design's note to an agent).
+        // A draft's foot: Edit at the left, under the words' first letter and no further in (the owner, 2026-11-27);
+        // Delete and Send at the right (the design's note to an agent).
         let foot = (draft && !answer && !editing_now).then(|| {
             let (erase, send) = (erase_foot.clone(), erase_foot.clone());
             div()
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .px(px(12.))
-                .pb(px(10.))
+                .pt(px(2.))
                 .child(
                     div()
                         .rounded(px(6.))
@@ -581,16 +569,14 @@ impl Workspace {
                 .child(
                     discussion::icon_button(
                         ("delete-agent-foot", id),
-                        "x",
+                        "trash",
                         "Delete",
                         None,
                         None,
-                        Kind::Quiet,
+                        Kind::Danger,
                         true,
                     )
                     .h(px(26.))
-                    .border_1()
-                    .border_color(theme::island_border())
                     .on_click(move |_, _, cx| {
                         cx.stop_propagation();
                         erase
@@ -715,6 +701,24 @@ impl Workspace {
             )
             .into_any_element()
     }
+}
+
+/// A draft's status at its head's far end, on You's line: a dashed circle, not sent yet (the owner, 2026-11-27).
+fn draft_mark(id: u64, to: &str) -> gpui::Stateful<gpui::Div> {
+    let tip = format!("A draft for {to}, not sent yet");
+    div()
+        .id(("agent-draft-mark", id))
+        .flex_none()
+        .child(
+            super::icons::icon("circle-dashed")
+                .size(px(14.))
+                .text_color(theme::faint()),
+        )
+        .tooltip_show_delay(super::hover::LONG)
+        .tooltip(move |_, cx| {
+            cx.new(|_| super::hover::TipOwned(tip.clone().into()))
+                .into()
+        })
 }
 
 /// How a comment to an agent goes away, by its state (#199).

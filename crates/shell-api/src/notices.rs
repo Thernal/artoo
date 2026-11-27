@@ -150,6 +150,9 @@ pub struct Source {
     pub guest: bool,
     /// Its mark in the Inbox and Source ▾, a letter or two (`J`, `GL`, `#`); none: the initials of its name.
     pub mark: Option<&'static str>,
+    /// An icon in its mark's place, by name: a plugin's is its tab's (the owner, 2026-11-27: a known source wears its
+    /// space's icon, not a letter).
+    pub icon: Option<&'static str>,
 }
 
 impl Source {
@@ -161,6 +164,7 @@ impl Source {
             order: 100,
             guest: false,
             mark: None,
+            icon: None,
         }
     }
 
@@ -172,6 +176,14 @@ impl Source {
     pub fn mark(self, mark: &'static str) -> Self {
         Self {
             mark: Some(mark),
+            ..self
+        }
+    }
+
+    /// An icon in its mark's place (a plugin's tab's), by name.
+    pub fn icon(self, icon: &'static str) -> Self {
+        Self {
+            icon: Some(icon),
             ..self
         }
     }

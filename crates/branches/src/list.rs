@@ -5,7 +5,9 @@
 use crate::history::{Act, Acts, History};
 use crate::roots::{BranchRow, remote_key};
 use artoo_core::git::{ChangeKind, RefKind};
-use artoo_ui_kit::controls::{empty_state, outline_button, primary_button, progress_badge};
+use artoo_ui_kit::controls::{
+    danger_button, empty_state, outline_button, primary_button, progress_badge,
+};
 use artoo_ui_kit::format::{self, plural};
 use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip};
 use artoo_ui_kit::marked::{self, Marked};
@@ -931,7 +933,7 @@ fn draft_preview(h: &History, ix: usize, acts: &Acts) -> AnyElement {
         .child(
             div()
                 .id("draft-delete")
-                .child(outline_button("Delete the draft"))
+                .child(danger_button("Delete the draft"))
                 .tip("Delete the draft  ⌫")
                 .on_click(move |_: &ClickEvent, _, cx| delete(Act::DeleteDraft(ix), cx)),
         );

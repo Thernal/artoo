@@ -478,8 +478,8 @@ fn you(ix: usize, mine: &[Mine], comments: &[Comment], look: &Look, cx: &App) ->
         .into_any_element()
 }
 
-/// The agent's messages together: a bubble each with its time under its words, as yours have theirs (#243); no face
-/// and no name over them, the agent's bar at their left is its mark (the owner, 2026-11-26).
+/// The agent's messages together: a bubble each with its time under its words, as yours have theirs (#243), at the
+/// left as yours are at the right; no face, no name and no bar beside them (the owner, 2026-11-27: a chat, plainly).
 fn claude(ix: usize, says: &[Say], comments: &[Comment], look: &Look, cx: &App) -> AnyElement {
     let bubbles = says
         .iter()
@@ -492,16 +492,6 @@ fn claude(ix: usize, says: &[Say], comments: &[Comment], look: &Look, cx: &App) 
         .flex_col()
         .items_start()
         .gap(px(6.))
-        .pl(px(8.))
-        .relative()
-        .child(artoo_ui_kit::controls::rail(
-            Rgba {
-                a: 0.7,
-                ..look.mark.1
-            },
-            2.,
-            0.,
-        ))
         .children(bubbles)
         .into_any_element()
 }

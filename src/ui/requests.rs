@@ -949,7 +949,8 @@ impl Workspace {
         let delete = Entry::new(
             "Delete",
             Act::new(move |this, _, cx| this.discard_draft(id, cx)),
-        );
+        )
+        .danger();
         self.open_menu(at, vec![vec![send], vec![delete]], cx);
     }
 

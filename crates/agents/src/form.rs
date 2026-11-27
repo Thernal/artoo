@@ -153,7 +153,6 @@ fn form_at(
         let edit = on.clone();
         div()
             .id(("form-own", id as usize))
-            .mx(px(8.))
             .mt(px(2.))
             .h(px(30.))
             .px(px(10.))
@@ -220,28 +219,25 @@ fn form_at(
             .gap(px(4.))
             .children(rows)
             .children(own)
-            // The last choice, and a line that is always there (L1): `0 Up to you · Claude decides`.
+            // The last choice, and a line that is always there (L1): `0 Up to you · Claude decides`, drawn dashed
+            // and unfilled beside the filled options (the design's `kinds.html`; the owner, 2026-11-27).
             .child(
                 div()
                     .id(("form-call", id as usize))
-                    .mx(px(8.))
                     .h(px(28.))
-                    .px(px(8.))
+                    // 1px less than an option's: its dashed border stands in for it, so the keys line up.
+                    .px(px(7.))
                     .flex()
                     .items_center()
-                    .gap(px(10.))
+                    .gap(px(8.))
                     .rounded(px(ROW_RADIUS))
+                    .border_1()
+                    .border_dashed()
+                    .border_color(theme::border())
                     .cursor_pointer()
                     .hover(|s| s.bg(theme::hover()))
                     .when(answer.your_call, |s| s.bg(theme::agent_bg()))
-                    .child(
-                        div()
-                            .w(px(14.))
-                            .flex_none()
-                            .text_size(px(11.))
-                            .text_color(theme::faint())
-                            .child("0"),
-                    )
+                    .child(key("0"))
                     .child(mark(answer.your_call, false))
                     .child("Up to you")
                     .child(
@@ -256,7 +252,6 @@ fn form_at(
             .child(
                 div()
                     .id(("form-note", id as usize))
-                    .mx(px(8.))
                     .mt(px(4.))
                     .min_h(px(30.))
                     .px(px(10.))
@@ -285,22 +280,15 @@ fn form_at(
                         note(FormEvent::Note(id), cx);
                     }),
             )
-            // An answer goes at once (round 11): the foot says so, and `Send answer ↵` is the whole of it.
+            // An answer goes at once (round 11): `Send answer ↵` at the foot's right is the whole of it, no line saying
+            // so (the owner, 2026-11-27).
             .child(
                 div()
                     .pt(px(6.))
-                    .px(px(8.))
                     .flex()
                     .items_center()
+                    .justify_end()
                     .gap_2()
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_size(px(12.))
-                            .text_color(theme::faint())
-                            .child(format!("Goes to {} at once", agent.unwrap_or("your agent"))),
-                    )
                     .child(
                         button(
                             ("form-all", id as usize),
@@ -487,22 +475,16 @@ fn option_rows(
                 .min_w_0()
                 .gap(px(4.))
                 .px(px(8.))
-                .py(px(6.))
+                .py(px(5.))
                 .rounded(px(ROW_RADIUS))
                 .cursor_pointer()
-                .hover(|s| s.bg(theme::hover()))
+                .hover(|s| s.bg(theme::selected()))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .child(
-                            div()
-                                .w(px(16.))
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child((place + 1).to_string()),
-                        )
+                        .child(key(&(place + 1).to_string()))
                         .children((!order_kind).then(|| mark(on, many)))
                         // The label and its detail stacked, both wrapping inside the row: a detail of a few
                         // sentences ran out of it on one line (report R-C7D616).
@@ -554,7 +536,7 @@ fn option_rows(
                 )
                 .children((!o.code.is_empty()).then(|| {
                     div()
-                        .ml(px(38.))
+                        .ml(px(48.))
                         .min_w_0()
                         .px(px(10.))
                         .py(px(6.))
@@ -569,8 +551,15 @@ fn option_rows(
                         pick(FormEvent::Pick(id, Some(i)), cx);
                     })
                 });
-            // The option picked lights up (#56, 17).
-            let tint = theme::agent_bg();
+            // Each option a filled row (the design's `kinds.html`); the one picked lights up (#56, 17): its fill
+            // goes from the row's to the agent's tint laid on the card.
+            let (from, tint, card) = (theme::hover(), theme::agent_bg(), theme::panel());
+            let lit = gpui::Rgba {
+                r: tint.r * tint.a + card.r * (1. - tint.a),
+                g: tint.g * tint.a + card.g * (1. - tint.a),
+                b: tint.b * tint.a + card.b * (1. - tint.a),
+                a: 1.,
+            };
             Some(
                 motion::toward(
                     row,
@@ -580,8 +569,10 @@ fn option_rows(
                     motion::FAST,
                     move |row, v| {
                         row.bg(gpui::Rgba {
-                            a: tint.a * v,
-                            ..tint
+                            r: from.r + (lit.r - from.r) * v,
+                            g: from.g + (lit.g - from.g) * v,
+                            b: from.b + (lit.b - from.b) * v,
+                            a: 1.,
                         })
                     },
                 )
@@ -589,4 +580,20 @@ fn option_rows(
             )
         })
         .collect()
+}
+
+/// An option's number in its small box, the key that picks it (the design's `kinds.html`).
+fn key(n: &str) -> gpui::Div {
+    div()
+        .size(px(18.))
+        .flex_none()
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(px(4.))
+        .border_1()
+        .border_color(theme::border())
+        .text_size(px(11.))
+        .text_color(theme::faint())
+        .child(n.to_string())
 }

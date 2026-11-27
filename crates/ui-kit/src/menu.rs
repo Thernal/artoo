@@ -146,6 +146,13 @@ impl<A> Entry<A> {
         self
     }
 
+    /// A Delete: the trash before its words, both in the danger's colour (the owner, 2026-11-27: every Delete and
+    /// trash is the danger's).
+    pub fn danger(mut self) -> Self {
+        self.lead = Some(Lead::Icon("trash", theme::removed()));
+        self
+    }
+
     /// The chevron's room without a chevron, so the rows' ends line up.
     pub fn go_blank(mut self) -> Self {
         self.go = Some(None);
@@ -467,9 +474,11 @@ impl<A: Clone + 'static> Menu<A> {
                     let off = act.is_none();
                     // One that cannot be done takes no hover: `row` gives it none as "selected",
                     // and its fill is taken away.
+                    let danger = matches!(entry.lead, Some(Lead::Icon("trash", _)));
                     row(("ctx-entry", (g * 100 + i) as u64), off)
                         .h(px(if entry.under.is_some() { TALL } else { ROW }))
                         .gap_2()
+                        .when(danger && !off, |s| s.text_color(theme::removed()))
                         .when(off, |s| {
                             s.bg(gpui::transparent_black())
                                 .text_color(theme::faint())
@@ -506,9 +515,14 @@ impl<A: Clone + 'static> Menu<A> {
                                     Lead::Letter(letter, hue) => {
                                         crate::monogram::letter(letter, hue, 16.).into_any_element()
                                     }
+                                    // A trash is the danger's in every menu.
                                     Lead::Icon(name, hue) => crate::icons::icon(name)
                                         .size(px(14.))
-                                        .text_color(hue)
+                                        .text_color(if name == "trash" {
+                                            theme::removed()
+                                        } else {
+                                            hue
+                                        })
                                         .into_any_element(),
                                 })
                         }))

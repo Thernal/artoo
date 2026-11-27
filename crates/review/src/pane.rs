@@ -310,8 +310,10 @@ impl Review {
                     .flex()
                     .flex_col()
                     .when(self.stack.is_none(), |s| s.px(px(4.)).pt(px(4.)).pb(px(6.)))
+                    // Under the toolbar, the files' cards stand on its colour, the diff's own: no darker ground
+                    // (the owner, 2026-11-27, the third time asked).
                     .when(self.stack.is_some(), |s| {
-                        s.bg(theme::base()).rounded_b(px(ISLAND_RADIUS))
+                        s.bg(theme::editor()).rounded_b(px(ISLAND_RADIUS))
                     })
                     .child(body)
                     .children(self.stuck_header(stuck_open_in, &host, cx)),
@@ -460,7 +462,7 @@ impl Review {
                 .top_0()
                 .left_0()
                 .right_0()
-                .bg(theme::base())
+                .bg(theme::editor())
                 .child(self.render_header(file, true, open_in, this, host, cx))
                 .into_any_element(),
         )

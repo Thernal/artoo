@@ -50,6 +50,7 @@ pub fn render_thread(
     let waits = rq.thread_waits(&t.id);
     let sending = is_temp_thread(&t.id);
     let can_act = look.target && !sending;
+    // What became of its line, as notes after its own (the owner, 2026-11-27).
     let history = rq.render_history(ix, look.latest, acts.clone());
     let first = &t.notes[0];
     let author = rq
@@ -169,7 +170,7 @@ pub fn render_thread(
                     })
                     .children(pills)
                     .into_any_element(),
-                n == last,
+                n == last && history.is_empty(),
                 (bar.is_some() || (editable && reveal)).then(|| {
                     // `e` edits the last of one's notes in the discussion with the keyboard.
                     let key = (focused && look.mine == Some(note_id)).then_some("e");
@@ -324,8 +325,9 @@ pub fn render_thread(
                                 div()
                                     .flex()
                                     .flex_col()
-                                    .children(history)
-                                    .child(div().flex().flex_col().children(notes))
+                                    .child(
+                                        div().flex().flex_col().children(notes).children(history),
+                                    )
                                     .children(reply_row)
                                     .into_any_element(),
                             )
@@ -345,7 +347,8 @@ fn delete_button(note: u64, asking: bool, tight: bool, on: OnThread) -> AnyEleme
             "Delete",
             None,
             None,
-            Kind::Quiet,
+            // A trash is the danger's, everywhere (the owner, 2026-11-27).
+            Kind::Danger,
             tight,
         )
         .h(px(22.))

@@ -10,7 +10,7 @@ use artoo_branches_api::Branches;
 use artoo_hosts_api::{Draft, Thread};
 use artoo_requests_api::{DISCUSSIONS, DiscussionsHost};
 use artoo_shell_api::{Badge, ListKey, Services, Tool};
-use artoo_ui_kit::controls::{comment_item, group_heading, rail, skeleton, tool_foot};
+use artoo_ui_kit::controls::{comment_item, edge, group_heading, skeleton, tool_foot};
 use artoo_ui_kit::format::one_line;
 use artoo_ui_kit::hover::{self, Hover, Tip};
 use artoo_ui_kit::{ROW_RADIUS, icons, keys, px, theme, words};
@@ -174,8 +174,9 @@ fn card_note(
         )
 }
 
-/// A discussion as the design's card (the owner, 2026-11-26): its notes (`card_note`), framed; a pending one with the
-/// warning's bar at its left. `foot` is where it is, its count and whose turn.
+/// A discussion as the design's card (the owner, 2026-11-26): its notes (`card_note`), framed, on a colour of its own
+/// over the window's (the owner, 2026-11-27); a pending one with the warning's line down its whole left edge, bending
+/// with its corners. `foot` is where it is, its count and whose turn.
 fn card(
     id: (&'static str, usize),
     pending: bool,
@@ -194,10 +195,10 @@ fn card(
         .rounded(px(8.))
         .border_1()
         .border_color(theme::island_border())
-        .bg(theme::panel())
+        .bg(theme::editor())
         .overflow_hidden()
         .relative()
-        .when(pending, |s| s.child(rail(theme::warning(), 2., 6.)))
+        .when(pending, |s| s.child(edge(theme::warning(), 2., 8.)))
         .cursor_pointer()
         .hover(|s| s.bg(theme::hover()))
         .children(notes)

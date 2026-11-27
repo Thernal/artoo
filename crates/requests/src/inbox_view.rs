@@ -9,7 +9,7 @@ use crate::waiting::{FADED, Waiting};
 use artoo_core::markdown::plain;
 use artoo_hosts_api::{Mr, Thread};
 use artoo_shell_api::notices::Why;
-use artoo_ui_kit::controls::{self, bar_button, chip};
+use artoo_ui_kit::controls::{self, bar_button, chip, chip_lead};
 use artoo_ui_kit::discussion::{self, Kind as Button, Source};
 use artoo_ui_kit::excerpt::excerpt_view;
 use artoo_ui_kit::hover::{self, CutInTip, Hover, RowTip, Tip, WasCut};
@@ -107,13 +107,15 @@ pub fn filters(
             }))
             .into_any_element()
     };
-    let name = (sources.iter())
+    let (name, glyph) = (sources.iter())
         .find(|s| Some(s.id) == shown.source)
-        .map_or("All", |s| s.name.as_str());
+        .map_or(("All", None), |s| (s.name.as_str(), s.icon));
     let (view, layers) = (view.clone(), view.clone());
     // Its chevron an icon, not a glyph (the owner, 2026-11-26).
-    let source = chip(
+    // A source picked wears its icon before its name, a plugin's tab's (the owner, 2026-11-27).
+    let source = chip_lead(
         "inbox-source",
+        glyph,
         format!("Source: {name}"),
         shown.source.is_some(),
     )
@@ -224,12 +226,12 @@ pub fn source_picker(
     let rows = picked_sources(sources, &pick.text);
     pick.rows.replace(rows.clone());
     let row = |n: usize, id: Option<&'static str>| {
-        let (name, new, mark) = match id {
-            None => ("All sources".to_owned(), everywhere, String::new()),
+        let (name, new, mark, icon) = match id {
+            None => ("All sources".to_owned(), everywhere, String::new(), None),
             Some(id) => (sources.iter())
                 .find(|s| s.id == id)
-                .map_or((String::new(), 0, String::new()), |s| {
-                    (s.name.clone(), s.new, s.mark.clone())
+                .map_or((String::new(), 0, String::new(), None), |s| {
+                    (s.name.clone(), s.new, s.mark.clone(), s.icon)
                 }),
         };
         let (view, on) = (view.clone(), on.clone());
@@ -248,7 +250,7 @@ pub fn source_picker(
             .when(shown.source == id, |s| s.bg(theme::selected()))
             .when(id.is_some() && new == 0, |s| s.text_color(theme::muted()))
             .child(match id {
-                Some(_) => lead(Face::Mark(mark, name.clone()), None, 16.).into_any_element(),
+                Some(_) => lead(Face::Mark(mark, name.clone(), icon), None, 16.).into_any_element(),
                 None => div()
                     .flex_none()
                     .size(px(16.))
@@ -560,8 +562,9 @@ pub enum Face {
     Person(String),
     /// What happened, a glyph in a colour: `circle-x` for a pipeline that failed.
     Glyph(&'static str, gpui::Rgba),
-    /// The source's mark and its name, which tints it.
-    Mark(String, String),
+    /// The source's mark and its name, which tints it; its icon in the letters' place when it has one (a plugin's
+    /// tab's).
+    Mark(String, String, Option<&'static str>),
 }
 
 /// Source marks for the requests' host: `GitLab` is `GL`, `GitHub` `GH`.
@@ -595,7 +598,23 @@ pub fn lead(face: Face, badge: Option<&'static str>, size: f32) -> Div {
             .rounded_full()
             .bg(gpui::Rgba { a: 0.22, ..color })
             .child(icons::icon(name).size(px(12.)).text_color(color)),
-        Face::Mark(mark, name) => {
+        Face::Mark(_, name, Some(icon)) => {
+            let hue = monogram::hue(&name);
+            div()
+                .size(px(size_px))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(gpui::Rgba { a: 0.3, ..hue })
+                .child(
+                    icons::icon(icon)
+                        .size(px(size_px * 0.6))
+                        .text_color(theme::text()),
+                )
+        }
+        Face::Mark(mark, name, None) => {
             let hue = monogram::hue(&name);
             div()
                 .size(px(size_px))
@@ -672,8 +691,9 @@ struct RowDraw<'a> {
     /// The notice's key: what its motion to read is known by.
     key: &'a str,
     lead: Div,
-    /// Its source's mark and name (`GL`, `GitLab`): the small mark before the time.
-    from: (String, &'a str),
+    /// Its source's mark, name and icon (`GL`, `GitLab`): the small mark before the time, the icon in its letters'
+    /// place when there is one.
+    from: (String, &'a str, Option<&'static str>),
     /// What it is about; what happened when it is about nothing.
     title: String,
     at: i64,
@@ -690,7 +710,7 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
         id,
         key,
         lead,
-        from: (mark, source),
+        from: (mark, source, glyph),
         title,
         at,
         gist,
@@ -701,7 +721,7 @@ fn draw_row(row: RowDraw) -> Stateful<Div> {
     let from = monogram::source_badge(
         SharedString::from(format!("inbox-from-{key}")),
         &mark,
-        None,
+        glyph,
         monogram::source_hue(source),
         source,
     );
@@ -835,7 +855,7 @@ pub fn notice_row(
         id: ("inbox-row", ix).into(),
         key: &n.key,
         lead: lead(face, badge, 20.),
-        from: (source_mark(source, None), source),
+        from: (source_mark(source, None), source, None),
         title: format!("{} {}", words::number(n.iid), n.title),
         at: n.created,
         gist,
@@ -910,7 +930,7 @@ pub fn gone_row(n: &Notice, source: &str, wide: bool, heights: &Heights) -> AnyE
 pub fn part_row(
     r: &artoo_shell_api::notices::Listed,
     source: &str,
-    mark: &str,
+    (mark, icon): (&str, Option<&'static str>),
     badge: Option<&'static str>,
     look: RowLook,
     on: &OnInbox,
@@ -924,7 +944,7 @@ pub fn part_row(
         .trim();
     let tip = tip_words(&r.says, source, r.at, r.text.trim(), look.wide);
     let face = if r.who.trim().is_empty() {
-        Face::Mark(mark.to_owned(), source.to_owned())
+        Face::Mark(mark.to_owned(), source.to_owned(), icon)
     } else {
         Face::Person(r.who.clone())
     };
@@ -933,7 +953,7 @@ pub fn part_row(
         id: ("inbox-part", id).into(),
         key: &r.key,
         lead: lead(face, r.badge.or(badge), 20.),
-        from: (mark.to_owned(), source),
+        from: (mark.to_owned(), source, icon),
         title: if r.about.is_empty() {
             r.says.clone()
         } else {
@@ -952,7 +972,7 @@ pub fn part_row(
 pub fn part_preview(
     r: &artoo_shell_api::notices::Listed,
     source: &str,
-    mark: &str,
+    (mark, icon): (&str, Option<&'static str>),
     on: &OnInbox,
 ) -> AnyElement {
     let id = artoo_shell_api::notices::row_id(&r.key);
@@ -975,7 +995,7 @@ pub fn part_preview(
     .collect::<Vec<_>>()
     .join(" · ");
     let face = if r.who.trim().is_empty() {
-        Face::Mark(mark.to_owned(), source.to_owned())
+        Face::Mark(mark.to_owned(), source.to_owned(), icon)
     } else {
         Face::Person(r.who.clone())
     };
